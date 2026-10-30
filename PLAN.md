@@ -338,7 +338,34 @@ forecast-lab/
 
 ### 14.1 Gemini
 
-（第 1 回合，待填）
+#### 第 1 回合審查（2026-10-30）
+
+**一、針對 §12 待決事項（Q1–Q8）之表態**
+
+- [§12 Q1 / §3.1] 建議將結算時間窗放寬為 N = 60 天，或設「45 天內優先，當符合條件之未抽樣題數不足 K 題時自動放寬至 60～90 天」的分級抽樣機制｜Metaculus 上同時滿足「開放中單一是非題 + 預測人數 ≥ 20 + 45 天內結算 + 尚未抽過」的母體不大，若死鎖 45 天，連續抽樣 1～2 週後題池極易枯竭｜non-blocking
+- [§12 Q2 / §3.1] 同意每日新題上限設為 K = 5（M1/M2 試行期可先用 K = 3）｜每日 5 題對三家 Pro 訂閱額度以及兩位人類每日填答時間（約 10～15 分鐘）最平衡；題數過多會導致人類選手疲乏與缺答率上升｜non-blocking
+- [§12 Q3 / §3.3 / §5.4] 建議在 Prompt 明確規定「忽略且不得引用新聞或二手報導中提及的任何預測市場／博彩賠率／預測平台機率」，並在輸出 Schema 新增布林欄位 `secondary_odds_seen` 供模型誠實揭露是否讀到二手賠率；惟 `secondary_odds_seen = true` 不必直接等同 `leak_flag = true` 作廢，而是納入次要敏感度分析｜主流新聞（如 Reuters、Bloomberg、NYT）報導選舉或總經事件時常順帶提及 Polymarket 或 Kalshi 數字，若讀到一般新聞就整題作廢，會造成熱門時事題大量流失（存活者偏差）｜non-blocking
+- [§12 Q4 / §3.1] 建議 v1 每題每位模型選手只跑 1 次｜跑 3 次會使每日 CLI 額度消耗與執行時間膨脹為 3 倍（5 題 × 3 次 = 每日每模型 15 次深度搜尋），容易觸發訂閱方案限流；將額度用於累積更多獨立題目樣本，對降低 Brier score 抽樣誤差的效益遠高於單題重複抽樣｜non-blocking
+- [§12 Q5 / §6] 建議移除「避免低於 3% 或高於 97%」的數字錨點，改為提醒「請審慎評估尾部風險、黑天鵝與結算條件的邊界詮釋；僅在證據極度確鑿時才給出極端機率，且數值須介於 0.01 到 0.99」｜短期（45～60 天）內結算的題目常有基準率極高或極低的事件（真實機率 < 2% 或 > 98%），硬性規定 3%～97% 會人為壓縮模型在極端區間的校準度、系統性拉差 Brier score；且 §4.1 log score 已有 [0.01, 0.99] 保護，無需再設 3%/97% 門檻｜non-blocking
+- [§12 Q6 / §5.3 / §7.3] 已於下方「二、補充 `agy` 無互動參數、輸出格式與權限設定」完整補齊｜實作 M2 的必要規格｜blocking
+- [§12 Q7 / §5.3 / §7.3] 交由 GPT（Codex）於 §14.2 補充確認；惟建議同步確認 `codex exec` 如何阻斷讀取專案目錄下的 `private/`｜確保三模型隔離強度一致｜non-blocking
+- [§12 Q8 / §8] v1 採用 CSV 足夠，但必須拆分為兩位人類各自獨立的檔案（如 `data/human_todo_<日期>_louis.csv` 與 `data/human_todo_<日期>_gf.csv`），且 CSV 內應直接附上完整題目描述與結算條件，不得放入 Metaculus 網頁連結｜見下方「三、設計漏洞」第 5 點之雙盲漏洞說明｜blocking
+
+**二、補充 §5.3 與 §7.3 中 `agy` 的無互動參數、輸出格式與權限設定（含官方文件來源）**
+
+- [§5.3] 建議將 `gemini` 的 adapter 指令骨架更新為：`agy -p "<prompt>" --model gemini-4-argon-medium --output-format json --json-schema <schema_path> --disable-slash-commands --print-timeout 10m --sandbox --settings '<permissions_json>'`，並以 `agy changelog | head -n 1` 取得 CLI 版本號（目前本機為 `1.4.11`，注意 `agy --version` 會回傳 unknown flag，本機可用模型清單由 `agy models` 查詢）｜依據本機 `agy --help` 與官方 CLI 參考文件（`https://antigravity.google/docs/cli/reference`）：(1) `-p`/`--print` 為無互動單次輸出模式；(2) `--output-format json` 會在完成時輸出單一 JSON 封包（含結果、狀態、token 用量與 `conversationId`），搭配 `--json-schema` 可強制結構化輸出符合 `output_schema_v1.json`；(3) 顯式傳入 `--model` 可避免使用者平時在互動介面切換 `~/.gemini/antigravity-cli/settings.json` 預設模型而造成實驗前後模型不一致；(4) `--disable-slash-commands` 可防止題目文字意外觸發內建指令或技能；(5) `--print-timeout 10m` 原生對應 §7.5 的 10 分鐘逾時上限｜blocking
+- [§7.3] 建議在 §7.3 明確規範 `gemini`（`agy`）執行模式的沙盒與權限鎖定參數：在空白暫存目錄啟動（不加 `--add-dir`），開啟 `--sandbox`，並透過 `--settings` 注入單次 session 權限規則（不影響全域 `settings.json`）：`--settings '{"permissions":{"allow":["search_web","read_url(*)"],"deny":["command(*)","run_command(*)","write_file(*)","edit_file(*)","read_file(/Users/*)"]}}'`，且嚴禁使用 `--dangerously-skip-permissions`｜依據官方權限與沙盒文件（`https://antigravity.google/docs/permissions`、`https://antigravity.google/docs/sandbox`）：`agy` 權限引擎遵循嚴格的 `Deny > Ask > Allow` 優先序；在無互動 `-p` 模式下，預設為 `Ask` 的工具（如外部網頁讀取）若未列入 `allow` 會因無法互動確認而失敗，而將 `command(*)`、`write_file(*)`、`edit_file(*)` 與 `read_file(/Users/*)` 列入 `deny` 則可從 CLI 層直接封鎖指令執行、寫檔，並阻斷模型跨目錄偷讀 `/Users/ucchengg/forecast-lab/private/cp_snapshots.jsonl`｜blocking
+
+**三、設計漏洞與修正建議**
+
+- [§3.1 / §5.1] 抽樣流程應明確加上「排除歷史已抽過題目（比對 `data/questions.jsonl` 中既有 `question_id`）」以及「只取單一是非題（`type == "binary"`，排除 group 子題與 conditional 題型）」的過濾條件｜§3.1 雖規定「每題每位選手只預測一次」，但未寫明每日跨日抽樣時需排除已存於 `data/questions.jsonl` 的題號；若未去重，隔天極易重複抽中同一題｜blocking
+- [§5.1 / §7.2] 建議將 `fetch_questions.py` 與 `snapshot_cp.py` 合併為單一抓題步驟（或由 `fetch_questions.py` 抓回 API payload 後，在記憶體中直接拆流），對寫入 `data/questions.jsonl` 的欄位採嚴格白名單（僅保留題號、標題、背景、結算條件、fine print、時間戳），並將社群預測欄位同步寫入 `private/cp_snapshots.jsonl`｜Metaculus API 的題目端點回傳 JSON 內直接包含當下的社群預測（Community Prediction）數值；若 `fetch_questions.py` 直接將原始或未徹底清洗的 API 回應寫入 `data/questions.jsonl`，或分兩次呼叫 API 造成時間差與欄位殘留，會造成嚴重洩漏｜blocking
+- [§3.3 / §5.4] 洩漏檢查（`leak_flag`）不應只檢查模型自填的 `sources[].url`，應同步掃描 `data/raw/` 原始輸出（含 CLI 回傳之 tool calls 紀錄）與推理文字中的禁用網域及關鍵字（如 `metaculus`, `polymarket`, `manifold`, `kalshi`, `predictit`, `community prediction`），並建議於 §3.3 禁用清單補上 `electionbettingodds.com`、`futuur.com`、`smarkets.com`、`betfair.com`｜模型可能搜尋並讀取了預測平台卻未將該網址列入最終 JSON 的 `sources` 陣列，僅檢查 `sources` 容易漏網｜blocking
+- [§4.1 / §4.2] 建議在 §4.3 補上「模糊結算（`ambiguous`）與取消（`annulled`）題目皆不計分，僅對明確結算為 `yes` (1) 或 `no` (0) 的題目計分」，並在 §4.2 將計分板拆為「模型核心榜（三模型 + 社群皆有預測之交集，對應 RQ1–RQ3）」與「人類對照榜（含人類選手之交集或成對配對，對應 RQ4）」｜Metaculus 除了 `annulled` 外還有 `ambiguous` 結算狀態；此外人類選手在日常忙碌時缺答率通常高於自動化模型，若所有分析都強制取「5 位選手全員到齊」的交集，會因人類缺答而平白丟棄大量模型已完成的樣本｜blocking
+- [§8 / §3.2] 人類填答表必須移除 Metaculus 題目連結，改為在填答表（或隨附的本地題目卷 Markdown/CSV）中直接呈現離線抓取的題目標題、背景、結算條件與 fine print，且兩位人類須各自填寫獨立檔案｜Metaculus 題目網頁正中央會直接顯示社群預測機率，若依 §8 原文在 CSV 附上題目連結供人類點閱，人類一看題目就會直接看到社群基準線，且兩人共用同一個 CSV 會看到對方的填答，直接破壞 §3.2 雙盲原則｜blocking
+- [§5.5] 建議在 `data/forecasts.jsonl` 中一併保存解析後的結構化欄位（`reasoning_summary`、`key_factors`、`base_rate`、`sources`、`injection_notice`）｜§5.4 要求模型輸出這些欄位，但 §5.5 的紀錄格式表卻只存了 `probability`，若一併寫入 `forecasts.jsonl` 將大幅簡化後續的錯誤歸因、洩漏掃描與提示詞注入稽核｜non-blocking
+- [§7.4] 建議將 `private/cp_snapshots.jsonl` 中的機率數值以簡單 Base64 或欄位混淆儲存（讀取計分時才解碼），並在每日預測後自動掃描 `data/raw/` 是否出現 `/Users/` 或 `forecast-lab` 等本機路徑字串｜即使 CLI 權限設定偶有疏漏，混淆儲存可確保模型就算讀到檔案也無法直接看出社群機率數字，搭配原始輸出稽核可達雙重保險｜non-blocking
+- [§9] 建議確認女友的 Codex CLI 登入狀態如何在同一台排程主機上共存，並在 `launchd` 呼叫的包裝腳本中使用 `caffeinate -i` 防止執行期間系統休眠｜若由單一 Mac 跑 `launchd`，需確認該 macOS 使用者帳號下同時具備三家 CLI 的有效憑證，且 `caffeinate -i` 可確保長達數十分鐘的預測不會因螢幕保護或閒置而中斷｜non-blocking
 
 ### 14.2 GPT
 
