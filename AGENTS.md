@@ -5,8 +5,9 @@
 
 ## 專案是什麼
 
-多模型加人類的雙盲預測實驗：Claude、Gemini、GPT 三個模型與兩位人類，
-對 Metaculus 的是非題各自獨立給出機率，題目結算後用 Brier score 比較校準度。
+多模型的雙盲預測實驗：Claude、Gemini、GPT 三個模型對 Metaculus 的是非題各自獨立給出機率，
+題目結算後用 Brier score 等指標比較準確度與校準。兩位人類可以選擇參加；
+人類預測為選填，系統與計分都不依賴人類填答（`PLAN.md` D7）。
 
 完整計畫見 `PLAN.md`，它是本專案唯一的真實來源（single source of truth）。
 
@@ -14,8 +15,8 @@
 
 | 參與者 | 角色 | 工具與帳號 |
 |---|---|---|
-| Louis | 專案負責人、最終決策者、人類選手 | 操作 Claude Code 與 agy |
-| 女友 | 人類選手、GPT 線負責人 | 操作 Codex CLI（她本人的 ChatGPT 帳號，由她登入與管理） |
+| Louis | 專案負責人、最終決策者、人類選手（選填） | 操作 Claude Code 與 agy |
+| 女友 | 人類選手（選填）、GPT 線負責人 | 操作 Codex CLI（她本人的 ChatGPT 帳號，由她登入與管理） |
 | Claude | 模型選手、計畫初稿、開發協助 | Claude Code（Louis 的 Claude Pro） |
 | Gemini | 模型選手、計畫審查、開發協助 | Antigravity CLI（Louis 的 Google AI Pro） |
 | GPT | 模型選手、計畫審查、開發協助 | Codex CLI（女友的 ChatGPT 帳號） |
