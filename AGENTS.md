@@ -36,7 +36,7 @@
 - 每則意見都要包含：對應章節編號、具體修改建議、理由，以及是否阻擋（blocking 或 non-blocking）。
   格式：`- [§章節] 建議內容｜理由｜blocking 或 non-blocking`
 - 正文只由「本回合整合者」依 Louis 的決定修改，並同步更新 §15「決策紀錄」、§16「變更紀錄」與文件版本號。
-- 每一回合結束後，由人類在終端機執行 commit：
+- 每一回合結束後執行 commit：由人類在終端機執行，或由 Louis 指示的協調者（Claude）代為執行；審查者本身不執行 commit：
   `git add -A && git commit -m "review: <審查者> r<回合>"`
 
 ## 開發慣例（實作階段適用）
