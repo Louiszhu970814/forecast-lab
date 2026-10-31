@@ -521,6 +521,58 @@ forecast-lab/
 - [§7.4] 建議將 `private/cp_snapshots.jsonl` 中的機率數值以簡單 Base64 或欄位混淆儲存（讀取計分時才解碼），並在每日預測後自動掃描 `data/raw/` 是否出現 `/Users/` 或 `forecast-lab` 等本機路徑字串｜即使 CLI 權限設定偶有疏漏，混淆儲存可確保模型就算讀到檔案也無法直接看出社群機率數字，搭配原始輸出稽核可達雙重保險｜non-blocking
 - [§9] 建議確認女友的 Codex CLI 登入狀態如何在同一台排程主機上共存，並在 `launchd` 呼叫的包裝腳本中使用 `caffeinate -i` 防止執行期間系統休眠｜若由單一 Mac 跑 `launchd`，需確認該 macOS 使用者帳號下同時具備三家 CLI 的有效憑證，且 `caffeinate -i` 可確保長達數十分鐘的預測不會因螢幕保護或閒置而中斷｜non-blocking
 
+#### 第 2 回合審查（2026-10-30）
+
+**一、第 1 回合意見整合確認（對照 §15 D7～D20 與 §16 v0.2 變更紀錄）及對未採納項目之表態**
+
+- [§15 D7, D10, D12, D15, D16, D18 / §16] 確認第 1 回合獲採納之意見（每日題數上限與試行值、每題單次預測與唯一採用規則、移除 3%／97% 錨點並將範圍定為 0.001～0.999、人類分檔獨立 CSV 且附凍結題目與移除平台連結、歷史題號去重與單一是非題過濾、單次抓取記憶體拆流與欄位白名單、擴充 4 個禁用網域、`ambiguous`/`annulled` 不計分、主榜與人類對照榜分離、`forecasts.jsonl` 保留結構化欄位、`caffeinate -i` 防休眠與 GPT 線停用開關）均已完整且正確整合至 v0.2 正文，無需再修改｜核對 §3～§11、§15 與 §16 確認無遺漏｜non-blocking
+- [§12 Q1 / §3.1 / §15 D8] 同意未採納「自動放寬時間窗至 60～90 天」，維持 N = 45 天、題池不足時少抽並記錄每日篩選漏斗（`data/sampling_log.jsonl`），放寬須經決定並升版｜在缺乏實際篩選漏斗數據前，若由程式動態放寬結算天數，會使同一執行設定版本（`run_config_v1`）內混入不同時間跨度與難度的題目；先記錄漏斗再人工決定升版更符合實驗控制原則｜non-blocking
+- [§12 Q3 / §3.3 / §15 D9] 同意未採納「將 `secondary_odds_seen = true` 留在主要分析」，改為主要分析（「獨立估計」）排除 `leak_confirmed` 與 `secondary_exposure`，並另報包含全部紀錄的敏感度分析與各類排除比例｜既然報告強制並陳「含全部紀錄的敏感度分析」與「各類排除比例」，既可確保主要分析不受二手機率錨定與共模失效污染，也能讓讀者直接檢視排除熱門時事題是否造成存活者偏差，兼顧兩方顧慮｜non-blocking
+- [§3.3 / §15 D9] 同意未採納「關鍵字命中直接視為確認洩漏」，改採三級稽核（`leak_confirmed` 以解析後 hostname 比對禁用網域與子網域、`secondary_exposure`、`suspected_leak` 排除 prompt 回顯後交人工判讀）且發現禁用來源保留原輸出不重試｜模型在推理摘要中寫「依規定不查看 Metaculus」若直接判為洩漏會造成假陽性，而違規後重試則會洗掉洩漏紀錄；v0.2 的三級分流設計更嚴謹｜non-blocking
+- [§7.4 / §15 D11] 同意未採納「以 Base64 或欄位混淆儲存 `private/cp_snapshots.jsonl`」，完全以環境與 CLI 權限限制做事前隔離｜可逆編碼對具備推理能力的模型不具實質機密性；只要落實下方 §7.3 與 §7.6 的讀檔硬性封鎖，即無需依賴混淆｜non-blocking
+
+**二、確認 §12 V2（`agy` 權限規則名稱、優先序、`--mode`、`--effort` 與版本取得方式，附本機輸出與官方文件來源）**
+
+- [§12 V2 / §7.3] 建議將 §7.3 中 `gemini`（`agy`）的 `--settings` 權限 JSON 修正為標準 `action(target)` 名稱、將 `read_file(/Users/*)` 改為全面封鎖 `read_file(*)`，並將 `execute_url(*)`、`mcp(*)` 與 §3.3 的 10 個禁用預測平台網域一併列入 `deny`：`{"agentMode":"","permissions":{"allow":["read_url(*)"],"deny":["command(*)","write_file(*)","read_file(*)","execute_url(*)","mcp(*)","read_url(metaculus.com)","read_url(manifold.markets)","read_url(polymarket.com)","read_url(kalshi.com)","read_url(predictit.org)","read_url(goodjudgment.com)","read_url(electionbettingodds.com)","read_url(futuur.com)","read_url(smarkets.com)","read_url(betfair.com)"]}}`｜依據官方權限文件（`https://antigravity.google/docs/permissions`）：(1) `agy` 權限引擎支援的標準 action 名稱為 `read_file`、`write_file`（同時涵蓋新增與 `edit_file` 修改檔案）、`read_url`、`execute_url`、`command`（管轄 `run_command` 終端機指令）與 `mcp` 共 6 類，原 §7.3 寫的 `run_command(*)`、`edit_file(*)` 與不帶括號的 `search_web` 並非標準 `action(target)` 語法；(2) 官方文件明載 `read_file` 與 `write_file` 的預設 fallback 在**工作區與系統暫存目錄（temp directories）為 Allow**，而在 macOS 上 `/tmp` 指向 `/private/tmp`（不在 `/Users/*` 下），若只擋 `read_file(/Users/*)`，模型仍可跨目錄偷讀 `/tmp` 下其他選手的暫存檔或系統暫存檔，故必須設為 `read_file(*)` 與 `write_file(*)`；(3) 權限引擎嚴格遵循 `Deny > Ask > Allow`，且 `read_url(domain)` 原生比對 hostname 與所有子網域（忽略路徑），將 10 個禁用網域放入 `deny` 可在模型開啟網頁前由 CLI 直接硬性攔截（Hard block），將事後稽核提升為事前阻斷｜blocking
+- [§12 V2 / §5.3 / §7.3] 建議在 §5.3 移除 `gemini` 指令骨架中的 `--mode <驗收時固定>` 旗標，改於 `--settings` 的單次 session JSON 中固定注入 `"agentMode": ""`（即標準 `default` 模式）｜依據本機 `agy --help`（`--mode Set the agent execution mode for this session (accept-edits, auto, plan)`）與官方文件（`https://antigravity.google/docs/cli/reference`、`https://antigravity.google/schemas/v1/settings.json`）：CLI 的 `--mode` 旗標僅接受 `accept-edits`（自動允許改檔）、`auto`（自動允許改檔與沙盒指令）與 `plan`（自動前置 `/plan` 施工規劃指示），三者皆不適合預測執行模式；而在 `--settings` 設定 `"agentMode": ""` 則可強制覆寫使用者全域 `settings.json` 可能設定的 `auto`/`accept-edits`，回到最保守的 `default` 模式，且在 `-p` 無互動模式下任何落入 `Ask` 的操作都會被自動 soft-deny｜blocking
+- [§12 V2 / §5.3 / §7.5] 確認 `--model gemini-4-argon-medium` 與 `--effort medium` 可安全並用；CLI 版本號以 `agy changelog` 第一行去除尾端冒號取得（本機已升為 `1.4.11`）；並建議在 `gemini` adapter 解析 `--output-format json` 時檢查 `1.4.11` 新增的 `finished_reason` 欄位｜依據本機實測 `agy models`、`agy --help`、`agy changelog | head -n 5` 與官方文件（`https://antigravity.google/docs/cli/reference`）：(1) `gemini-4-argon-medium` 搭配 `--effort medium` 為官方支援語法，可防止全域設定覆寫推理強度；(2) 本機 `agy changelog | head -n 1` 輸出為 `1.4.11:`（去除 `:` 即得 `"1.4.11"`）；(3) 本機 `1.4.11` 更新紀錄明載 `--output-format json` 新增 `finished_reason` 欄位（正常完成時省略，逾時為 `"print_timeout"`、中斷為 `"interrupted"`、錯誤為 `"error"`），adapter 必須檢查該欄位，若存在則不得將截斷的半成品當作有效答案｜non-blocking
+
+<details>
+<summary>附錄：本機 <code>agy</code> 實測輸出摘要與官方文件來源（2026-10-30）</summary>
+
+1. **本機 `agy --help` 關鍵旗標輸出**：
+   ```text
+   --disable-slash-commands        Disable slash command and skill expansion in print mode
+   --effort                        Reasoning effort for the current CLI session (low|medium|high|xhigh|max)
+   --json-schema                   Optional JSON schema string or path to a schema file to enforce structured output (for stream-json, only applicable to the final result)
+   --mode                          Set the agent execution mode for this session (accept-edits, auto, plan)
+   --model                         Model for the current CLI session
+   --output-format                 Output format for print mode (text, json, stream-json) (default text)
+   -p, --print                     Run a single prompt non-interactively and print the response
+   --print-timeout                 Optional time limit for print mode; 0 waits until the turn completes (default 0s)
+   --sandbox                       Run in a sandbox with terminal restrictions enabled
+   --settings                      Settings for this session only, never saved: a JSON object of settings.json keys, inline or as a file path
+   ```
+2. **本機 `agy models`（Gemini 模型部分）**：
+   `gemini-4-argon-medium`、`gemini-4-argon-high`、`gemini-4-argon-low`、`gemini-3.8-flash-high`、`gemini-3.8-flash-medium`、`gemini-3.8-flash-low`（另含非 Gemini 模型，故必須顯式指定 `--model`）。
+3. **本機 `agy changelog | head -n 5`**：
+   首行為 `1.4.11:`，並記載 `--output-format json` 新增 `finished_reason`（`print_timeout` / `interrupted` / `error`）。
+4. **官方文件來源**：
+   - CLI 參考與設定 Schema：`https://antigravity.google/docs/cli/reference`、`https://antigravity.google/schemas/v1/settings.json`
+   - 權限引擎（6 大 Action 語法、`Deny > Ask > Allow`、`-p` 模式對未授權 `Ask` 的 soft-deny 行為）：`https://antigravity.google/docs/permissions`
+   - 終端機沙盒：`https://antigravity.google/docs/sandbox`
+</details>
+
+**三、審查 §4.5 定期報告與 §7.6 隔離驗收的設計漏洞**
+
+- [§4.5 / §3.2 / §3.5 / §9] 建議在 §4.5 與 §4.2 明定「凡距離該題抽樣時間 `t0` 未滿 24 小時（人類作答時間窗尚未結束）的題目，即使已在 24 小時內提前結算，`score.py` 與 `report.py` 一律不得揭露其機率，亦不得將其納入已結算準確度指標（Brier、BSS、方向正確率）計算」｜§9 排定每晚 21:00 更新計分板、每週一 21:00 產出定期報告（且支援手動指定任意期間），此時距離當日 09:00（`t0`）僅 12 小時；若某短期題目在當日 `t0 + 12h` 內提前結算，依目前 §4.5「定期報告只呈現已結算題目的機率與成績」，會在人類 24 小時作答窗口結束前直接洩露模型答案（或讓人在單題結算時由 Brier 分數反推機率 p），違反 §3.2 與 §3.5 的雙盲保護｜blocking
+- [§4.5 / §3.3 / §4.2] 建議在 §4.5 第 2 點（作答狀況）增列「洩漏排除數（`leak_confirmed` / `secondary_exposure`）與待判讀 `suspected_leak` 數」，並在第 4 點（準確度）明定必須排除確認洩漏與二手暴露紀錄，且同時呈現「三模型共同有效題集（供同期間跨模型比較）」與「該選手個別有效題集（供同模型跨設定／跨期比較）」｜目前 §4.5 未說明定期報告的 Brier 與 BSS 是否套用 §3.3 的洩漏排除規則，也未規定跨模型同一張表是否使用共同題集；若某模型因額度不足或逾時而在高難度題目缺答，直接拿各自不同的有效題集並列比較 Brier/BSS，會產生選擇偏差並誤導推理強度調整決策｜blocking
+- [§4.5 / §5.5 / §7.5] 建議在 §4.5 明確區分「題目層級（question-level，依 §7.5 採用規則之最終狀態）」與「嘗試層級（attempt-level，含 `format_repair` 與 `rerun`）」的統計口徑：作答狀況以題目最終狀態統計（使 `應答題數 = 最終有效答案數 + 最終缺答數`），另設「期間曾觸發額度用完／重試次數（含補跑後成功者）」欄位；消耗的「期間總和」加總全部嘗試，而「每題 token 與耗時中位數」僅對解析成功的有效預測計算（排除因額度用完或錯誤瞬間中止的 0 token 失敗紀錄）｜若不拆分題目最終狀態與嘗試層級，09:00 因 `quota_exhausted` 失敗但 14:00 `rerun` 成功的題目，不是造成「有效數 + 缺答數 > 應答題數」，就是掩蓋了早上額度用完的預警訊號；且將失敗嘗試（0 token）混入中位數會嚴重低估單題實際消耗｜blocking
+- [§7.6 / §7.2 / §7.3] 建議在 §7.6 補強三項測試與隔離要求：(1) 讀寫檔測試須涵蓋「讀取專案目錄（含 `private/`）、家目錄與 `/tmp` 下其他目錄皆失敗」以及「在當前工作資料夾『內』與『外』寫檔／改檔皆失敗」；(2) 將各 CLI 的子代理與背景排程工具（如 `agy` 的 `invoke_subagent`、`define_subagent`、`schedule`）納入封鎖或驗收範圍；(3) 各選手平行執行的空白暫存資料夾改以隨機獨立目錄（權限 `0700`）建立，避免可預測的同層路徑 `/tmp/forecast-run/<run_id>/<player>/`｜許多 CLI 在當前工作資料夾與 `/tmp` 預設允許讀寫，且子代理（subagents）若未繼承限制或可另外掛載寫檔／MCP 權限，會成為繞過主代理限制的破口｜blocking
+- [§7.6 / §3.3] 建議在 §7.6 新增第 5 項驗收測試：「嘗試開啟 §3.3 禁用網域（如 `https://www.metaculus.com`），確認 (a) 支援網域封鎖之 CLI（如 `agy` 的 `read_url` deny 規則）能直接阻斷，且 (b) 三條線的原始輸出或工具事件（`data/raw/`）確實有記錄嘗試開啟的目標 URL，使 `audit.py` 能穩定檢出 `leak_confirmed`」，並同時驗收無互動執行全程不會彈出桌面瀏覽器視窗或 GUI 權限對話框｜若不在 M1 的 §7.6 實測驗證 CLI 輸出事件是否真的包含開啟的網址，§3.3 的「由 CLI 工具事件中實際開啟的網址判定 `leak_confirmed`」可能因欄位缺失而失效；且排程背景執行若彈出桌面瀏覽器會干擾使用者並導致程序卡死｜blocking
+- [§7.2 / §7.6] 建議將 §7.2 與 §7.6 中 `gemini`（`agy`）的全域設定檢查基準路徑擴充為：`~/.gemini/GEMINI.md`、`~/.gemini/AGENTS.md`、`~/.gemini/config/`（含全域 rules、skills、plugins、`hooks.json`、`mcp_config.json`）以及 `~/.gemini/antigravity-cli/settings.json`（由外部 Python 主程式於啟動前計算並比對雜湊值），並規定執行時不得傳入 `-c`/`--continue`/`--conversation`｜依據本機內建 `agy-customizations` 文件，`agy` 的本機全域客製化與 Lifecycle Hooks 位於 `~/.gemini/config/`（特別是 `hooks.json` 可在工具呼叫前後直接執行 shell 指令），全域 CLI 設定則位於 `~/.gemini/antigravity-cli/settings.json`，僅檢查 `~/.gemini/GEMINI.md` 不足以涵蓋全域注入來源｜blocking
+- [§7.3 / §7.6] 建議將 §7.3 與 §7.6「以實際提供給模型的工具清單驗收，只能剩下搜尋與讀網頁」的通過判準，修正為「以 (1) CLI 支援時從工具宣告清單移除非必要工具（如 `claude --tools`），或 (2) 由 CLI 權限引擎／沙盒層硬性拒絕（Hard block，如 `agy` 的 `permissions.deny`），且於 §7.6 第 1～3 項實測觸發時由 CLI 層直接回傳權限拒絕紀錄（而非僅靠模型自述不呼叫）作為通過標準」｜`agy` 並無類似 `claude --tools` 從 system prompt 移除內建工具宣告的旗標，而是透過權限引擎在呼叫時硬性攔截（回傳 `Permission denied`）；若字面要求模型的工具宣告清單只能有搜尋與讀網頁，`gemini` 線將因架構差異而無法通過 M1 驗收｜blocking
+
 ### 14.2 GPT
 
 #### 第 1 回合審查（2026-10-30）
