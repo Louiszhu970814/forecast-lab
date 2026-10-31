@@ -1,0 +1,6 @@
+{"type": "thread.started"}
+{"type": "turn.started"}
+{"type": "item.started", "item": {"id": "item_0", "type": "web_search", "action": {"type": "other"}, "results": []}}
+{"type": "item.completed", "item": {"id": "item_0", "type": "web_search", "action": {"type": "search", "query": "sample"}, "results": [{"type": "text_result", "url": "https://pythonfoundation.org/", "domain": "pythonfoundation.org", "snippet": "Sample"}, {"type": "text_result", "url": "https://github.com/PSF", "domain": "github.com", "snippet": "Sample"}]}}
+{"type": "item.completed", "item": {"id": "item_1", "type": "web_search", "action": {"type": "open_page", "url": "https://www.python.org/psf-landing/"}, "results": [{"type": "text_result", "url": "https://www.python.org/psf-landing/", "domain": "www.python.org", "snippet": "Sample"}]}}
+{"type": "turn.completed", "usage": {"input_tokens": 48781, "cached_input_tokens": 29440, "cache_write_input_tokens": 0, "output_tokens": 314, "reasoning_output_tokens": 0}}
