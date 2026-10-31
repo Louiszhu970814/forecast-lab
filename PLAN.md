@@ -652,6 +652,48 @@ token 欄位的對應（D29）：
 - [§7.2 / §7.6] 建議將 §7.2 與 §7.6 中 `gemini`（`agy`）的全域設定檢查基準路徑擴充為：`~/.gemini/GEMINI.md`、`~/.gemini/AGENTS.md`、`~/.gemini/config/`（含全域 rules、skills、plugins、`hooks.json`、`mcp_config.json`）以及 `~/.gemini/antigravity-cli/settings.json`（由外部 Python 主程式於啟動前計算並比對雜湊值），並規定執行時不得傳入 `-c`/`--continue`/`--conversation`｜依據本機內建 `agy-customizations` 文件，`agy` 的本機全域客製化與 Lifecycle Hooks 位於 `~/.gemini/config/`（特別是 `hooks.json` 可在工具呼叫前後直接執行 shell 指令），全域 CLI 設定則位於 `~/.gemini/antigravity-cli/settings.json`，僅檢查 `~/.gemini/GEMINI.md` 不足以涵蓋全域注入來源｜blocking
 - [§7.3 / §7.6] 建議將 §7.3 與 §7.6「以實際提供給模型的工具清單驗收，只能剩下搜尋與讀網頁」的通過判準，修正為「以 (1) CLI 支援時從工具宣告清單移除非必要工具（如 `claude --tools`），或 (2) 由 CLI 權限引擎／沙盒層硬性拒絕（Hard block，如 `agy` 的 `permissions.deny`），且於 §7.6 第 1～3 項實測觸發時由 CLI 層直接回傳權限拒絕紀錄（而非僅靠模型自述不呼叫）作為通過標準」｜`agy` 並無類似 `claude --tools` 從 system prompt 移除內建工具宣告的旗標，而是透過權限引擎在呼叫時硬性攔截（回傳 `Permission denied`）；若字面要求模型的工具宣告清單只能有搜尋與讀網頁，`gemini` 線將因架構差異而無法通過 M1 驗收｜blocking
 
+#### 第 3 回合審查（2026-10-31）
+
+**一、第 2 回合意見整合確認（對照 §15 D21～D30 與 §16 v0.3 變更紀錄）及對未採納項目之表態**
+
+- [§15 D21, D23, D25, D27, D28, D29, D30 / §16] 確認第 2 回合獲採納之意見（公開時間閘門對所有題目固定適用且含提前結算、定期報告納入洩漏排除與共同題集並附個別有效題集作描述、題目層級排程帳冊與嘗試層級消耗分離、`agy` 移除 `--mode` 並以 `--settings` 設定 `"agentMode": ""` 及 6 類標準動作與 10 個禁用網域 `read_url(...)` 拒絕規則、檢查 `finished_reason` 與 `denied_actions`、`agy` 全域自動載入基準路徑擴充與版本／內容變更處理、子代理與排程工具封鎖驗收、不彈出桌面瀏覽器或 GUI 對話框、token 欄位對應表與 commit 規則）均已完整且正確整合至 v0.3 正文，無需再修改｜逐項核對 §3～§13、§15 與 §16 確認無遺漏｜non-blocking
+- [§4.5 / §15 D24 / §16] 同意未採納「僅以成功預測的中位數作為唯一消耗指標」，改為先將每題所有嘗試（含格式修復與補跑）合計為該題成本，再分「全體、成功、失敗」三組並列中位數與總和｜三組並列既保留了「成功」組視角（避免 0 token 失敗嘗試拉低成功單題中位數），同時也完整呈現失敗與重試消耗的額度成本，更能支持 D17 的推理強度調整決策，無異議｜non-blocking
+- [§3.3 / §7.6 / §15 D22 / §16] 同意未採納「將被 CLI 層擋下的禁用網址嘗試直接判為 `leak_confirmed`」，改將網址狀態細分為 `attempted`、`blocked`、`opened`、`unknown`，凡在 CLI 層被硬性拒絕（`blocked`）且無其他暴露證據者記為 `blocked_attempt` 並留在主要分析（於報告另列違規嘗試數），僅實際開啟（`opened`）或模型回報於 `sources` 者列 `leak_confirmed` 排除｜被 CLI 層硬性攔截代表模型並未讀到該頁面內容，區分 `blocked_attempt` 與 `leak_confirmed` 可避免假陽性與無謂流失樣本，無異議｜non-blocking
+- [§7.2 / §7.3 / §15 D26 / §16] 同意未採納「以隨機 `0700` 暫存資料夾作為三選手隔離證據」及「以一般唯讀沙盒替代工具移除」，改將每次嘗試新建隨機 `0700` 暫存資料夾定位為避免殘留狀態的衛生措施，並以「模型無法成功行使本機讀寫、執行指令或委派權限（靠工具移除或 CLI 層硬性拒絕達成，唯讀沙盒不算等價）」作為通過標準｜三條線以同一 macOS 使用者（同 UID）執行，目錄權限在 OS 層無法阻擋同 UID 程序互讀，且一般唯讀沙盒仍可讀檔與執行指令；v0.3 的定性與判準更嚴謹，無異議｜non-blocking
+
+**二、確認 §7.3 的 `agy` 規格與 §12 的 V8（`--settings` 與全域設定之合併／取代、`"agentMode": ""` 的效果，附本機輸出與官方文件來源）**
+
+- [§7.3 / §12 V8] 確認 §7.3 的 `agy` 規格完整可行，同意將 V8 保留於 §12 並在 M1 的 `acceptance.py` 實測驗證；建議在 M1 實作 `acceptance.py` 時，除了執行 §7.6 第 4 項的 `agy --help` 遞迴呼叫阻斷測試外，可一併利用 `agy` 內建不消耗額度的唯讀斜線指令輸出（`agy -p "/config" --output-format json --settings '...'` 與 `agy -p "/permissions" --output-format json --settings '...'`）直接檢視合併後的生效設定，若實測發現 Go 結構體合併時將空字串 `"agentMode": ""` 視為未指定而保留全域 `"auto"`，則於 `--settings` 改傳 `"agentMode": "default"`｜依據本機 `agy --help`、`agy changelog`（1.0.5、1.0.12、1.1.0、1.1.5、1.1.12、1.1.27、1.1.28、1.4.4）與官方文件（`https://antigravity.google/docs/cli/reference`、`https://antigravity.google/docs/permissions`）：(1) **合併與優先序（Merge vs. Override）**：`agy` 的設定採分層合併（CLI 旗標與 `--settings` 單次 session 覆寫 > 專案設定 `~/.gemini/config/projects/` > 共享設定 `~/.gemini/config/config.json` > 全域 CLI 設定 `~/.gemini/antigravity-cli/settings.json`）；權限清單（`permissions.allow`、`ask`、`deny`）跨層合併後，統一由權限引擎依嚴格的 **`Deny > Ask > Allow`** 優先序裁決，因此即便全域 `settings.json` 的 `allow` 含有 `command(agy)`，單次 session `--settings` 中的 `deny: ["command(*)"]` 依 `Deny > Allow` 仍具最高優先權並會硬性攔截（且於 1.1.27 起在 JSON 輸出的 `denied_actions` 回報被拒動作）；(2) **`"agentMode": ""` 的效果**：在 `settings.json` 中預設模式（`default` / `Agent` request-review 模式）對應空字串 `""` 或 `"default"`（1.1.0、1.4.4 changelog），用於覆寫全域 `settings.json` 的 `"auto"` 或 `"accept-edits"`，惟 `--settings` 在執行期反序列化合併時對空字串 `""` 與 `"default"` 的處理細節，以及合併後的最終權限表，直接於 M1 以 §7.6 實測與 `-p "/config"`／`-p "/permissions"` 驗證最為穩妥；(3) **搜尋與讀網頁工具名稱**：內建網路搜尋工具名稱為 `search_web`（預設允許，不需額外列於 `permissions.allow`），網頁讀取工具 `read_url_content` 則受權限規則 `read_url(...)` 管轄（1.1.28 起預設由 Allow 改為 Ask，故須在 `--settings` 列入 `"allow": ["read_url(*)"]` 並將 10 個禁用網域列入 `deny`）｜non-blocking
+
+<details>
+<summary>附錄：本機 <code>agy</code> 查證輸出摘要與官方文件來源（2026-10-31）</summary>
+
+1. **本機 `agy --help` 關於 `--settings` 與 `--mode` 之輸出**：
+   ```text
+   --mode      Set the agent execution mode for this session (accept-edits, auto, plan)
+   --settings  Settings for this session only, never saved: a JSON object of settings.json keys, inline or as a file path
+   ```
+2. **本機 `agy changelog` 關於設定合併、權限優先序、無互動斜線查詢與拒絕回報之紀錄**：
+   - `1.0.5`：`Integrated the permissioning system with the rest of Antigravity. CLI permissions now merges project level permissions, permissions from user settings shared with Antigravity, and permissions from the CLI settings.json.`
+   - `1.0.12`：`Improved permission config merging priorities by ensuring project-specific configurations (located in ~/.gemini/config/projects/) take precedence over global settings in ~/.gemini/antigravity-cli/settings.json.`
+   - `1.1.0`：`Added an Agent Mode option to the /settings panel so users can set and persist a default execution mode (default, accept-edits, plan) without manually editing settings.json or passing --mode on startup...`
+   - `1.1.3`：`Fixed headless (-p) runs hanging or silently auto-approving tools that require a permission confirmation, so the CLI now soft-denies such tools and prints a stderr notice naming the allow-rule needed to permit them.`
+   - `1.1.5`：`Fixed headless (-p / --print) runs so they now honor persisted settings.json policies, including permissions, file access, sandbox mode, auto-execution, and artifact review.`
+   - `1.1.12`：`Added non-interactive answers for more read-only slash commands in print mode, so -p "/permissions", /hooks, /help, /changelog and /config each emit one tab-separated record per line — or a structured payload under --output-format json and stream-json — without starting an agent turn, spending quota or leaving a conversation behind...`
+   - `1.1.27`：`Fixed headless runs with -p silently skipping tool actions they were not permitted to take, which now end with a notice naming the refused actions and report them as denied_actions in the JSON output.`
+   - `1.1.28`：`Changed the default permission for fetching URLs from always allowed to asking first, so the agent now requests approval before reading a URL unless you have granted access.`
+   - `1.4.11`：`Added a finished_reason field to the result of --output-format json and stream-json runs that says why a turn ended early...`
+3. **官方文件來源**：
+   - CLI 參考與設定層級覆寫：`https://antigravity.google/docs/cli/reference`、`https://antigravity.google/schemas/v1/settings.json`
+   - 權限引擎（`action(target)` 語法、跨層規則合併與 `Deny > Ask > Allow` 優先序）：`https://antigravity.google/docs/permissions`
+</details>
+
+**三、審查 §7.6 隔離驗收是否足以讓 M1 開始**
+
+- [§7.6 / §10 / §12 V7] 確認 §7.6 的隔離驗收規格（7 項負向測試、正向搜尋與開頁 canary 測試、工具清單與 CLI 層拒絕紀錄判準、不彈窗要求、模型 ID／token／工具事件欄位核對，以及未通過即停線的規定）已完整涵蓋本機讀寫、替代入口（`file://`、localhost、重新導向、符號連結）、指令執行（含 `agy` 遞迴呼叫）、子代理／排程／hooks 委派、禁用網域攔截與全域自動載入，足以作為進入 M1 的驗收標準；另提供一項 M1 實作備註：若 §7.6 第 5 項實測時發現 `agy` 內建的 `invoke_subagent`、`define_subagent`、`schedule` 不受 `permissions.deny` 管轄，可在 M1 改用最小自訂 agent（`--agent` 搭配 `excludeDefaultComponents: true`，見 changelog `1.2.1`）或 `PreToolUse` hook 將其硬性阻斷｜§7.3 與 §7.6 已明定子代理與排程工具須確認不可用、任一項無證據或未通過即停線，設計上已無漏洞，實作細節於 M1 驗收腳本落實即可｜non-blocking
+
+本回合沒有 blocking 意見。
+
 ### 14.2 GPT
 
 #### 第 1 回合審查（2026-10-30）
