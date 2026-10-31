@@ -55,6 +55,7 @@ def test_argv(req, profile):
 def test_tier2_opt_in(req):
     argv = gpt.build_argv(replace(req, profile='tier2'), enable_subagents=True)
     assert argv[argv.index('--enable')+1] == 'multi_agent'
+    assert gpt.AGENTS_DISABLED not in argv
     assert 'multi_agent' not in [argv[i+1] for i,x in enumerate(argv) if x=='--disable']
     with pytest.raises(ValueError): gpt.build_argv(req, enable_subagents=True)
 
@@ -198,3 +199,13 @@ def test_partial_item_merge(req):
     result=gpt.parse(req)
     assert result.tool_call_counts=={'web_search':1}
     assert result.url_events[0].state=='opened'
+
+
+def test_default_argv_disables_code_mode_and_collaboration(tmp_path):
+    from adapters.base import AdapterRequest
+    req = AdapterRequest(player='gpt', profile='tier1', prompt='p', schema={}, workdir=tmp_path,
+                         raw_dir=tmp_path / 'raw', model='gpt-6-astra', effort='medium', timeout_s=60)
+    argv = gpt.build_argv(req)
+    disabled = {argv[i + 1] for i, x in enumerate(argv) if x == '--disable'}
+    assert {'code_mode_host', 'in_app_local_automation', 'code_mode_interrupt', 'multi_agent', 'shell_tool'} <= disabled
+    assert argv[argv.index(gpt.AGENTS_DISABLED) - 1] == '-c'

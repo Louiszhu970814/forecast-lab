@@ -1,6 +1,6 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.2（v1.0 凍結後的修訂，見 §16）
+> 版本：v1.3（v1.0 凍結後的修訂，見 §16）
 > 初稿：Claude
 > 本回合整合者：Claude（第 5 回合兩位審查者都沒有 blocking 意見，整合其 non-blocking 補充）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
@@ -441,7 +441,7 @@ forecast-lab/
 |---|---|
 | claude | `claude -p --model claude-opus-5-5 --effort <層級設定> --tools "WebSearch,WebFetch" --allowedTools "WebSearch,WebFetch" --disallowedTools "WebFetch(domain:metaculus.com)" "WebFetch(domain:*.metaculus.com)" --restricted --strict-mcp-config --disable-slash-commands --no-session-persistence --output-format stream-json --verbose --json-schema '<schema JSON>'`（prompt 由標準輸入傳入；第 2 層在 `--tools` 加入子代理工具，名稱於 M1 確認；2026-10-31 依實測修正，D58） |
 | gemini | `agy -p "<prompt>" --model <層級模型 ID> --effort <層級設定> --output-format json --json-schema <schema 路徑> --disable-slash-commands --print-timeout <層級上限> --sandbox --log-file <本次 raw_dir>/agy_cli.log --settings '<單次 session 設定 JSON，見 §7.3>'`（不使用 `--mode`；第 2 層以 `--agent` 指定最小自訂 agent，見 §7.3） |
-| gpt | `codex exec --ignore-user-config --strict-config -s read-only -c 'approval_policy="never"' -c 'web_search="live"' -c 'model_reasoning_effort="<層級設定>"' --disable <§7.3 停用清單中的每個功能> -m gpt-6-astra --skip-git-repo-check -C <暫存資料夾絕對路徑> --ephemeral --json --output-schema <schema 絕對路徑> --output-last-message <本次最終輸出絕對路徑> -`（prompt 由標準輸入傳入；第 2 層從停用清單移除 `multi_agent`，並以 `--enable multi_agent` 明確啟用，其餘停用項不變） |
+| gpt | `codex exec --ignore-user-config --strict-config -s read-only -c 'approval_policy="never"' -c 'web_search="live"' -c 'model_reasoning_effort="<層級設定>"' --disable <§7.3 停用清單中的每個功能> -m gpt-6-astra --skip-git-repo-check -C <暫存資料夾絕對路徑> --ephemeral --json --output-schema <schema 絕對路徑> --output-last-message <本次最終輸出絕對路徑> -`（prompt 由標準輸入傳入；停用清單另含 `code_mode_host`、`in_app_local_automation`、`code_mode_interrupt`，並加上 `-c 'agents.enabled=false'`，D59；第 2 層從停用清單移除 `multi_agent`、改以 `--enable multi_agent` 明確啟用，並移除 `agents.enabled=false`，其餘停用項不變） |
 
 - codex 的 `--json` 輸出的是事件 JSONL，`--output-schema` 約束的是最後的答案，兩者不可混為同一份 JSON。`-c 'web_search="live"'` 已在 2026-10-31 的本機執行中確認有效。
 - CLI 版本的取得方式：
@@ -677,6 +677,10 @@ token 欄位的對應（D29）：
   - 保留 `-s read-only`，但唯讀沙盒仍可以讀檔與執行指令，不能單獨作為限制手段。
   - 以 `--disable` 關閉模型可用的本機工具與委派功能。停用清單至少包括：`shell_tool`、`unified_exec`、`computer_use`、`browser_use`、`browser_use_external`、`in_app_browser`、`apps`、`plugins`、`remote_plugin`、`multi_agent`、`hooks`、`image_generation`、`view_image`。
     - 驗收時以 `codex features list` 重新盤點；新版本出現的新功能（例如 0.166.0 的 `code_mode_host`、`in_app_local_automation`、`multi_agent_v2`）要逐一判斷，不能只憑名稱猜測。
+    - M1 實測（2026-10-31，codex-cli 0.166.0，D59）：只用上述 13 項時，模型仍有 `functions.exec`（code mode），而且實際執行了一段延遲的背景程式；多代理系列的 `spawn_agent`、`wait_agent` 等工具也仍在宣告中。改為：
+      - 另外停用 `code_mode_host`、`in_app_local_automation`、`code_mode_interrupt`：執行程式碼的呼叫改由 CLI 拒絕（`code-mode host is disabled`）。
+      - 加上 `-c 'agents.enabled=false'`：移除 collaboration 系列的工具。`--disable multi_agent` 本身移除不了。
+      - `apply_patch` 仍然存在，只靠唯讀沙盒擋下寫檔；這不符合 D26，須在 W3 的驗收中確認它能否透過上述設定一併失效，否則 gpt 線不得通過驗收。
   - MCP 與 skills 逐一停用，或確認對模型不可用。`--ignore-user-config` 只代表忽略 `config.toml`。
 - **第 2 層的子代理**（D37、D42）：
   - 某條線通過 §7.6 的子代理驗收後，該線才開放子代理；未通過時，第 2 層照常執行，但不開子代理。
@@ -1537,11 +1541,13 @@ view_image                  stable true
 | D56 | 2026-10-31 | M1 分工：Gemini 執行 W1、W5，審查 W6、W7；GPT 執行 W4、W6，審查 W2＋W3、W5、W8；Claude 執行 W2＋W3、W7、W8，審查 W1、W4，並負責協調。新增「代理開發模式」：在 clone 中進行、可寫檔與執行測試、不讀取網頁、經審查後才合併。女友同意 GPT 線的額度用於開發（§7.1、`docs/tasks/M1.md`） | Louis 決定（H8、H10）：多派工作給 Gemini 以分散 Claude 與 GPT 的用量，但 Gemini 只執行兩項；M1 尚未開始預測，這段期間的 Argon 額度可以用於開發 |
 | D57 | 2026-10-31 | M1 期間，每個工作經審查通過後，由協調者直接 commit 並 push（AGENTS.md、§13） | Louis 決定（H11）；擴充 D30 |
 | D58 | 2026-10-31 | 依 M1 實測修正 CLI 規格：claude 加上 `--allowedTools`、兩條 metaculus.com 網域規則、`--restricted`，並改用 `stream-json --verbose`；agy 的 `--settings` 移除 `use_ai_credits`；記錄 agy 兩種拒絕的證據來源（§5.3、§7.3、§12） | 協調者以便宜的模型實測（claude Haiku、agy Flash Low、codex 低推理強度）；原規格中 claude 的網域規則擋不住 `www.metaculus.com`，agy 的雙鍵設定會讓執行失敗 |
+| D59 | 2026-10-31 | codex 的停用清單加上 `code_mode_host`、`in_app_local_automation`、`code_mode_interrupt`，並加上 `-c 'agents.enabled=false'`（§5.3、§7.3） | GPT 審查 W2＋W3 時發現事件中有 `collab_tool_call`；協調者實測確認，原本的 13 項停用清單下，模型仍能以 code mode 執行程式並宣告多代理工具 |
 
 ---
 
 ## 16. 變更紀錄
 
+- **v1.3**（2026-10-31）：codex 的隔離修正（D59）。原本的停用清單擋不住 code mode 的程式執行與多代理工具，由 GPT 的審查與協調者的實測發現；先前的驗收結果已撤回。
 - **v1.2**（2026-10-31）：依 M1 的 CLI 實測修正規格（D58）。
   - claude：加上 `--allowedTools`、兩條 metaculus.com 網域規則與 `--restricted`，改用 `stream-json --verbose`（§5.3、§7.3；V3、V9）。
   - agy：`--settings` 移除 `use_ai_credits`；記錄兩種拒絕的證據來源（§7.3；V17）。

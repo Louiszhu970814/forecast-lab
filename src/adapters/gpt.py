@@ -19,7 +19,14 @@ DISABLED_FEATURES = (
     'shell_tool', 'unified_exec', 'computer_use', 'browser_use',
     'browser_use_external', 'in_app_browser', 'apps', 'plugins',
     'remote_plugin', 'multi_agent', 'hooks', 'image_generation', 'view_image',
+    # Found in M1 acceptance (codex-cli 0.166.0): with only the items above, the model still
+    # had functions.exec (code mode) and ran a background script. Disabling these makes the
+    # router refuse with "code-mode host is disabled" (PLAN §7.3, D59).
+    'code_mode_host', 'in_app_local_automation', 'code_mode_interrupt',
 )
+# multi_agent=false still declares the collaboration.* tools (spawn_agent, wait_agent, ...);
+# agents.enabled=false removes them. Re-enabled only for an accepted tier2 run.
+AGENTS_DISABLED = 'agents.enabled=false'
 # Subscription login is handled by the official CLI. No secret-variable exception
 # is needed: runner retains HOME/CODEX_HOME and scrubs API keys and tokens.
 KEEP_ENV: tuple[str, ...] = ()
@@ -49,6 +56,8 @@ def build_argv(req: AdapterRequest, *, enable_subagents: bool = False) -> list[s
             argv.extend(['--disable', feature])
     if enable_subagents:
         argv.extend(['--enable', 'multi_agent'])
+    else:
+        argv.extend(['-c', AGENTS_DISABLED])
     return argv + ['-m', req.model, '--skip-git-repo-check', '-C', str(req.workdir.resolve()),
                    '--ephemeral', '--json', '--output-schema', str(raw / 'schema.json'),
                    '--output-last-message', str(raw / 'last.json'), '-']
