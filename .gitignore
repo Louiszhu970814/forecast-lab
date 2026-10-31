@@ -5,3 +5,5 @@ __pycache__/
 .DS_Store
 scratch/
 *.local.md
+data/
+reports/
