@@ -1,0 +1,29 @@
+{
+  "tournaments": {
+    "main": {
+      "slug": "fall-futureeval-2026",
+      "id": 33121,
+      "submit_whitelisted": false
+    },
+    "minibench": {
+      "slug": "minibench",
+      "id": null,
+      "submit_whitelisted": false
+    },
+    "bot_testing_area": {
+      "slug": "bot-testing-area",
+      "id": 32977,
+      "submit_whitelisted": false
+    }
+  },
+  "trial_ground_types": [
+    "bot_testing_area",
+    "metaculus_cup",
+    "main_site_questions"
+  ],
+  "_notes": {
+    "minibench_id": "暫定：minibench 的數字 ID 隨當期輪次變動，初始設為 null",
+    "trial_ground_types": "暫定：試驗場地類型代號對應 bot testing area、Metaculus Cup 與主站題目",
+    "submit_whitelisted": "所有比賽的 submit_whitelisted 初始皆為 false，須完成規則核對並經 Louis 核准後才可開啟"
+  }
+}

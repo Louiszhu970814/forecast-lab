@@ -1,0 +1,88 @@
+{
+  "version": "run_config_v2",
+  "players": {
+    "claude": {
+      "tier1": {
+        "model": "claude-opus-5-5",
+        "effort": "medium"
+      },
+      "tier2": {
+        "model": "claude-opus-5-5",
+        "effort": "high",
+        "subagents_enabled": false,
+        "max_subagents": 3
+      }
+    },
+    "gemini": {
+      "tier1": {
+        "model": "gemini-4-argon-medium",
+        "effort": "medium"
+      },
+      "tier2": {
+        "model": "gemini-4-argon-high",
+        "effort": "high",
+        "subagents_enabled": false,
+        "max_subagents": 3
+      }
+    },
+    "gpt": {
+      "tier1": {
+        "model": "gpt-6-astra",
+        "effort": "medium"
+      },
+      "tier2": {
+        "model": "gpt-6-astra",
+        "effort": "high",
+        "subagents_enabled": false,
+        "max_subagents": 3
+      }
+    }
+  },
+  "timeouts_s": {
+    "tier1": 600,
+    "tier2": 1200,
+    "repair": 300
+  },
+  "escalation": {
+    "binary_log_odds_diff": 1.0,
+    "binary_clip": [
+      0.02,
+      0.98
+    ],
+    "multiple_choice_prob_diff": 0.25,
+    "market_logit_diff": 0.7,
+    "market_price_epsilon": 0.005,
+    "flags": [
+      "resolution_ambiguity",
+      "evidence_conflict"
+    ]
+  },
+  "deadlines": {
+    "safety_margin_minutes": 20,
+    "submit_lead_minutes": 5,
+    "duration_quantile": 0.9
+  },
+  "acceptance": {
+    "claude": {
+      "model": "haiku",
+      "effort": "low",
+      "cli_status": "已確認：`--model haiku` 於 2026-10-31 實測可用（回報 claude-haiku-5-5）；effort 待 W4 確認"
+    },
+    "gemini": {
+      "model": "gemini-3.8-flash-low",
+      "effort": "low",
+      "cli_status": "待 W4～W6 確認"
+    },
+    "gpt": {
+      "model": "gpt-6-astra",
+      "effort": "low",
+      "cli_status": "待 W4～W6 確認"
+    }
+  },
+  "_notes": {
+    "repair_timeout": "暫定：timeouts_s.repair = 300 秒（PLAN 未規定格式修復逾時秒數）",
+    "tier2_subagents_enabled": "暫定：各線 tier2.subagents_enabled 預設為 false，待 §7.6 子代理驗收通過後再個別開啟",
+    "acceptance_models": "待 W4～W6 確認：acceptance 區塊中 claude 的 Haiku 具體模型別名與三線 CLI 實際可用的參數寫法，於 W4～W6 確認",
+    "schema_keys": "暫定：JSON 欄位階層與鍵名為 M1-W1 暫定"
+  }
+}

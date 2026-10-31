@@ -1,0 +1,20 @@
+{
+  "version": "agg_v1",
+  "binary": {
+    "method": "log_odds_mean",
+    "extremizing_factor": 1.0,
+    "clip": [0.02, 0.98]
+  },
+  "multiple_choice": {
+    "method": "geometric_mean",
+    "smoothing_epsilon": 0.02
+  },
+  "weights": {
+    "claude": 1.0,
+    "gemini": 1.0,
+    "gpt": 1.0
+  },
+  "_notes": {
+    "schema_keys": "暫定：JSON 欄位名稱（binary.method = log_odds_mean、multiple_choice.method = geometric_mean 與 weights 等權 1.0）為暫定；數值取自 PLAN §4.2"
+  }
+}

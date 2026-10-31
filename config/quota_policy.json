@@ -1,0 +1,40 @@
+{
+  "version": "quota_policy_v1",
+  "max_concurrency_per_player": 1,
+  "token_multiplier_cap": 3,
+  "priority_order": [
+    "main_tier1",
+    "minibench_tier1",
+    "main_tier2",
+    "minibench_tier2",
+    "human_advisory"
+  ],
+  "admission_reserve_order": [
+    "pending_tier1",
+    "expected_new_questions_before_reset",
+    "format_repair",
+    "tier2",
+    "human_advisory"
+  ],
+  "urgent_minibench_override": true,
+  "players": {
+    "gemini": {
+      "weekly_cap": 0.6,
+      "tier2_per_question_cap": 0.05,
+      "credits_must_be_zero": true
+    },
+    "claude": {
+      "weekly_attempts_cap": null,
+      "token_multiplier_cap": 3
+    },
+    "gpt": {
+      "weekly_attempts_cap": null,
+      "token_multiplier_cap": 3
+    }
+  },
+  "_notes": {
+    "version": "暫定：version 標記為 quota_policy_v1",
+    "weekly_attempts_cap": "暫定：claude 與 gpt 的 weekly_attempts_cap 初始為 null，於 M2 量測後設定（PLAN §9）",
+    "priority_identifiers": "暫定：priority_order 與 admission_reserve_order 的代號字串為暫定，對應 PLAN §9 的優先序與准入順序"
+  }
+}
