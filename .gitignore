@@ -7,3 +7,4 @@ scratch/
 *.local.md
 data/
 reports/
+.pytest_cache/
