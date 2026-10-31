@@ -610,6 +610,66 @@ forecast-lab/
 
 本輪結論：尚有 blocking 意見，建議由 Louis 決定採納範圍後交 Claude 整合，再進行下一輪審查；本輪未修改 §15／§16 或版本號。
 
+#### 第 2 回合審查（2026-10-31）
+
+已完整閱讀 AGENTS.md、PLAN.md（含 Gemini 第 2 回合新增意見），並對照 §15 D7～D20、§16 v0.2 與 README.md。以下只新增審查意見；已解決的第 1 回合問題不再列為 blocking。本次只做唯讀 CLI 查證與官方文件查閱，未執行模型呼叫、未讀取憑證、未完成 §7.6 實測；協調者本次審查的工具設定不視為預測執行設定的驗收證據。
+
+**一、第 1 回合整合核對**
+
+- [§3～§10 / §15 D7～D12、D15、D16、D18、D20 / §16] 確認並保留已整合項目：人類選填與主榜獨立、N = 45 且不自動放寬、K = 5／試行 3、單次預測、三級稽核與已知暴露排除、hostname 比對、移除數字錨點、拒絕 Base64、單次抓取拆流、抽樣去重與可重現資訊、人類獨立完整題卷、共同題集與 BSS 邊界、ensemble 主次、bootstrap／題群敏感度、探索性結論、正式結算與追加更正、attempt 識別碼及模型身分欄位、程序群逾時終止、CLI 升版重驗及停用方式。D10 的 0.001～0.999 是 Louis 採用的折衷，雖不同於我原提 [0,1]，接受且不再阻擋；README 與 AGENTS.md 已同步 D7｜逐項對照正文與 v0.2 紀錄後，這些原問題已處理；剩餘的採用資格、稽核繼承與驗收細節另列於下方，不能把 D18 解讀成所有邊界情況都已關閉｜non-blocking
+- [§3.4～§3.5 / §5.3 / §7.3 / §15 D13、D14、D17、D19 / §16] 保留固定模型／medium、6 小時模型窗口、24 小時人類窗口、定期報告與清除 API 計費環境變數的決策；D19 的 Claude 修正已寫入骨架及權限章節，本輪不冒稱已獨立實測 Claude。D14 是可接受的營運折衷，但報告也應註明模型補跑相對 t0 最多 6 小時的資訊優勢；D12 的人類快照應區分提交與匯入時間，延後匯入時不能把匯入時的 CP 稱為提交時的 CP｜固定時間窗縮小而未消除資訊時差；§16 對這些新增項目的記載與正文一致，實測工作仍屬 M1～M3｜non-blocking
+- [§3.1 / §4.4 / §5.5 / §15 D18] 建議補上可追溯的 CP snapshot ID、resolution event ID、audit event ID 與計分採用原因；每份報告保存採用的題號／attempt／版本清單、稽核與結算截止點，並明定只取截止點以前的最新事件｜前輪要求的題目快照與 attempt 欄位已加入，但 CP、結算與最終採用原因尚未完整落到資料契約；可由計分階段推導，不必修改既有預測紀錄｜non-blocking
+
+**二、V1、V4：Codex 查證結果與證據界線**
+
+- [§12 V1 / §5.3～§5.4] 確認保留 `-m gpt-6-astra -c 'model_reasoning_effort="medium"'` 與 `--output-schema <FILE>`：本機 bundled catalog 列出該模型及 medium；官方 [Models](https://learn.chatgpt.com/docs/models) 列出 Codex 的 Astra 指令，[Configuration Reference](https://learn.chatgpt.com/docs/config-file/config-reference) 確認設定鍵。`--output-schema` 描述最後答案形狀，`--json` 則輸出事件流；§5.4 現為範例物件，實作時須另製作正式 JSON Schema 並由主程式驗證。V1 可標為「參數與文件已確認，固定模型＋正式 schema＋搜尋的端到端組合待 M1」｜本機 help 不是一次成功的模型呼叫，bundled catalog 也不是帳號即時可用性的證明；官方 [Non-interactive mode](https://learn.chatgpt.com/docs/non-interactive-mode) 支持 schema 用法，但本輪依指令未呼叫 `codex exec`，不能聲稱已驗證 schema 保證成功或帳號權限｜non-blocking
+- [§12 V4 / §5.5] 建議 GPT adapter 讀取 `turn.completed.usage`，將 `input_tokens`、`output_tokens` 原名保存，`cached_input_tokens` 映射為 `cached_tokens`，`reasoning_output_tokens` 映射為 `reasoning_tokens`；保存原物件，缺欄位或中途失敗無 usage 時為 null。勿把快取／推理明細再加到 input＋output 當成額外總 token；解析器應以固定 CLI 樣本確認包含關係與多 turn 累計方式｜官方 [Non-interactive mode](https://learn.chatgpt.com/docs/non-interactive-mode) 的範例明列四欄；本機 help 只證實 JSONL，沒有提供 usage schema。本輪確認的是官方事件契約，尚無本機 0.166.0 預測樣本供解析器回歸驗證｜non-blocking
+- [§12 V4 / §3.3 / §5.5 / §7.6] 工具事件至少依頂層 `type`（`item.started`／`item.updated`／`item.completed`）與 `item.id`、`item.type` 分流，同一 item 生命週期只計一次；官方 [Web search](https://learn.chatgpt.com/docs/web-search) 確認搜尋為 `web_search` item。對「搜尋、開頁、頁內搜尋、實際 URL」的細分須在 M1 保留原始事件並查核該版是否提供可用 action／URL 欄位，不能以 query 字串、引用數或三種生命週期事件數冒充讀頁次數。CLI 未提供時細分計數為 null，另列可觀測 item 數與稽核覆蓋限制；`reported_model_id` 亦不可用 requested ID 或 bundled catalog 填補｜已查閱的官方 exec 文件未承諾完整開頁 URL 與 resolved model 欄位，不能直接套用 Responses API 或 App Server 的不同事件格式。§5.5 容許 null，但 §7.6 要求模型 ID 一致，應明定「取得則比對，缺失則記未驗證並依預定政策處理」，避免以假資料通過驗收｜non-blocking
+
+<details>
+<summary>本機唯讀輸出摘要（2026-10-31）</summary>
+
+`codex --version`：`codex-cli 0.166.0`。
+
+`codex exec --help` 的旗標與說明摘要：
+
+```text
+-m, --model <MODEL>
+-c, --config <key=value>       （值依 TOML 解析）
+--output-schema <FILE>         （指定最後回應的 JSON Schema）
+--json                        Print events to stdout as JSONL
+-o, --output-last-message <FILE>
+--ignore-user-config          （不載入 $CODEX_HOME/config.toml；登入仍使用 CODEX_HOME）
+```
+
+`codex debug models --help` 說明 `--bundled` 不刷新、只列隨 binary 附帶的目錄；實際執行 `codex debug models --bundled` 後僅擷取 Astra 的相關欄位：
+
+```json
+{"slug":"gpt-6-astra","default_reasoning_level":"low","supported_reasoning_levels":["low","medium","high","xhigh","max","ultra"],"supported_in_api":true}
+```
+
+上列 `supported_reasoning_levels` 為由原始物件陣列抽取 `effort` 的摘要；目錄預設 low，因此明確指定 medium 有必要。`codex features list` 實際列出 `shell_tool`、`unified_exec`、`apps`、`browser_use`、`computer_use`、`hooks`、`multi_agent`、`plugins`、`view_image` 均為 `stable true`；這是該唯讀查詢的有效值，不等於預測命令的工具清單或所有環境的預設值。CLI 另輸出無法建立 PATH aliases 的沙箱警告，未影響上述查詢。曾嘗試把 `--ignore-user-config` 放在頂層查詢命令前，CLI 拒絕該旗標；後改用以上支援的唯讀語法，並未修改設定。
+
+</details>
+
+**三、定期報告與採用規則：仍成立的問題**
+
+- [§4.5 / §3.2～§3.5 / §9] 同意 Gemini：對所有報告與計分板統一加上「報告產生時已過 t0＋24 小時」的公開資格，提前結算也不能先公布機率、逐題分數或能反推答案的彙總。此公開延遲應對所有題目固定套用，不因有無人類填答而改變主榜｜§4.5 的「已結算即可呈現」仍可能繞過 §3.5；固定延遲可同時維持 D7 的人類紀錄不影響主榜｜blocking
+- [§4.5 / §4.2 / §3.3] 建議明文沿用共同題集、洩漏排除、全部紀錄敏感度分析及排除／待判讀數；每個版本分段的期間值與累計值均列題數，零題為無法計算。同意 Gemini 增列個別有效題集作描述，但不同設定／不同週的個別題集不得用來宣稱推理強度改善；只改一條線時也要固定整組設定版本的分段規則｜正文已有一般計分規則，這是補明 §4.5 的引用與呈現，不另把同一問題重複標為 blocking；跨期題目難度及結算速度不同，BSS 也不能消除全部混淆｜non-blocking
+- [§4.5 / §5.5 / §7.5 / §9] 同意區分題目與 attempt，但不採納 Gemini「每題中位數僅對成功有效預測計算」作為唯一消耗指標。建議應答題數由抽樣題目×各線的排程帳冊計算，停用／額度後跳過／尚未完成窗口均留下狀態；以 t0 所屬期間及報告截止點決定題目狀態，未截止者列 pending。消耗另以明定的 attempt 起始時間歸入半開區間 [start,end)，總和包含所有嘗試；每題成本先合計該題全部嘗試，再分全體／成功／失敗呈現，成功題的補跑與格式修復亦計入。null 不當 0，總和須附已知用量的覆蓋率；缺答原因保留原始 quota／timeout 與最終 window_expired，另列曾遇額度不足及補跑後成功數｜目前「執行時間」沒有固定起訖與跨期口徑，沒有啟動的題也可能從分母消失；直接按每行計數會重複算題，僅看成功者則漏掉無效但昂貴的嘗試，無法支持 D17 的額度與推理強度決策｜blocking
+- [§7.5 / §5.4～§5.5 / §3.3] 採用條件應由「解析成功」改為「正常完成、通過 schema 與語意驗證、題號吻合、有限且範圍內的機率、於窗口內完成」，並保存驗證狀態。格式修復僅能保留原機率與來源證據；沿 `prev_attempt_id` 繼承原始輸出及全部前序嘗試的洩漏／二手暴露標記，禁止藉修復或錯誤補跑取得乾淨資格。已確定暴露後是否容許無工具格式整理可另定，但不能恢復主要分析資格｜目前 `parsed` 僅表示解析成功，合法 JSON 不等於有效預測，逾時前輸出的 JSON 也不能自動採用；原始回應暴露後格式修復可能刪掉 sources 或把布林值改成 false，僅稽核最後一筆會洗掉前輪要求保留的證據｜blocking
+- [§4.4～§4.5 / §16] 建議報告檔名加入產生時間或 report ID，固定 UTC 期間邊界，分別記錄平台結算時間、首次觀測時間與更正事件；明定延遲抓取／更正後如何重算歷史週，並保留舊報告及稽核截止版本｜目前同起迄日重跑會覆寫檔名，且「期間內結算」未區分平台時間與抓取時間；結算或人工稽核更正後僅靠目前最新資料無法重現舊結果｜non-blocking
+
+**四、隔離驗收與對 Gemini 第 2 回合的異議**
+
+- [§7.2～§7.6 / §12 V7] 同意 Gemini 擴大讀寫、子代理、背景排程及 hooks 的驗收範圍；另須測試工作目錄內讀檔、相鄰選手目錄、絕對／相對／符號連結路徑，以及讀網頁工具對 `file://`、localhost／loopback 與重新導向的處理（只用合成假資料），確認不能透過替代工具取得本機資料。每個測試保存實際工具宣告、主程式產生但未放入 prompt 的隨機 canary、呼叫／拒絕事件與檔案前後狀態；「檔案不存在」、「網路故障」或模型選擇不呼叫不能算權限阻斷。搜尋與開頁正向測試也須驗證取得測試頁內容｜原 §7.6 只測目錄外讀檔及籠統寫檔，未涵蓋所有本機讀取與替代入口；功能旗標清單本身不能證明工具不可用。本機另有 `browser_use`、`view_image` 等候選入口，應納入盤點，不把審查環境已停用視為預測環境已停用｜blocking
+- [§7.3 / §7.6 / §14.1 第 2 回合] 有條件同意 Gemini 以 CLI 層不可覆寫的硬性拒絕作為移除工具宣告的替代；建議把判準寫成「模型無法成功行使本機讀寫、執行或委派權限」，保留完整工具清單並逐路徑證明阻斷，未覆蓋或無證據時停線。不同意把一般 read-only 沙盒也一概列為等價替代；若工具已移除，可用工具宣告及載入設定證據驗收，毋須要求不存在的工具產生拒絕事件｜AGENTS.md 禁止的是能力，硬性拒絕符合目的，但唯讀通常仍可讀檔及執行指令；也不能因模型沒有嘗試就推論 CLI 已拒絕。這修正我前輪過度限定「工具清單只能剩兩類」的表述｜non-blocking
+- [§7.2 / §7.6 / §14.1 第 2 回合] 同意隨機獨立暫存目錄與 0700 作為衛生措施，但不同意將其視為三選手隔離證據；同一 OS UID 的程序仍有權讀取彼此目錄。應以工具移除／硬性拒絕或真正不同的 OS 權限邊界達成隔離，驗收使用已知相鄰路徑測試；目錄應每題每次 attempt 建立，避免同日多題共用殘留狀態｜原範例只含 run_id/player，未明定是否逐題清空；隨機路徑不能取代存取控制。此為隔離測試的補充，不把 0700 自身列為進入 M1 的必要修正｜non-blocking
+- [§7.2 / §7.6] 全域設定基準必須先通過內容審查與假資料驗收，再做雜湊比對；列明實際載入的全域／父目錄指示、skills、記憶、MCP、plugins、hooks 與管理設定，禁止恢復舊 session。以假全域指示／記憶 canary 測試自動載入；格式修復也須套用隔離，且工具全關。設定改變時停線重驗，不能把當下檔案直接當成安全基準｜目前只要求保存與比對基準，會把原已含歷史答案或可執行 hook 的環境永久接受；自動載入不需要模型發起讀檔，因此一般讀檔拒絕測試無法抓到。空白 cwd 也不保證其父目錄沒有指示｜blocking
+- [§3.3 / §7.6 / §14.1 第 2 回合] 不同意 Gemini 把「被拒絕的禁用 URL 嘗試」穩定判成 `leak_confirmed`；建議區分 attempted／blocked／opened／結果未知，已硬性拒絕且沒有內容暴露者只留違規嘗試紀錄，實際成功開啟或已知內容暴露才按 D9 排除。用離線事件樣本涵蓋成功／拒絕、子網域、相似網域與重新導向，搜尋摘要暴露另測；無 URL 可觀測性則揭露稽核缺口，不捏造成功開頁。GUI 不彈窗測試可保留｜這項建議若原樣採納會造成假陽性，且硬封開頁不會自動封鎖搜尋摘要或二手轉述；§7.4 已接受不完美稽核，不應把取得每一頁 URL 當成三條線共同的絕對進場條件。官方 [Web search](https://learn.chatgpt.com/docs/web-search) 亦說明 Codex hosted search 與本機 sandbox 網路限制分開｜non-blocking
+
+本輪結論：前輪主要設計已正確整合，仍有 5 項 blocking：公開時間閘門、報告題目／嘗試口徑、採用資格及稽核繼承、隔離測試覆蓋、全域基準安全性。V1 與 V4 已附本機或官方證據，未實測的組合與欄位明確保留到 M1；不因本次禁止模型呼叫而把「尚未實測」本身新增成 M0 blocker。請整合者依 Louis 決定修改正文與決策／版本紀錄；本輪未修改其他章節或執行 git add、commit、push。
+
 ### 14.3 Louis 與女友
 
 （待填）
