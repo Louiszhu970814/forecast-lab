@@ -907,6 +907,91 @@ v0.4 新增：
 
 本回合沒有 blocking 意見。
 
+#### 第 4 回合審查（2026-10-31）
+
+**一、從提高比賽分數的角度，審查 §3.4 分層流程、§4.2 整合規則與 §6 Prompt 要點**
+
+- [§3.4] 建議在 §3.4 第 5 點「升級判斷」的是非題條件中，改為「先將各線機率截斷至 `[0.02, 0.98]` 再計算 log-odds 最大差距 ≥ 1.0，或同時要求絕對機率最大差距 ≥ 0.08（即 `log_odds_range >= 1.0 and prob_range >= 0.08`）」；多選題升級條件則建議補充「與 `match = exact` 市場價格之單一選項最大機率差 ≥ 0.15（或總變差距離 Total Variation Distance $\frac{1}{2}\sum |p_i - q_i| \ge 0.25$）」｜目前是非題直接對原始機率（範圍 `0.001`～`0.999`）計算 log-odds 差，當三條線都高度共識認為事件極不可能發生（例如分別給出 `0.005` 與 `0.015`）時，log-odds 差距達 `1.11 >= 1.0` 會觸發昂貴的第 2 層深度研究，但依 §4.2 整合規則，兩者在 `[0.02, 0.98]` 截斷後都會變成 `0.02`，升級完全不會改變送出結果卻白白消耗第 2 層額度；加上截斷後計算或絕對機率差距下限，可將有限的第 2 層額度集中於真正影響比賽分數的中間分歧題｜non-blocking
+- [§3.4 / §4.2 / §4.3] 建議在 §4.2 與 §4.3 的候選整合規則（`agg_v2`）中，將「第 1 層獨立整合與第 2 層協調整合的加權混合（例如在升級題目對第 1 層與第 2 層整合之 log-odds 取 $w \cdot \text{Tier1} + (1-w) \cdot \text{Tier2}$）」以及「當兩條線以上回報同一個高流動性且 `match = exact` 的預測市場時，將市場價格作為第 4 個錨點納入 log-odds 池」列為預定比較的候選規則｜群體預測文獻（Delphi 法與 LLM 多代理辯論研究）顯示，讓模型在第 2 層看到彼此理由雖能糾正事實遺漏，但也容易引發從眾錨定（herding）而折損獨立誤差抵銷紅利，保留部分第 1 層獨立權重常優於 100% 採用第 2 層；同時，實證預測研究一致顯示高交易量且結算條件完全一致（`exact`）的真錢市場價格蘊含即時套利資訊，在模型無確鑿反證時將其納入整合池可顯著提升對數分數｜non-blocking
+- [§4.2] 建議將多選題的下限平滑規則改為與選項數 $K$ 成比例的線性混合平滑：$p'_i = (1 - \epsilon) p_i + \frac{\epsilon}{K}$（例如取 $\epsilon = 0.02$，或下限設為 $\min(0.01, \frac{0.05}{K})$），取代「先把每個選項提高到至少 0.01，然後再正規化一次」｜目前「先 `max(p_i, 0.01)` 再除以總和」有兩個問題：(1) 第二次正規化會使分母大於 1，導致原本被拉到 `0.01` 的選項在正規化後又掉回 `< 0.01`；(2) 當多選題選項數較多（例如 $K = 8 \sim 12$）時，固定 `0.01` 下限會抽走近 10% 的機率質量，過度稀釋高把握選項的對數得分；改用 $(1-\epsilon)p_i + \epsilon/K$ 在數學上一次完成正規化，且對不同選項數 $K$ 具備尺度不變性｜non-blocking
+- [§6.1 / §6.2] 建議在 §6.1（`forecast_v2`）與 §6.2（`reconcile_v1`）補強三項提高對數分數的明確指示：(1) **剩餘時間窗口換算（Time-to-deadline hazard scaling）**：於 §6.1 步驟 1～2 要求模型明確算出「今日（UTC）距離題目關閉／結算日的剩餘天數」，並將歷史基準率按剩餘天數與截至目前已未發生的條件（survival conditioning）換算，避免直接套用年度基準率而高估短期內發生的機率；(2) **事前驗屍（Pre-mortem）**：於 §6.1 步驟 5～6 要求模型回答「若本預測最終大錯特錯，最可能忽略的結算條件細節（fine print trap）或單一催化事件為何」，以抑制單一敘事下的尾部過度自信；(3) **第 2 層無新證據不移動原則（No movement without new evidence）**：於 §6.2 明確指示「除非查核到第 1 層未涵蓋的具體新事實、連結證據，或指出某份摘要在結算條件／算術上的具體錯誤，否則不得單純因其他預測者機率不同而向平均折衷靠攏」｜在 Metaculus 對數計分（spot peer score）下，最常見的失分來源正是「忽略剩餘天數已短而給出過高基準率」、「漏看 fine print 邊界條件導致極端錯誤」以及「第 2 層盲目向同儕平均妥協」，這三條 prompt 約束不增加額外工具呼叫成本，卻能直接改善校準與區辨力｜non-blocking
+
+**二、確認 §5.3、§7.3 與 §7.7 中 `agy` 的第 2 層子代理設定、`useG1Credits` 與 `/usage` 額度驗證之可行性（附本機 help、changelog、本機查詢樣本與官方文件來源）**
+
+- [§5.3 / §7.3 / §7.6 / §12 V13、V18] 確認 `agy` 的第 2 層設定與最小自訂 agent 子代理架構可行，並對 V13、V18 提供具體設定建議：(1) **V18（模型 ID 與 `--effort high`）**：本機 `agy models` 同時列出 `gemini-4-argon-medium`、`gemini-4-argon-high` 與 `gemini-4-argon-low`，雖 changelog `1.1.5`、`1.1.28`、`1.3.4` 支援以 `--effort` 切換同家族變體，仍建議在 `config/run_config_v2.json` 將 `gemini` 第 2 層的模型 ID 直接設為 `gemini-4-argon-high`（搭配 `--effort high`），免除依賴 CLI 內部別名解析的隱式轉換；(2) **V13（第 2 層子代理限制與模型控制）**：依據 changelog `1.1.5`、`1.1.6`、`1.1.14`、`1.1.27`、`1.2.1`、`1.2.5`、`1.2.7`、`1.3.1`，可在第 2 層透過 `--agent` 指定 Markdown 自訂主代理，於 YAML frontmatter 設定 `excludeDefaultComponents: true`、`inheritCustomizations: false`、`inheritMcp: false`、`tools: [search_web, read_url_content, invoke_subagent]`，並以 `agents: [./tier2_researcher.md]` 明確宣告唯一可呼叫的受限子代理（該子代理同樣設定 `excludeDefaultComponents: true`、`subagent: true`、`model: inherit`、`tools: [search_web, read_url_content]`），即可在架構上同時確保「不開放 `define_subagent`／`schedule`／本機讀寫工具」、「子代理強制繼承父代理的 Argon 模型（`model: inherit`）而非改用 Flash／Pro」以及「子代理同樣受 session 的 `permissions.deny`（含 `read_url(metaculus.com)`）約束」；(3) **子代理數量與可觀測性**：`agy` 無限制單次呼叫子代理數量的 CLI 旗標，須依 §5.3 由 prompt 限制最多 3 個並以 `--print-timeout 20m` 與事後額度上限管控；adapter 若需精確統計 `subagent_count` 與工具事件，可在解析時搭配 `--log-file <raw_dir>/agy_cli.log`（或於驗收確認 `--output-format json`／`stream-json` 的 `subagent_info` 欄位，見 changelog `1.1.8`）｜基於本機 `agy --help`、`agy models` 與 `1.4.12` changelog 實證核對；將子代理也設為自訂 `model: inherit` 還能大幅簡化 §7.7 的額度桶檢查（無需擔心子代理合法消耗 Flash／Pro 桶而干擾 `model_mismatch` 判定）｜non-blocking
+- [§7.3 / §7.7 / §12 V17] 確認 `useG1Credits` 與 `/usage` 額度驗證完全可行，並補充兩項關鍵實作細節：(1) **AI Credits 超額防護（`useG1Credits` 與 `/credits`）**：本機 2026-10-31 的 `agy -p "/credits" --output-format json` 實測樣本顯示，目前帳號的 `command.data.remaining_credits` 為 `0`；且依 changelog `1.2.15`，當方案額度用完而 AI credits 餘額不足時，CLI 會立即停止並回報 `"Your AI credits balance is too low to continue."`（不重試）。此外，由於 changelog 在 `1.0.3` 稱 `UseG1Credits`、在 `1.0.8` 稱 `use_ai_credits`，而 `1.0.7` 明載 `settings.json` 合併時會保留未識別欄位，建議在 `--settings` 同時傳入 `"useG1Credits": false, "use_ai_credits": false` 雙鍵，並於 M1 以 `agy -p "/config" --output-format json` 核對；(2) **`/usage` 額度桶欄位解析（必讀浮點數 `remaining_fraction`）**：本機 2026-10-31 的 `agy -p "/usage" --output-format json` 實測樣本確認該查詢不消耗額度（`duration_seconds: 0`、`total_tokens: 0`），且 `command.data.groups` 內明確包含 §7.7 指定的三個桶 ID：`gemini-argon-wtu-weekly`、`gemini-weekly` 與 `gemini-5h`；**惟 `quota.py` 實作時必須讀取 JSON 中雙精度浮點數欄位 `buckets[].remaining_fraction`（例如樣本中 Argon 為 `0.8763402700424194`、`gemini-weekly` 為 `0.9995706677436829`），不可解析頂層 `response` 字串中的整數百分比（`88%`、`100%`）**，否則單題消耗小於 `1%` 時整數百分比不會跳動，會誤觸 §7.7「Argon 桶沒有減少」之判斷；另建議 `gemini` adapter 傳入 `--log-file <raw_dir>/agy_cli.log`，利用 changelog `1.1.28`「CLI log 記錄模型名稱解析與替換」作為 `model_mismatch` 的直接證據｜本機 `review_inputs/agy_slash_usage.json` 與 `review_inputs/agy_slash_credits.json` 直接證實了 JSON 結構與精確度差異：例如 `gemini-weekly` 實際已消耗 `0.000429`（約 0.043%），在 `response` 文字顯示為 `100%`，唯有讀取 `remaining_fraction` 浮點數才能偵測單題微幅消耗｜non-blocking
+
+<details>
+<summary>附錄：本機 <code>agy</code>（1.4.12）唯讀輸出、<code>/usage</code> 與 <code>/credits</code> 樣本及官方文件來源（2026-10-31）</summary>
+
+1. **本機 CLI 版本與 `agy --help`、`agy models` 查證**：
+   - `review_inputs/agy_changelog.txt` 首行為 `1.4.12:`（本機已自動由 `1.4.11` 升至 `1.4.12`，印證 §5.3 與 §7.2 每次執行前檢查版本之必要性）。
+   - `agy --help` 支援 `--agent`、`--effort (low|medium|high|xhigh|max)`、`--json-schema`、`--log-file`、`--model`、`--output-format (text, json, stream-json)`、`-p`/`--print`、`--print-timeout`、`--sandbox`、`--settings`。
+   - `agy models` 列出之 Gemini 模型：`gemini-4-argon-medium`、`gemini-4-argon-high`、`gemini-4-argon-low`、`gemini-3.8-flash-high`、`gemini-3.8-flash-medium`、`gemini-3.8-flash-low`（另含 `claude-opus-5-5-*`、`claude-sonnet-5-5-*`、`gpt-oss-120b-medium`）。
+2. **本機 `agy -p "/usage" --output-format json` 實測樣本（`review_inputs/agy_slash_usage.json`）關鍵結構**：
+   ```json
+   {
+     "status": "SUCCESS",
+     "duration_seconds": 0,
+     "num_turns": 0,
+     "usage": {"input_tokens": 0, "output_tokens": 0, "thinking_tokens": 0, "cache_read_tokens": 0, "total_tokens": 0},
+     "command": {
+       "name": "usage",
+       "data": {
+         "groups": [
+           {
+             "name": "Gemini Models",
+             "buckets": [
+               {"id": "gemini-weekly", "window": "weekly", "remaining_fraction": 0.9995706677436829, "reset_time": "2026-11-06T14:08:50Z"},
+               {"id": "gemini-5h", "window": "5h", "remaining_fraction": 1, "reset_time": "2026-10-31T09:47:34Z"}
+             ]
+           },
+           {
+             "name": "Claude and GPT models",
+             "buckets": [
+               {"id": "3p-weekly", "window": "weekly", "remaining_fraction": 1, "reset_time": "2026-11-07T04:47:34Z"},
+               {"id": "3p-5h", "window": "5h", "remaining_fraction": 1, "reset_time": "2026-10-31T09:47:34Z"}
+             ]
+           },
+           {
+             "name": "Gemini 4 Argon",
+             "buckets": [
+               {"id": "gemini-argon-wtu-weekly", "window": "weekly", "remaining_fraction": 0.8763402700424194, "reset_time": "2026-11-06T12:03:52Z"}
+             ]
+           }
+         ]
+       }
+     }
+   }
+   ```
+3. **本機 `agy -p "/credits" --output-format json` 實測樣本（`review_inputs/agy_slash_credits.json`）**：
+   ```json
+   {
+     "status": "SUCCESS",
+     "duration_seconds": 0,
+     "num_turns": 0,
+     "command": {"name": "credits", "data": {"remaining_credits": 0, "upgrade_uri": "https://antigravity.google/g1-upgrade"}}
+   }
+   ```
+4. **本機 `agy changelog`（`review_inputs/agy_changelog.txt`）對應條目**：
+   - **額度查詢與 AI Credits**：`1.0.1`（`/usage` 與 `/quota` 強制即時重載配額）、`1.0.3`（新增 G1 credits 與 `UseG1Credits` 設定及 `/credits`）、`1.0.8`（啟動時繼承全域 `use_ai_credits` 設定）、`1.1.11`（`-p "/usage"`、`/quota`、`/credits`、`/model`、`/effort`、`/skills` 支援 `--output-format json` 無互動查詢且不耗額度）、`1.2.15`（方案額度用完且 AI credits 不足時立即回報 `"Your AI credits balance is too low to continue."`；`-p "/usage"` 在 `--json` 下維持 UTC 時間戳）、`1.3.3`（達到個人配額上限時立即回報不重試）。
+   - **模型與推理強度解析**：`1.1.5`（新增 `--effort` 與自訂 agent frontmatter `model` 選項，預設 `inherit`）、`1.1.10`（修正 `-p` 模式下 `--model` 與 `--effort` 套用順序）、`1.1.28`（CLI log 記錄指定模型解析為其他模型、別名或 `--effort` 變體之紀錄）、`1.3.4`（`--model` 接受基礎模型名稱搭配 `--effort`）。
+   - **自訂 Agent 與子代理控制**：`1.1.1`（新增 `--agent`）、`1.1.6`（Markdown 自訂 agent 支援 `mainAgent`、`subagent`、`hidden`、`inheritMcp`、`commandExecutionPolicy`）、`1.1.8`（結構化輸出含 `tool_info` 與 `subagent_info`）、`1.1.14`（新增單一開關 `inheritCustomizations` 控制是否繼承 skills、rules、plugins、subagents 與 MCP）、`1.1.27`與`1.3.1`（frontmatter `agents` 清單支援相對路徑宣告可呼叫之子代理）、`1.2.1`（新增 `excludeDefaultComponents: true` 排除預設提示詞與內建工具）、`1.2.5`與`1.2.7`（在 `tools` 明確列出 `invoke_subagent` 與所需工具）、`1.3.4`（`-p` 模式下 `--agent` 找不到指定名稱時以 exit code 1 退出，不再退回預設 agent）。
+5. **官方文件與內建技能參考**：
+   - CLI 參考與設定：`https://antigravity.google/docs/cli/reference`、`https://antigravity.google/schemas/v1/settings.json`
+   - 權限與沙盒：`https://antigravity.google/docs/permissions`、`https://antigravity.google/docs/sandbox`
+   - 內建客製化規範（Custom Agents frontmatter 與工具繼承）：本機內建技能 `agy-customizations`、`antigravity-guide`
+</details>
+
+**三、檢查 §3.6 送出規則、§3.7 規則核對與 §11 風險清單是否遺漏失去比賽資格或送出錯誤的風險**
+
+- [§3.6 / §5.6 / §11] 建議在 §3.6 與 §11 補上「預測送出與推理留言的原子性／退避重試與不一致告警」及「第 2 層變動極小時免重複送出門檻」：(1) Metaculus API 的「送出預測」與「張貼留言」為兩次獨立 API 呼叫，若第 2 層更新預測成功、但隨後張貼留言因網路瞬斷或 HTTP 429 失敗，平台上會出現「最新預測為第 2 層機率，但最新留言仍為第 1 層機率與理由」的不一致，可能違反比賽「留言須如實反映最終預測」之規定；`submit.py` 對留言應有獨立的指數退避重試，若最終仍失敗須在 `submissions.jsonl` 標記 `comment_failed` 並立即通知 Louis；(2) 若第 2 層最終整合機率與已送出的第 1 層保底機率完全相同（或絕對差距 `< 0.002`），可明定不重複送出相同機率或僅在變動超過門檻時更新，避免在平台留下無實質差異的重複預測與雙份留言｜降低 API 部分失敗導致違規的風險，並減少無謂的 API 請求｜non-blocking
+- [§3.2 / §3.6 / §11] 建議在 §3.2 與 §11 補充「題目中途修訂（Question revision / Fine print update）或關閉時間提前之偵測」：目前 §3.2 規定 `poll_questions.py`「只處理尚未預測過的題目」，但 Metaculus 在開題初期偶有管理員修正結算條件（fine print）、選項文字或提前關閉時間的情況；建議 `poll_questions.py` 對開放中且已預測過的題目一併比對白名單欄位的 `content_hash` 與 `close_time`，若結算條件或標題發生實質變更，應寫入新快照並通知 Louis（或依預定規則重新執行 1 次預測更新）｜避免題目結算條件在 t0 後被平台修訂，機器人卻因「只處理未預測題目」而抱著針對舊條件的預測與留言直到結算失分｜non-blocking
+- [§3.6 / §4.2 / §5.4] 建議在 §3.6 與 §4.2 明確規定：`submit.py` 送出多選題前，須對正規化後的各選項機率做「精確十進位總和修正（Exact decimal sum-to-one rounding，例如將前 $K-1$ 個選項四捨五入至小數點後 6 位，最大或最後一個選項設為 $1 - \sum_{j \neq m} p_j$，並再次確認所有選項皆落在平台允許區間內）」｜IEEE 754 雙精度浮點數除法在 JSON 序列化或平台端驗證時，常因尾數捨入產生總和 `0.9999999` 或 `1.000001` 而遭 Metaculus API 以 `400 Bad Request` 拒絕送出｜non-blocking
+- [§3.7 / §5.6 / §11] 建議在 §3.7「比賽規則核對」與 §11「風險清單」補充兩項資格保護檢查：(1) **單一機器人身分註記與測試隔離**：核對正式機器人帳號已在 Metaculus 個人設定完成官方 Bot 標記與賽季報名表單，且嚴格確保測試帳號、Louis 本人帳號與女友帳號不會對同一場機器人賽送出任何預測（防範被誤判為多重帳號刷榜 Sybil participation 而取消領獎資格）；(2) **公開留言的惡意連結與語法清洗**：在 §5.6 明定 `comment.py` 組裝留言時，除了純文字與 1,500 字元限制外，應剝除或轉義 Markdown 圖片語法（`![...](...)`）、HTML 標籤及非 `http/https` 網址，防止外部網頁透過 `sources[].title` 或 `market_title` 夾帶追蹤像素、釣魚連結或垃圾訊息文字，導致機器人帳號在 Metaculus 留言區被檢舉停權｜這兩項皆涉及平台層級的帳號信譽與參賽資格，在 M3 規則核對與 `comment.py` 實作時一併落實成本極低、保護效果高｜non-blocking
+
+本回合沒有 blocking 意見。
+
 ### 14.2 GPT
 
 #### 第 1 回合審查（2026-10-30）
