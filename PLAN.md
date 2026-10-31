@@ -1127,6 +1127,40 @@ v0.4 新增：
 
 本回合沒有 blocking 意見。
 
+#### 第 5 回合審查（2026-10-31）
+
+**一、第 4 回合意見整合確認（對照 §15 D44～D52 與 §16 v0.5 變更紀錄）及對分歧裁決之表態**
+
+- [§15 D44～D52 / §16 v0.5] 確認第 4 回合獲採納之意見（是非題升級分歧先截斷至 `[0.02, 0.98]` 再算 log-odds 差、多選題升級檢查完整且同義之市場分布、多選題平滑改用 $p'_i = (1-\epsilon)p_i + \epsilon/K$ 且 $\epsilon = 0.02$、送出前精確十進位總和修正、事前驗屍 prompt 指示、送出狀態機與留言指數退避重試、題目修訂與關閉時間比對、單一主機器人帳號與試驗場地隔離、留言清洗剝除圖片／HTML／非 `http(s)` 連結、`gemini` 第 2 層採用 `gemini-4-argon-high` 與最小自訂 agent、`--log-file` 輔助驗證、AI credits 雙鍵候選，以及讀取 `/usage` 浮點數 `buckets[].remaining_fraction`）均已完整且正確整合至 v0.5 正文，無遺漏｜逐項核對 §2～§12、§15 與 §16 v0.5 確認一致｜non-blocking
+- [§3.4 / §5.4 / §15 D52 / §16 v0.5] 同意分歧裁決一（極端機率的升級）：以截斷到 `[0.02, 0.98]` 後的機率計算 log-odds 分歧，不另加 `prob_range >= 0.08` 條件，並保留 `escalation_flags`（`resolution_ambiguity`、`evidence_conflict`）的升級路徑｜先截斷至 `[0.02, 0.98]` 已解決「各線均 `< 0.02` 卻因原始 log-odds 差觸發無效升級」的問題，而在 `[0.02, 0.98]` 內 `log-odds >= 1.0` 本身即具實質機率差距；同時保留 `escalation_flags` 可讓模型在發現尾部結算陷阱或關鍵證據衝突時仍能申請第 2 層深研，兼顧額度效率與尾部風險防護，無異議｜non-blocking
+- [§6.1 / §6.2 / §15 D52 / §16 v0.5] 同意分歧裁決二與三（剩餘時間換算與第 2 層改答案條件）：(1) 基準率時間換算明定依「結算條件規定的事件發生期間」，分開標示預測關閉時間、事件發生期間與預計結算時間，且已發生但尚未正式確認的事件不按存活條件換算；(2) 第 2 層允許模型因重新比較既有證據可信度、或發現第 1 層摘要在結算條件／計算上的錯誤而修改答案（須於 `change_reason` 說明具體理由），同時明文禁止單純因數字不同或為求一致而向平均靠攏｜這兩項修正比原提議更嚴密：區分事件窗口與行政結算日可避免錯用時間尺度，而允許修正第 1 層推理／算術錯誤同時禁止盲目折衷，既能攔截從眾效應（herding）又不阻礙有效糾錯，無異議｜non-blocking
+- [§3.4 / §3.6 / §4.2 / §7.3 / §7.7 / §15 D44、D47、D52 / §16 v0.5] 同意分歧裁決四至六：(1) 第 1／2 層加權混合與 `exact` 市場作為額外一票列為 `agg_v2` 預先登記候選，待累積已結算留出樣本後比較；(2) 因 D44 已改為「白名單比賽每題只送一次」，原「第 2 層變動 `< 0.002` 不重送」自然無須保留；(3) `agy` 的最小自訂 agent、AI credits 雙鍵與 `/usage` 額度驗證採納寫入規格，並標示為待 M1（§7.6 與 `/config`）實測驗收｜符合實驗統計紀律與 §7.6「未經本機實測不視為已確認可行」的共同原則，無異議｜non-blocking
+
+**二、確認 §7.3 中 `agy` 第 2 層的最小自訂 agent 規格與 §7.7 的額度判斷是否與本機 help、changelog 一致（附來源）**
+
+- [§7.3 / §7.6 / §12 V7、V13] 確認 §7.3 中 `agy` 第 2 層最小自訂 agent 規格與 §7.6 第 5 項的子代理驗收要求（含 D47 補齊之子代理再次委派阻斷、父／子排程與 hooks 拒絕、各 agent 類型工具與自動載入盤點、正向測試，以及逾時／中斷後無殘留背景子工作）與本機 `agy --help` 及 `1.4.12` changelog 完全一致，同意於 M1 實測驗證｜核對本機唯讀輸出與 `review_inputs/agy_changelog.txt`：(1) `agy --help` 確認支援 `--agent`（`Agent for the current CLI session`）；(2) changelog `1.1.6` 支援 Markdown 自訂 agent（YAML frontmatter 含 `mainAgent`、`subagent`、`hidden`、`inheritMcp`、`commandExecutionPolicy`）；(3) `1.1.14` 新增單一開關 `inheritCustomizations` 控制是否繼承 skills、rules、plugins、subagents 與 MCP；(4) `1.2.1` 新增 `excludeDefaultComponents: true` 以排除預設提示詞與內建工具；(5) `1.1.27` 與 `1.3.1` 支援於 frontmatter `agents` 清單以相對路徑宣告唯一可呼叫之子代理；(6) `1.2.5` 與 `1.2.7` 確認主代理 `tools` 列入 `invoke_subagent`、`search_web`、`read_url_content` 即可委派所宣告之子代理，而子代理 `tools` 僅列 `search_web`、`read_url_content`（不列 `invoke_subagent`、`define_subagent`、`schedule`）則從工具宣告層阻斷再次委派與排程；(7) `1.1.5` 確認子代理 frontmatter 的 `model` 欄位支援 `inherit`（預設值）以沿用父代理模型；(8) `1.3.4` 確認 `-p` 模式下 `--agent` 名稱不符時以 exit code 1 退出，不會退回預設 agent｜non-blocking
+- [§7.7 / §5.3 / §12 V17、V18] 確認 §7.7 的 `agy` 額度查詢、浮點數 `remaining_fraction` 解析、`model_mismatch`／`unverified`／`undetermined` 判定邏輯、`--log-file` 輔助證據與 AI credits 雙鍵關閉設定，與本機 `agy --help`、`agy models`、`1.4.12` changelog 及 `review_inputs/` 實測樣本完全一致｜核對本機唯讀輸出與 `review_inputs/` 樣本：(1) 本機 `agy models` 確認同時提供 `gemini-4-argon-medium` 與 `gemini-4-argon-high`；(2) changelog `1.1.11` 與 `1.2.15` 確認 `agy -p "/usage" --output-format json` 為不消耗額度的無互動唯讀查詢且維持 UTC 時間戳；(3) `review_inputs/agy_slash_usage.json` 確認 `command.data.groups[].buckets[]` 含 `gemini-argon-wtu-weekly`、`gemini-weekly`、`gemini-5h` 三個桶 ID 及雙精度浮點數 `remaining_fraction`（樣本中 `gemini-weekly` 的 `remaining_fraction` 為 `0.9995706677436829`，而 `response` 文字顯示 `100%`，證實必讀浮點數欄位）；(4) changelog `1.0.3`（`UseG1Credits`）、`1.0.8`（`use_ai_credits`）、`1.2.15`（配額用完且 credits 不足時立即回報 `"Your AI credits balance is too low to continue."`）與 `1.3.3`（達到個人配額上限立即回報不重試）支持 §7.3／§7.7 的超額防護設計；(5) `agy --help` 的 `--log-file` 與 changelog `1.1.28`（CLI log 記錄指定模型解析為其他模型、別名或 `--effort` 變體）支持將 `agy_cli.log` 作為模型替換的輔助證據，且 §7.7 將額度未變、多桶同變或與個人使用重疊時記為 `unverified`／`undetermined`，邏輯嚴密｜non-blocking
+
+<details>
+<summary>附錄：第 5 回合本機 <code>agy</code> 唯讀查證與 <code>review_inputs/</code> 來源對照（2026-10-31）</summary>
+
+1. **本機 `agy --help` 與 `agy models` 查證**：
+   - 支援旗標：`--agent`、`--disable-slash-commands`、`--effort (low|medium|high|xhigh|max)`、`--json-schema`、`--log-file`、`--model`、`--output-format (text, json, stream-json)`、`-p`/`--print`、`--print-timeout`、`--sandbox`、`--settings`。
+   - 可用 Gemini 模型：`gemini-4-argon-medium`、`gemini-4-argon-high`、`gemini-4-argon-low`、`gemini-3.8-flash-high`、`gemini-3.8-flash-medium`、`gemini-3.8-flash-low`。
+2. **`review_inputs/agy_slash_usage.json` 與 `review_inputs/agy_slash_credits.json` 欄位核對**：
+   - `/usage`：`status: "SUCCESS"`、`duration_seconds: 0`、`usage.total_tokens: 0`；`command.data.groups` 內含 `gemini-argon-wtu-weekly`（`remaining_fraction: 0.8763402700424194`）、`gemini-weekly`（`remaining_fraction: 0.9995706677436829`）、`gemini-5h`（`remaining_fraction: 1`）。
+   - `/credits`：`command.data.remaining_credits: 0`。
+3. **`review_inputs/agy_changelog.txt`（首行 `1.4.12:`）對應版本條目**：
+   - §7.3 最小自訂 agent：`1.1.1`（`--agent`）、`1.1.5`（frontmatter `model` 預設 `inherit`）、`1.1.6`（Markdown agent frontmatter `mainAgent`、`subagent`、`inheritMcp`）、`1.1.8`（`tool_info`、`subagent_info`）、`1.1.14`（`inheritCustomizations`）、`1.1.27` 與 `1.3.1`（frontmatter `agents` 相對路徑子代理清單）、`1.2.1`（`excludeDefaultComponents: true`）、`1.2.5` 與 `1.2.7`（`tools` 明列 `invoke_subagent` 與工具清單）、`1.3.4`（`-p` 下 `--agent` 找不到時以 exit code 1 退出）。
+   - §7.7 額度與模型驗證：`1.0.1`、`1.0.3`（`UseG1Credits`）、`1.0.8`（`use_ai_credits`）、`1.1.11`（`-p "/usage"`、`/credits`、`--output-format json` 不耗額度）、`1.1.28`（CLI log 記錄模型名稱解析與替換）、`1.2.15`（credits 餘額不足立即停止回報、`/usage` JSON 維持 UTC 時間）、`1.3.3`（個人配額用完立即回報不重試）。
+</details>
+
+**三、對照 `docs/tournament_checks/futureeval.md` 規則摘要，檢查 §3.4～§3.6 送出流程與試驗期設計是否仍有違規路徑**
+
+- [§3.1 / §3.2 / §3.4 / §3.6 / §10] 經逐條核對 `docs/tournament_checks/futureeval.md`，確認 §3.4～§3.6 的送出流程與試驗期設計已完整封堵所有違反比賽規則的路徑（無 blocking 問題）：(1) **每題只送一次**：§3.4 第 4、9 點與 §3.6 已明定第 1 層結果先存本地，白名單比賽每題只送出一次預測與一則留言，逾時先讀回對帳、留言失敗只補送留言、題目送出後再修訂亦不重送；(2) **不得預覽開放／即將開放題目後修改機器人，且不得因不喜歡答案而重跑**：§3.1、§3.2、§3.6 與 §10 已明定 `local`（M1、M2）與 `trial`（M3）期間只在試驗場地（`bot-testing-area`、Metaculus Cup 與主站題目）作答，主賽與 MiniBench 題目在試驗期只抓時間與題型中繼資料以模擬覆蓋率、絕不交給模型作答；`live` 正式參賽後，定期報告與任何介面只呈現已關閉題目的答案（§4.5），人工判讀僅作事後追加紀錄、不在送出前人工放行（§3.3），且機器人調整只依據已關閉題目或試驗場地；(3) **留言與帳號合規**：預測以 `question_id` 送出、留言以 `post_id` 送出並設 `is_private=true` 與 `included_forecast=true`（§3.6），內容由 `comment.py` 依實際採用的結構化輸出組裝（§5.6），且全專案只建立並使用唯一一個主機器人帳號（§2）。另提供兩項實作層級的雙重保險建議（non-blocking）：(a) `docs/tournament_checks/futureeval.md` 註明主賽「部分題目會同步到主站，以便與社群預測比較」，建議 `poll_questions.py` 在選取「主站題目」作為試驗場地或開發測試題時，自動排除與當季主賽／MiniBench 開放中題目共用相同 `question_id`、`post_id` 或相同標題的同步題，避免在主站試驗時無意間預覽到同步開放的主賽題目；(b) 建議 `submit.py` 在 `live` 模式的送出前檢查（§3.6 送出契約）中，除核對本地 `data/submissions.jsonl` 無已送出紀錄外，一併檢查平台回傳的題目資料中本機器人帳號是否已有既有預測（欄位細節併入 V15 確認），若平台端已存在預測則拒絕送出，從平台與本地雙向確保「每題只送一次」｜現行 §3.4～§3.6 設計已完全符合 `futureeval.md` 規則摘要；補充主站同步題去重與平台端既有預測檢查，可在實作時進一步消除邊界競態｜non-blocking
+
+本回合沒有 blocking 意見。
+
 ### 14.2 GPT
 
 #### 第 1 回合審查（2026-10-30）
