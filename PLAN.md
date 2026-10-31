@@ -791,6 +791,80 @@ token 欄位的對應（D29）：
 
 本輪結論：前輪主要設計已正確整合，仍有 5 項 blocking：公開時間閘門、報告題目／嘗試口徑、採用資格及稽核繼承、隔離測試覆蓋、全域基準安全性。V1 與 V4 已附本機或官方證據，未實測的組合與欄位明確保留到 M1；不因本次禁止模型呼叫而把「尚未實測」本身新增成 M0 blocker。請整合者依 Louis 決定修改正文與決策／版本紀錄；本輪未修改其他章節或執行 git add、commit、push。
 
+#### 第 3 回合審查（2026-10-31）
+
+已完整閱讀 AGENTS.md 與 PLAN.md（含 Gemini 第 3 回合），對照 D21～D30 與 v0.3 變更紀錄。本輪以本機唯讀 help／features 輸出、協調者指定的第 2 回合事件檔及官方 OpenAI 文件查證；未啟動模型呼叫、未讀取憑證、未實測預測隔離。本次審查環境的停用設定不作為 §5.3 預測骨架的驗收證據。
+
+**一、第 2 回合整合核對與對 Gemini 的意見**
+
+- [§7.2～§7.6 / §15 D21、D26、D27 / §16 v0.3] 確認前輪「隔離測試覆蓋」與「全域基準安全性」兩項 blocking 已在規格上解決：涵蓋工作目錄內外、相鄰目錄、符號連結、讀網頁替代入口、委派與 hooks；要求工具宣告或硬性拒絕證據、正向 canary、先人工審查再建立基準、禁止舊 session。接受 D21 對一般設定／CLI 升版自動重驗、內容變更停線人工審查的折衷；保留逐來源盤點及無證據即停線，不把隨機 0700 或唯讀沙盒當作隔離證明｜正文與決策、變更紀錄一致，未再沿用前輪指出的不安全替代判準；實作是否達標由 M1 證明｜non-blocking
+- [§3.3～§3.5 / §4.4～§4.5 / §5.5 / §7.5 / §15 D22～D25、D29 / §16 v0.3] 確認前輪另三項 blocking 已整合：D23 統一固定 24 小時公開閘門；D24 區分排程題目帳冊與全部嘗試消耗、保留缺答原始原因、null 覆蓋率及三組成本；D25 採用 valid 並繼承前序稽核。D22 正確區分 blocked_attempt 與實際暴露。D29 已加入 CP／結算／稽核 ID、報告採用清單與截止點、模型補跑資訊時差、人類提交與匯入時間分列、token 對應與事件去重，建議保留｜與我第 2 回合的要求及 §16 所列採納／未採納理由一致；同意 Gemini 本輪接受上述折衷，不重開已解決問題｜non-blocking
+- [§5.3 / §7.3 / §13 / §15 D28、D30 / §16 v0.3] 確認 D28 的 codex 停用清單與 prompt 工具限制已加入，agy 與 claude 變更也如實記為待驗收骨架；D30 已明定審查者不執行 commit。接受 §16 不引用我第 2 回合「頂層 --ignore-user-config 曾被拒」的敘述，後續只引用本輪可重現的 exec help｜沒有事件證據的歷史敘述不應當成實測結果；agy／claude 的生效行為仍由各線 M1 驗收確認，本輪不冒稱獨立驗證｜non-blocking
+- [§7.2～§7.3 / §7.6 / §14.1 第 3 回合] 同意 Gemini 將 agy 的設定合併、空字串覆寫與委派阻斷留在 M1 實測；但不採納其以可執行 PreToolUse hook 作為直接替代的備案，也不將「規格完整可行」「設計上已無漏洞」視為實證結論。若採最小自訂 agent，須重新盤點工具及完成同一套驗收；若工具仍無法阻斷，依正文停線｜§7.2 現行基準明文不得含可執行 hook，新增此路徑需要另作設計決策，不能由實作備註默默豁免。這是對尚未採納建議的異議，正文已有停線保護，因此不構成本輪 blocker｜non-blocking
+
+**二、Codex 停用清單、token 與工具事件查證**
+
+- [§5.3 / §7.3 / §12 V1、V7] 確認 §7.3 列出的 13 個功能名稱均存在於本機 codex-cli 0.166.0；exec help 明載 --disable 可重複且等價於 features.<name>=false，adapter 應逐項傳入旗標。保留 MCP／skills 個別盤點與實際工具清單驗收，勿把 features list 的有效值當成預測命令已停用的證明；本版另列 code_mode_host、in_app_local_automation、multi_agent_v2 等功能，M1 應逐一判斷是否暴露額外入口，而非僅按名稱猜測其能力｜停用清單是已核對名稱的最低清單，並非完備安全證明；§7.3 已要求新功能盤點及 §7.6 失敗即停線。官方 [CLI 參考](https://learn.chatgpt.com/docs/developer-commands?surface=cli) 與下列本機輸出支持旗標語法｜non-blocking
+- [§5.5 / §12 V4 / §15 D29] 確認 codex token 對應正確：從 turn.completed.usage 讀 input_tokens／output_tokens，reasoning_output_tokens → reasoning_tokens，cached_input_tokens → cached_tokens，cache_write_input_tokens 留在原始物件。缺欄位仍為 null，且不得把明細再加到 input＋output；保留 M1 驗證包含關係及多 turn 累計語意的要求｜指定事件檔第 55 行直接支持五個欄位，官方 [Non-interactive mode](https://learn.chatgpt.com/docs/non-interactive-mode) 的 JSONL 範例亦列出前四個原始欄位；單一樣本中 cached 小於 input 只能支持初步觀察，不能證明所有用量的包含關係｜non-blocking
+- [§3.3 / §5.5 / §7.6 / §15 D22、D29] 確認樣本存在 search、open_page、find_in_page 與結果 URL，但建議補明「依 item ID 去重的是可觀測工具事件／批次數，不保證等於查詢數或實際開頁數」。解析器須合併同一 item 的生命週期資料，掃描 action 及全部 results 的 URL；不能只取 action.url，也不能把 search results 的 URL 一律標成 opened。未能證明開啟成功、拒絕或批次細分的情況，維持 unknown／null｜第 8 行開始事件的 action 是 other，第 9 行完成時才是含 2 個 queries 的 search；第 13 行單一 open_page 的 action.url 只列一頁，但 results 有 4 個網頁結果；第 34 行 find_in_page 沒有 action.url，卻有結果 URL。這些是可觀測性限制，§3.3 已允許 unknown 與 suspected_leak、§5.5 已允許缺值，應在 M1 固定樣本解析中落實，不能把 D22 的「精準稽核」擴張為所有 URL／成功狀態皆完整可見｜non-blocking
+
+<details>
+<summary>本輪唯讀查證摘要與原始樣本位置</summary>
+
+2026-10-31 執行 `codex --version`、`codex --help`、`codex exec --help`、`codex features list`。CLI 回報無法建立 PATH aliases 的沙箱警告，但查詢成功；未執行 features enable／disable 等設定變更指令。
+
+```text
+codex-cli 0.166.0
+--disable <FEATURE>
+    Disable a feature (repeatable). Equivalent to `-c features.<name>=false`
+--ignore-user-config
+    Do not load `$CODEX_HOME/config.toml`; auth still uses `CODEX_HOME`
+--json
+    Print events to stdout as JSONL
+--output-schema <FILE>
+    Path to a JSON Schema file describing the model's final response shape
+```
+
+`codex features list` 的相關原始列（空白對齊略）：
+
+```text
+apps                  stable true
+browser_use           stable true
+browser_use_external  stable true
+computer_use          stable true
+hooks                 stable true
+image_generation      stable true
+in_app_browser        stable true
+multi_agent           stable true
+plugins               stable true
+remote_plugin         stable true
+shell_tool            stable true
+unified_exec          stable true
+view_image            stable true
+```
+
+以上 true 是這次獨立查詢的有效值，不代表預測骨架或本次審查 session 的工具權限。
+
+唯讀事件來源：`/private/tmp/claude-501/-Users-ucchengg-forecast-lab/fdce1ec4-5ac2-4896-873c-35dfd4f98b06/scratchpad/gpt_r2.jsonl`。這是第 2 回合審查紀錄，並非預測骨架的端到端樣本；第 55 行原始事件為：
+
+```json
+{"type":"turn.completed","usage":{"input_tokens":842112,"cached_input_tokens":761088,"cache_write_input_tokens":0,"output_tokens":7457,"reasoning_output_tokens":317}}
+```
+
+同檔第 8／9 行共用 item ID，開始／完成只計一次；完成的 web_search item 共 7 個：search 2、open_page 4、find_in_page 1。這是事件數，不能報成「總共讀了 4 頁」。官方文件只作為對照，版本特有的 results 與批次形狀以上述本機原始事件為依據。
+
+</details>
+
+**三、定期報告、採用規則與 M1 進場判斷**
+
+- [§4.5 / §5.1～§5.2] 前輪報告的主要漏洞已修正；建議實作時明定排程帳冊的追加儲存位置，以及每題成本採「t0 落在期間內之題目、截至資料截止點的全部嘗試」口徑，與「開始時間落在期間內的嘗試總和」分欄呈現。pending 題目不先歸入失敗組；有任何嘗試用量缺失的每題合計標成不完整，完整成本中位數另附題目覆蓋率｜例如題目在週末 23:59 抽出、下週 00:10 補跑，兩種合法口徑的總和本來就不同；§4.5 已規定題目／嘗試分離與 null 不當 0，這是實作須固定的跨期與缺值細節，不推翻 D24，也不重列前輪 blocker｜non-blocking
+- [§7.5 / §5.4～§5.5] 有效答案、固定第一個 valid、修復不改估計與來源、前序暴露繼承、不因洩漏重試等規則已足以關閉前輪採用漏洞；建議 adapter 以明確狀態轉移落實「1 次格式修復」與「最多 1 次 rerun」，避免修復自身再觸發修復。修復後仍須由程式驗證機率及來源未被更改；題號錯誤、超範圍或無唯一可辨識機率，不可藉補填新估計變成 valid。逾時／中斷原嘗試仍是 incomplete，若允許整理其已有答案，必須另留 format_repair 紀錄並再次驗證窗口與繼承｜合法 JSON 本身不再具有採用資格；這些是 §7.5 既有約束的具體驗收案例，並非放寬規則或新增補答機會｜non-blocking
+- [§7.2～§7.6 / §10 / §12 V7] 同意目前規格足以在 Louis 核准後開始 M1 的隔離驗收與實作；尚不能宣稱三條線已可無人值守預測。建議驗收產物分別綁定預測與全工具關閉的格式修復設定，並記錄每個測項的工具未提供／CLI 拒絕證據。自動載入測試亦應核對實際載入來源，不能僅因最終答案未輸出 canary 就推論未載入；CLI 升版若改變載入來源，按 D27 重新盤點及審查｜§7.6 已涵蓋前輪要求的路徑、正負向測試與無證據停線，足以作為驗收規格；它不能保證不存在未知入口。M1 完成仍須三條線實際通過，而非以 help、其他審查者的判斷或本輪設定取代｜non-blocking
+
+本輪判斷：第 2 回合的五項 blocking 均已在 v0.3 規格中處理；上述補充屬 M1～M4 實作與驗收的明確化。只新增本小節，未修改正文、決策紀錄或版本號，未執行 git add、commit、push。
+
+本回合沒有 blocking 意見。
+
 ### 14.3 Louis 與女友
 
 （待填）
