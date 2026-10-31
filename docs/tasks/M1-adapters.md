@@ -47,9 +47,11 @@ class AdapterResult:
 每個 adapter 模組提供：
 
 - `build_argv(req) -> list[str]`：只組參數，不執行。
-- `parse(raw_dir, run_result) -> AdapterResult` 的解析部分：只讀 `raw_dir` 中的檔案，不呼叫 CLI。
+- `parse(req, run_result) -> AdapterResult`：只讀 `req.raw_dir` 中的檔案，不呼叫 CLI；`run_result` 可以是 `None`（例如以 fixtures 測試時）。
 - `run(req) -> AdapterResult`：呼叫 `flab.runner.run`，再解析。
 - `cli_version() -> str | None`。
+
+已提供的輔助函式：`url_host(url)`、`is_metaculus_host(host)`（metaculus.com 與其所有子網域）、`model_check_from_ids(requested, reported, aliases)`。各 adapter 請直接使用，不要各自重寫。
 
 ## 共同規定
 
