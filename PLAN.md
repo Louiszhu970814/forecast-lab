@@ -1,6 +1,6 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.1（v1.0 凍結後的修訂，見 §16）
+> 版本：v1.2（v1.0 凍結後的修訂，見 §16）
 > 初稿：Claude
 > 本回合整合者：Claude（第 5 回合兩位審查者都沒有 blocking 意見，整合其 non-blocking 補充）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
@@ -439,7 +439,7 @@ forecast-lab/
 
 | 選手 | 指令骨架 |
 |---|---|
-| claude | `claude -p --model claude-opus-5-5 --effort <層級設定> --tools "WebSearch,WebFetch" --disallowedTools "WebFetch(domain:metaculus.com)" --strict-mcp-config --disable-slash-commands --no-session-persistence --output-format json --json-schema '<schema JSON>'`（prompt 由標準輸入傳入；第 2 層在 `--tools` 加入子代理工具，名稱於 M1 確認） |
+| claude | `claude -p --model claude-opus-5-5 --effort <層級設定> --tools "WebSearch,WebFetch" --allowedTools "WebSearch,WebFetch" --disallowedTools "WebFetch(domain:metaculus.com)" "WebFetch(domain:*.metaculus.com)" --restricted --strict-mcp-config --disable-slash-commands --no-session-persistence --output-format stream-json --verbose --json-schema '<schema JSON>'`（prompt 由標準輸入傳入；第 2 層在 `--tools` 加入子代理工具，名稱於 M1 確認；2026-10-31 依實測修正，D58） |
 | gemini | `agy -p "<prompt>" --model <層級模型 ID> --effort <層級設定> --output-format json --json-schema <schema 路徑> --disable-slash-commands --print-timeout <層級上限> --sandbox --log-file <本次 raw_dir>/agy_cli.log --settings '<單次 session 設定 JSON，見 §7.3>'`（不使用 `--mode`；第 2 層以 `--agent` 指定最小自訂 agent，見 §7.3） |
 | gpt | `codex exec --ignore-user-config --strict-config -s read-only -c 'approval_policy="never"' -c 'web_search="live"' -c 'model_reasoning_effort="<層級設定>"' --disable <§7.3 停用清單中的每個功能> -m gpt-6-astra --skip-git-repo-check -C <暫存資料夾絕對路徑> --ephemeral --json --output-schema <schema 絕對路徑> --output-last-message <本次最終輸出絕對路徑> -`（prompt 由標準輸入傳入；第 2 層從停用清單移除 `multi_agent`，並以 `--enable multi_agent` 明確啟用，其餘停用項不變） |
 
@@ -651,21 +651,24 @@ token 欄位的對應（D29）：
   一般的唯讀沙盒不算等價，因為唯讀通常仍能讀檔與執行指令。沒有涵蓋或沒有證據時，停止該線的自動預測。
 - **封鎖網域**（D22、D34）：claude 與 agy 在 CLI 層拒絕開啟 `metaculus.com` 及其子網域；codex 以工具事件中的網址稽核（§3.3）。
 - **claude**：
-  - 以 `--tools "WebSearch,WebFetch"` 限定可用的工具。`--allowedTools` 只是免詢問清單，不會移除其他工具，不能當作限制手段。
-  - 以 `--disallowedTools "WebFetch(domain:metaculus.com)"` 封鎖；是否涵蓋子網域，於 §7.6 驗收時確認（V9）。WebSearch 的搜尋結果無法以這個規則封鎖。
+  - 以 `--tools "WebSearch,WebFetch"` 限定可用的工具。`--allowedTools` 只是免詢問清單，不會移除其他工具，不能當作限制手段；但無互動模式下沒有它，WebSearch 與 WebFetch 都會被權限檢查擋下，所以兩者都要傳（D58，2026-10-31 以 claude 2.1.316 實測）。
+  - 以 `--disallowedTools "WebFetch(domain:metaculus.com)" "WebFetch(domain:*.metaculus.com)"` 封鎖：實測中前者只擋主網域，後者只擋子網域，兩者都要加；拒絕規則優先於 `--allowedTools`（V9 已確認）。WebSearch 的搜尋結果無法以這個規則封鎖。
+  - 加上 `--restricted`：忽略 user、project、local 的設定檔，並在 `--tools` 沒有列出時移除會執行程式碼的工具（V3 的候選作法，於 W4 與驗收確認仍能以訂閱登入）。
+  - 改用 `--output-format stream-json --verbose`：`json` 只有最後的結果，看不到逐次的工具事件，無法稽核網址。
   - 使用 `--strict-mcp-config` 且不提供 MCP 設定；使用 `--disable-slash-commands`。
   - 不使用 `--bare`：它只接受 `ANTHROPIC_API_KEY`，等於改走 API 計費（D19）。
 - **gemini（agy）**（D28）：
   - 在暫存資料夾啟動，不加 `--add-dir`；開啟 `--sandbox`（它的說明是終端機限制，不能當作讀檔限制）。
   - 不使用 `--mode`，改在 `--settings` 中設定 `"agentMode": ""`，覆寫全域設定（Louis 目前的全域設定為 `auto`）。
   - 以 `--settings` 注入單次 session 的設定（不影響全域的 `settings.json`）：
-    `{"agentMode":"","useG1Credits":false,"use_ai_credits":false,"permissions":{"allow":["read_url(*)"],"deny":["command(*)","write_file(*)","read_file(*)","execute_url(*)","mcp(*)","read_url(metaculus.com)"]}}`
+    `{"agentMode":"","useG1Credits":false,"permissions":{"allow":["read_url(*)"],"deny":["command(*)","write_file(*)","read_file(*)","execute_url(*)","mcp(*)","read_url(metaculus.com)"]}}`
   - 以下事項依 Gemini 第 2～4 回合引用的官方文件與 changelog，尚未在本機驗證，以 §7.6 的驗收結果為準：
     - 六類動作名稱與 Deny > Ask > Allow 的優先序；
     - `read_url(<網域>)` 是否涵蓋子網域；
     - `--settings` 與全域設定的合併方式；
     - `"agentMode": ""` 的效果；
-    - AI credits 的設定鍵：changelog 先後出現 `UseG1Credits` 與 `use_ai_credits` 兩種名稱，兩個鍵都先列入作為候選，於 M1 以 `agy -p "/config" --output-format json` 確認實際生效的鍵與優先序（V8、V17）。
+    - AI credits 的設定鍵：2026-10-31 實測（agy 1.4.12），`--settings` 遇到不認得的 `use_ai_credits` 會直接失敗並結束；`useG1Credits: false` 可以接受，`/config` 也顯示為生效（V17 部分確認，D58）。
+  - 拒絕的證據來源有兩種（D58）：被 `deny` 規則擋下時，模型收到「Matches user-configured deny rule」，執行照常完成，JSON 中沒有 `denied_actions`，證據要從 log 與模型輸出取得；在無互動模式下因需要詢問而被自動拒絕時，執行會結束，並出現在 `denied_actions`。
 
     Louis 的全域允許清單含有 `command(agy)`，§7.6 須專門測試 `command(*)` 的拒絕規則能否蓋過它。
   - 第 1 層：子代理與排程工具（例如 `invoke_subagent`、`define_subagent`、`schedule`）須確認不可用。
@@ -894,13 +897,13 @@ v0.3 的 V1～V9（狀態沿用）：
 
 - **V1**（部分完成）：GPT 第 2 回合已以本機 help 與官方文件確認 `-m gpt-6-astra`、`model_reasoning_effort` 與 `--output-schema` 的寫法；端到端組合於 M1 實測。
 - **V2**（部分完成）：版本取得方式已確認；agy 權限規則的本機實測併入 §7.6。
-- **V3**：claude 的 `--setting-sources` 能否排除使用者層設定，並仍以訂閱登入；是否需要回合上限（M1）。
+- **V3**（部分完成）：claude 2.1.316 的 `--restricted` 會忽略 user、project、local 的設定檔；實測中仍以訂閱登入執行成功。是否需要回合上限，於 W4 確認（目前的 help 沒有 `--max-turns`）。
 - **V4**（部分完成）：codex 與 agy 已有 token 欄位樣本；claude 的欄位，以及三條線 CLI 回報模型 ID 的來源，於 M1 確認。
 - **V5**：三個 CLI 額度用完時的結束代碼與錯誤訊息（M2）。
 - **V6**：（v0.4 不再需要：已不使用社群預測快照。）
 - **V7**（已確認）：第 3 回合確認 §7.6 足以開始 M1；第 4 回合指出的子代理驗收缺項已依 D47 補齊，第 5 回合兩位審查者都確認。驗收本身仍須在 M1 實測。
 - **V8**：agy 的 `--settings` 與全域 `settings.json` 是合併還是取代，以及 `"agentMode": ""` 的實際效果（M1）。
-- **V9**：claude 的 `WebFetch(domain:metaculus.com)` 規則是否涵蓋子網域，以及能否與 `--tools` 並用（M1）。
+- **V9**（已確認，2026-10-31）：`WebFetch(domain:metaculus.com)` 只擋主網域，`WebFetch(domain:*.metaculus.com)` 只擋子網域，兩者都要加；可以與 `--tools`、`--allowedTools` 並用，拒絕優先（D58）。
 
 v0.4 新增：
 
@@ -1533,11 +1536,16 @@ view_image                  stable true
 | D55 | 2026-10-31 | 自動重驗使用各線較便宜的模型或較低的推理強度；人工驗收以正式設定完整跑一次（§7.6） | Louis 決定（H9）；agy 幾乎每天自動更新，每次都用 Argon 重驗會吃掉大量週額度；權限由 CLI 層控制 |
 | D56 | 2026-10-31 | M1 分工：Gemini 執行 W1、W5，審查 W6、W7；GPT 執行 W4、W6，審查 W2＋W3、W5、W8；Claude 執行 W2＋W3、W7、W8，審查 W1、W4，並負責協調。新增「代理開發模式」：在 clone 中進行、可寫檔與執行測試、不讀取網頁、經審查後才合併。女友同意 GPT 線的額度用於開發（§7.1、`docs/tasks/M1.md`） | Louis 決定（H8、H10）：多派工作給 Gemini 以分散 Claude 與 GPT 的用量，但 Gemini 只執行兩項；M1 尚未開始預測，這段期間的 Argon 額度可以用於開發 |
 | D57 | 2026-10-31 | M1 期間，每個工作經審查通過後，由協調者直接 commit 並 push（AGENTS.md、§13） | Louis 決定（H11）；擴充 D30 |
+| D58 | 2026-10-31 | 依 M1 實測修正 CLI 規格：claude 加上 `--allowedTools`、兩條 metaculus.com 網域規則、`--restricted`，並改用 `stream-json --verbose`；agy 的 `--settings` 移除 `use_ai_credits`；記錄 agy 兩種拒絕的證據來源（§5.3、§7.3、§12） | 協調者以便宜的模型實測（claude Haiku、agy Flash Low、codex 低推理強度）；原規格中 claude 的網域規則擋不住 `www.metaculus.com`，agy 的雙鍵設定會讓執行失敗 |
 
 ---
 
 ## 16. 變更紀錄
 
+- **v1.2**（2026-10-31）：依 M1 的 CLI 實測修正規格（D58）。
+  - claude：加上 `--allowedTools`、兩條 metaculus.com 網域規則與 `--restricted`，改用 `stream-json --verbose`（§5.3、§7.3；V3、V9）。
+  - agy：`--settings` 移除 `use_ai_credits`；記錄兩種拒絕的證據來源（§7.3；V17）。
+  - 實測樣本由協調者以便宜的模型錄製，供 W4～W6 製作測試 fixtures。
 - **v1.1**（2026-10-31）：Louis 在 v1.0 凍結後決定 M1 的執行方式。
   - 自動重驗改用較便宜的模型；人工驗收仍用正式設定（§7.6，D55）。
   - M1 分工，以及新增的代理開發模式（§7.1、§10、`docs/tasks/M1.md`，D56）。
