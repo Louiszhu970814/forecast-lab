@@ -80,6 +80,9 @@ class AdapterResult:
     subagent_count: int | None = None
     error_type: str | None = None
     error: str | None = None
+    # What the CLI itself declared to the model (tool list, MCP servers, skills, plugins, agents).
+    # Evidence for PLAN §7.6 "tool not provided" and auto-load checks; None when the CLI does not report it.
+    declared: dict[str, Any] | None = None
 
     def __post_init__(self) -> None:
         if self.model_check not in MODEL_CHECKS:

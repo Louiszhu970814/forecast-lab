@@ -64,9 +64,9 @@
   },
   "acceptance": {
     "claude": {
-      "model": "haiku",
+      "model": "claude-haiku-5-5",
       "effort": "low",
-      "cli_status": "已確認：`--model haiku` 於 2026-10-31 實測可用（回報 claude-haiku-5-5）；effort 待 W4 確認"
+      "cli_status": "已確認：claude-haiku-5-5 於 2026-10-31 實測可用；請使用完整模型 ID，避免與 CLI 回報的 ID 比對不符；effort 待 W3 確認"
     },
     "gemini": {
       "model": "gemini-3.8-flash-low",
