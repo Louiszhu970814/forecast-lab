@@ -1,0 +1,8 @@
+I1031 15:08:05.933032       1 resolver.go:85] Model ID gemini-4-argon-medium not in local config, defaulting to CCPA
+I1031 15:08:05.933346      53 server.go:1953] Language server version: 1.4.12
+I1031 15:08:05.963148       1 printmode.go:206] Print mode: starting (promptLength=2140, model="gemini-4-argon-medium", conversationID="")
+I1031 15:08:06.983235       1 model_resolver.go:107] Resolving model gemini-4-argon-medium
+I1031 15:08:06.983288       1 model_config_manager.go:363] Propagating selected model override to backend: label="Gemini 4 Argon (Medium)"
+I1031 15:08:23.512219     427 tool_confirmation_manager.go:221] Print mode: soft-denying tool confirmation "ReadFile" at step 10
+I1031 15:08:23.512246    1182 server.go:2679] Tool confirmation for conversation 00000000-0000-0000-0000-000000000003 step 10 (type=*gemini_coder_go_proto.Step_Generic approved=false)
+I1031 15:08:23.523041     428 server.go:1316] Stream goroutine exited for 00000000-0000-0000-0000-000000000003, sending completion signal
