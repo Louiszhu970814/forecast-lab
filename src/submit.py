@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import argparse
 import copy
+import json
 import time
 from dataclasses import dataclass
 from datetime import timedelta
@@ -27,7 +28,7 @@ from flab.workdir import PROJECT_ROOT
 from poll_questions import TournamentIndex, is_synced_copy, snapshot_from_post
 from validate import submit_deadline
 
-VERSION = "submit_v4"
+VERSION = "submit_v5"
 BUSY_EXIT_CODE = 75
 FORECAST_PATH = "/api/questions/forecast/"
 COMMENT_PATH = "/api/comments/create/"
@@ -76,6 +77,13 @@ class Transport(Protocol):
     tournament_index must freshly cover all open/upcoming main and MiniBench rounds,
     including overlapping rounds; raise if completeness or project identity is uncertain.
     """
+    def current_tournaments(self, configured: dict) -> dict:
+        """Fresh continuous.current_tournaments() result from official API discovery.
+
+        Includes excluded_project_ids for main and ALL ongoing/upcoming MiniBench
+        rounds. Raise on unavailable, incomplete or inconsistent API pagination/data.
+        """
+        ...
     def account(self) -> dict: ...
     def get_post(self, post_id: int) -> dict: ...
     def tournament_index(self, configured: dict) -> TournamentIndex: ...
@@ -173,7 +181,25 @@ class Submitter:
         mode = load_submit_mode(self.config_dir)
         return mode, load_tournaments(self.config_dir)
 
-    def _gate(self, intent):
+    def _discovery(self):
+        _, cfg = self._policy()
+        current = self.transport.current_tournaments(copy.deepcopy(cfg))
+        if not isinstance(current, dict) or current.get("trial_ground_types") != cfg["trial_ground_types"]:
+            raise PrecheckError("current tournament discovery incomplete")
+        entries = current.get("tournaments", {})
+        required = {"main", "minibench", *cfg["trial_ground_types"]}
+        if any(type(entries.get(n, {}).get("id")) is not int or entries[n]["id"] <= 0 for n in required):
+            raise PrecheckError("current tournament discovery incomplete")
+        for name in ("main", "bot_testing_area"):
+            if entries.get(name, {}).get("id") != cfg["tournaments"].get(name, {}).get("id"):
+                raise PrecheckError("current tournament discovery inconsistent with approved identity")
+        excluded = current.get("excluded_project_ids")
+        if not isinstance(excluded, list) or any(type(v) is not int or v <= 0 for v in excluded) or \
+                not {entries[n]["id"] for n in ("main", "minibench")} <= set(excluded):
+            raise PrecheckError("main and MiniBench discovery incomplete")
+        return copy.deepcopy(current)
+
+    def _gate(self, intent, discovery=None):
         mode, cfg = self._policy()
         if mode["mode"] not in ("trial", "live") or mode["mode"] != intent["mode"]:
             raise PrecheckError("submission mode disabled or changed")
@@ -182,9 +208,18 @@ class Submitter:
         bot = mode.get("approved_bot_id")
         if type(bot) is not int or bot <= 0 or bot != intent["bot_id"]:
             raise PrecheckError("approved bot ID missing or changed")
+        if mode["mode"] == "trial":
+            if discovery is None or discovery["trial_ground_types"] != cfg["trial_ground_types"]:
+                raise PrecheckError("current tournament discovery required")
+            if any(discovery["tournaments"][n]["id"] != cfg["tournaments"][n]["id"]
+                   for n in ("main", "bot_testing_area")):
+                raise PrecheckError("approved identity changed during discovery")
+            cfg = discovery
+            if intent["tournament_id"] in cfg["excluded_project_ids"]:
+                raise PrecheckError("venue not allowed in trial")
         entries = [(name, entry) for name, entry in cfg["tournaments"].items()
                    if entry.get("id") == intent["tournament_id"]]
-        if len(entries) != 1:
+        if type(intent["tournament_id"]) is not int or len(entries) != 1:
             raise PrecheckError("venue ID is not uniquely configured")
         name, entry = entries[0]
         if mode["mode"] == "trial":
@@ -276,7 +311,8 @@ class Submitter:
                     raise PrecheckError("duplicate bot/question across venues or unresolved prior intent")
 
     def _precheck(self, intent):
-        cfg = self._gate(intent)
+        discovery = self._discovery() if intent["mode"] == "trial" else None
+        cfg = self._gate(intent, discovery)
         self._identity(intent)
         self._duplicate(intent)
         post = self.transport.get_post(intent["post_id"])
@@ -299,16 +335,20 @@ class Submitter:
         trial_ground = any(name in cfg["trial_ground_types"] and entry.get("id") == intent["tournament_id"]
                            for name, entry in cfg["tournaments"].items())
         if intent["mode"] == "trial" or trial_ground:
-            index = self.transport.tournament_index(copy.deepcopy(cfg))
+            discovery = discovery or self._discovery()
+            index = self.transport.tournament_index(copy.deepcopy(discovery))
             if not isinstance(index, TournamentIndex) or not index.project_ids:
                 raise PrecheckError("complete current tournament exclusion index unavailable")
-            excluded = [cfg["tournaments"].get(name, {}).get("id") for name in ("main", "minibench")]
+            excluded = discovery["excluded_project_ids"]
             if any(type(pid) is not int or pid <= 0 or pid not in index.project_ids for pid in excluded):
                 raise PrecheckError("main and MiniBench identity or exclusion coverage unavailable")
+            if self._discovery() != discovery:
+                raise PrecheckError("current tournament discovery changed during precheck")
             if reason := is_synced_copy(current, index):
                 raise PrecheckError(reason)
         if existing_predictions(post) and not intent["allow_resubmit"]:
             raise PrecheckError("platform already has a forecast for this bot/question")
+        self._checked_discovery = discovery
         return current["content_hash"] != snap.get("content_hash")
 
     def _receipt_matches(self, operation, intent, record):
@@ -355,6 +395,9 @@ class Submitter:
             else:
                 self._identity(intent)
                 revised = False
+            discovery = self._discovery() if intent["mode"] == "trial" else None
+            if operation == "forecast" and intent["mode"] == "trial" and discovery != self._checked_discovery:
+                raise PrecheckError("current tournament discovery changed before write")
         except Exception as exc:
             abandon = isinstance(exc, PermanentPrecheckError) and not any(
                 r["status"] == "request_started" for r in self._history(intent))
@@ -368,7 +411,7 @@ class Submitter:
                     self._validate_frozen(intent)
                     self._duplicate(intent)
                 # Recheck after remote reads, backoff and waiting for the local transaction.
-                self._gate(intent)
+                self._gate(intent, discovery)
                 if operation == "forecast":
                     deadline = submit_deadline(intent["snapshot"], load_run_config(self.config_dir)["deadlines"])
                     if deadline is None or self.now() >= deadline:
@@ -509,7 +552,7 @@ def main(argv=None):
     parser.add_argument("command", choices=("run", "reconcile"))
     args = parser.parse_args(argv)
     result = Submitter(PROJECT_ROOT / "data").run(reconcile_only=args.command == "reconcile")
-    print(result)  # Counts only: do not expose open-question outputs.
+    print(json.dumps({"events": result["events"], "statuses": result["statuses"]}, sort_keys=True))
     return BUSY_EXIT_CODE if result.get("status") == "busy" else 0
 
 

@@ -598,3 +598,24 @@ def test_default_gemini_preflight_gets_credits_from_official_quota_snapshot(tmp_
         to_record=lambda: {**SNAPSHOT, "gemini_credits": gemini_credits}))
     pf = _pf(log, player="gemini", snapshot=None, players_enabled={"gemini": True}, allow_unapproved_baseline=True)
     assert pf.ok, pf.problems
+
+
+@pytest.mark.parametrize('change', [{'cli': 'old'}, {'judge': 'old'}, {'code': {'adapters/claude.py': 'old'}}])
+def test_tier1_production_proof_must_be_current_even_with_fresh_latest(tmp_path, change):
+    log = tmp_path / 'acceptance.jsonl'
+    _accept(log, tmp_path, mode='production', **change)
+    _accept(log, tmp_path, mode='acceptance')
+    pf = _pf(log, allow_unapproved_baseline=True)
+    assert not pf.ok and pf.production_record_id is None
+    assert any('production model' in p for p in pf.problems)
+
+
+def test_weekly_reserve_waits_until_reset_without_safety_stop(env, monkeypatch, tmp_path):
+    summary, recs, adapter = _gemini(env, monkeypatch, [_qsnap(.44)])
+    result, = summary['questions']
+    assert result['outcome'] == 'quota_weekly_wait'
+    assert F.parse_iso(result['quota_retry_at_utc']) == F.parse_iso('2026-11-06T00:00:00Z')
+    assert not summary.get('notify_louis') and not recs and adapter.ran == 0
+    assert not (tmp_path / 'g' / 'line_status.jsonl').exists()
+    denied = list(read_records(tmp_path / 'g' / 'quota.jsonl'))[-1]
+    assert denied['quota_wait'] == 'quota_weekly_wait'

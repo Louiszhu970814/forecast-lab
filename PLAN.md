@@ -1,6 +1,6 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.22（v1.0 凍結後的修訂，見 §16；M2 自動載入測試與基準核准、M3 離線開發、機器人帳號建立）
+> 版本：v1.23（v1.0 凍結後的修訂，見 §16；M2 自動載入測試與基準核准、M3 離線開發、機器人帳號建立）
 > 初稿：Claude
 > 本回合整合者：Claude（v1.10 起；v1.5～v1.9 由 Codex 整合）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
@@ -1634,6 +1634,12 @@ view_image                  stable true
 
 ## 16. 變更紀錄
 
+- **v1.23**（2026-11-01）：M3-W8，修正 Gemini 稽核（`docs/tasks/AUDIT-ARGON-2026-11-01.md`）中經 Claude 核對屬實的 trial 前契約錯誤。GPT 實作、Claude 審查。`submit_v4` → `submit_v5`，`scheduler_v5` → `scheduler_v6`，`cycle_v3` → `cycle_v4`，`continuous_v3` → `continuous_v4`，`coverage_sim_v2` → `coverage_sim_v3`；`forecast_pipeline_v6` 不變。
+  - 送出端的 trial 場地改用官方 API 動態發現（與輪詢共用 `continuous.current_tournaments()`），排除主賽與所有 ongoing／upcoming MiniBench 輪次；發現失敗不退回靜態設定，`live` 仍只用靜態白名單。原本在真實設定下，所有 trial 送出都會被拒絕。
+  - `submit.py run` 輸出單行 JSON 計數；週期遇到 `rejected_precheck`、`unknown`、`confirmed_failed`、`forecast_failed`、`comment_failed` 或 `abandoned` 時記為 `attention`，不再一律記為 `ok`。
+  - 持續模式閒置時，最早未封存的決策截止點若在 780 秒內，就以每次最多 60 秒的間隔等待並封存，不直接結束；週期上限對齊 launchd 的 600 秒啟動格點交接（預設在啟動後 4170 秒交接，worker 與 supervisor 上限分別為 4320 與 4330 秒）。
+  - 持續模式下，暫停、額度等待或停線的線不再阻擋其他線的第 2 層；固定 M2 題集不變。Gemini 週額度保留線不足改記為 `quota_weekly_wait`，等到重置時間，不算安全停線。
+  - 第 1 層的正式驗收紀錄也要核對 CLI、judge 與執行程式碼的雜湊；「最新一筆驗收失敗則兩層都停」維持不變。
 - **v1.22**（2026-11-01）：全域基準在 `~/.claude/plugins` 頂層，忽略中斷的刷新留下的索引暫存檔（`known_marketplaces.json.tmp.*`、`plugin-directory-cache-v2.json.tmp.*`；只限一般檔案，以 `fullmatch` 比對）。實測 2026-11-01T12:50Z 留下了 `plugin-directory-cache-v2.json.tmp.7a422f2e`，claude 線因此停線。Claude 實作，GPT 唯讀審查：一項 blocking（`$` 會接受結尾換行）已修正並補邊界測試。須由 Louis 重新核准基準。
 - **v1.21**（2026-11-01）：M2-W9，支援 Google AI Ultra 的 agy 額度結構（D75，§7.7）。GPT 實作、Claude 審查。`budget_v1` → `budget_v2`，`scheduler_v4` → `scheduler_v5`，`reconciliation_pipeline_v3` → `reconciliation_pipeline_v4`，`m2_report_v1` → `m2_report_v2`。
   - 並行 agy 偵測由「永遠是 False 的參數」改為實際掃描程序；准入、預算、驗收與 autoload 四個入口共用 `quota.py` 的判斷，autoload 門檻改為「保留線 + 5%」。

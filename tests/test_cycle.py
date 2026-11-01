@@ -66,7 +66,8 @@ def setup_cycle(environment, tmp_path, monkeypatch):
     def run(**kw):
         return C.run_cycle(tmp_path, policy(), poller, project=project, now=lambda: clock[0],
             adapter_loader=kw.pop("adapter_loader", obj.loader), preflight=kw.pop("preflight", obj.pf), context_extra=extra,
-            acceptance_log=tmp_path / "acceptance.jsonl", submit=kw.pop("submit", submit), **kw)
+            acceptance_log=tmp_path / "acceptance.jsonl", submit=kw.pop("submit", submit),
+            sleep=kw.pop("sleep", lambda seconds: clock.__setitem__(0, clock[0] + timedelta(seconds=seconds))), **kw)
     return run, current, clock, enabled, calls, tracker, project
 
 
@@ -269,7 +270,7 @@ def test_submit_cli_contract(tmp_path, monkeypatch):
     calls = []
     def run(argv, **kw):
         calls.append((argv, kw))
-        return subprocess.CompletedProcess(argv, 0)
+        return subprocess.CompletedProcess(argv, 0, stdout='{"events": 0, "statuses": {}}')
     monkeypatch.setattr(C.subprocess, "run", run)
     assert C.submit_cli(tmp_path, 15)["status"] == "ok"
     argv, kw = calls[0]
@@ -481,7 +482,7 @@ def test_supervisor_recovers_progress_into_one_cycle_summary(tmp_path, monkeypat
             "active_step": "scheduler", "summary": {"type": "cycle", "cycle_id": cycle_id,
             "started_at": to_iso(NOW), "steps": {"poll": {"status": "ok"}},
             "new_question_ids": [100], "revised_question_ids": [], "errors": []}})
-        assert kw["timeout_s"] == 510 + 2 * (1200 + 300 + 4 * 30) + 120
+        assert kw["timeout_s"] == 4320
         return 124, True
     monkeypatch.setattr(C, "supervise", supervise)
     assert C.main(["--campaign", str(tmp_path / "fake.json")]) == 124
@@ -489,7 +490,7 @@ def test_supervisor_recovers_progress_into_one_cycle_summary(tmp_path, monkeypat
     assert len(rows) == 1 and rows[0]["status"] == "timeout"
     assert rows[0]["new_question_ids"] == [100]
     assert rows[0]["steps"]["scheduler"]["status"] == "interrupted"
-    assert rows[0]["timing_limits"]["supervisor_timeout_s"] == 3880
+    assert rows[0]["timing_limits"]["supervisor_timeout_s"] == 4330
 
 
 def test_tree_cleanup_failure_still_kills_stopped_worker(monkeypatch):
@@ -574,7 +575,9 @@ def test_supervisor_limit_uses_configured_full_chain(timeouts):
     cfg = {**F.load_run_config(), 'timeouts_s': timeouts}
     limits = C.timing_limits(cfg)
     assert limits['worst_job_s'] == 2 * (max(timeouts['tier1'], timeouts['tier2']) + timeouts['repair']) + 8 * F.QUOTA_QUERY_S
-    assert limits['supervisor_timeout_s'] == 510 + limits['worst_job_s'] + 120 + 10
+    assert limits['handoff_s'] >= 510 + limits['worst_job_s'] + 240
+    assert (limits['handoff_s'] + 30) % C.INTERVAL_S == 0
+    assert limits['supervisor_timeout_s'] == limits['handoff_s'] + 30 + 120 + 10
     assert limits['worker_timeout_s'] == limits['supervisor_timeout_s'] - 10
 
 
@@ -727,3 +730,45 @@ def test_submit_cli_reports_busy_exit_code(tmp_path, monkeypatch):
     (tmp_path / "src/submit.py").touch()
     monkeypatch.setattr(C.subprocess, "run", lambda *args, **kwargs: subprocess.CompletedProcess(args, C.BUSY_EXIT_CODE))
     assert C.submit_cli(tmp_path, 120) == {"status": "busy", "returncode": C.BUSY_EXIT_CODE}
+
+
+@pytest.mark.parametrize('status', sorted(C.SUBMISSION_STATES))
+def test_submit_counts_surface_attention(tmp_path, monkeypatch, status):
+    import json
+    (tmp_path / 'src').mkdir()
+    (tmp_path / 'src/submit.py').touch()
+    counts = {'events': 2, 'statuses': {status: 2}}
+    monkeypatch.setattr(C.subprocess, 'run', lambda *a, **k: subprocess.CompletedProcess(a, 0, json.dumps(counts)))
+    result = C.submit_cli(tmp_path, 120)
+    assert result['status'] == ('attention' if status in C.ATTENTION_STATES else 'ok')
+    assert result['statuses'] == counts['statuses'] and result['events'] == 2
+
+
+@pytest.mark.parametrize('stdout', ["{'events': 0}", '{}', '[]', 'null',
+    '{"events": 1, "statuses": {}}', '{"events": 1, "statuses": {"secret": 1}}',
+    '{"events": 1, "statuses": {"unknown": true}}', '{"events": -1, "statuses": {"unknown": -1}}'])
+def test_submit_invalid_counts_are_error_without_echoing_stdout(tmp_path, monkeypatch, stdout):
+    (tmp_path / 'src').mkdir()
+    (tmp_path / 'src/submit.py').touch()
+    monkeypatch.setattr(C.subprocess, 'run', lambda *a, **k: subprocess.CompletedProcess(a, 0, stdout))
+    result = C.submit_cli(tmp_path, 120)
+    assert result['status'] == 'error' and 'secret' not in str(result)
+
+
+def test_callback_attention_survives_clean_final_submit(setup_cycle):
+    run, *_ = setup_cycle
+    results = iter([{'status': 'attention', 'events': 1, 'statuses': {'unknown': 1}}, {'status': 'ok'}])
+    rec = run(submit=lambda *a: next(results))
+    assert rec['status'] == 'attention'
+    assert rec['steps']['on_finalized']['calls'][0]['submit']['statuses'] == {'unknown': 1}
+
+
+def test_ops_report_recognizes_attention(tmp_path):
+    import json
+    from flab.ops_report import status_text
+    (tmp_path / 'config').mkdir()
+    (tmp_path / 'config/submit_mode.json').write_text(json.dumps({'mode': 'trial'}))
+    (tmp_path / 'config/players_enabled.json').write_text(json.dumps(dict.fromkeys(C.PLAYERS, True)))
+    append_record(tmp_path / 'data/cycles.jsonl', {'status': 'attention', 'finished_at': to_iso(NOW), 'secret': 'DO NOT DISPLAY'})
+    text = status_text(tmp_path, now=NOW)
+    assert 'attention' in text and 'DO NOT DISPLAY' not in text

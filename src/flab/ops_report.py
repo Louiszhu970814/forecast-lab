@@ -13,7 +13,7 @@ PLAYERS = ("claude", "gemini", "gpt")
 ERRORS = frozenset({"quota_exhausted", "timeout", "invalid_output", "tool_denied",
     "tool_scope_violation", "cli_error", "model_mismatch", "deadline_missed",
     "unsupported_type", "budget_skipped", "disabled"})
-CYCLE_STATES = frozenset({"complete", "error", "timeout", "worker_failed", "overlap_skipped"})
+CYCLE_STATES = frozenset({"complete", "attention", "error", "timeout", "worker_failed", "overlap_skipped"})
 
 
 class ReportError(ValueError):

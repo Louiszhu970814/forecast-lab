@@ -34,6 +34,12 @@ class FakeTransport:
         self.read_effects = []
         self.hook = lambda operation: None
 
+    def current_tournaments(self, configured):
+        cfg = copy.deepcopy(configured)
+        cfg["tournaments"].update({name: {"id": pid, "submit_whitelisted": False}
+            for name, pid in (("minibench", 33122), ("metaculus_cup", 33108), ("main_site_questions", 144))})
+        return {**cfg, "excluded_project_ids": [33121, 33122]}
+
     def account(self):
         return {"id": self.bot}
 
@@ -1081,3 +1087,98 @@ def test_snapshot_invalidated_during_remote_precheck_is_not_sent(environment, mo
     e["make"]().run()
     assert not e["transport"].writes
     assert rows(e)[-1]["status"] == "abandoned"
+
+
+@pytest.mark.parametrize('venue,allowed', [(32977, True), (33108, True), (144, True),
+                                          (33121, False), (33122, False), (33123, False), (999, False)])
+def test_trial_discovery_with_repository_configuration(environment, monkeypatch, venue, allowed):
+    from flab.config import load_tournaments
+    e = environment
+    e['cfg'] = load_tournaments()  # actual null MiniBench; no static Cup/site entries
+    assert e['cfg']['tournaments']['minibench']['id'] is None
+    assert 'metaculus_cup' not in e['cfg']['tournaments']
+    update_cfg(e)
+    original = e['transport'].current_tournaments
+    def discover(cfg):
+        return {**original(cfg), 'excluded_project_ids': [33121, 33122, 33123]}
+    monkeypatch.setattr(e['transport'], 'current_tournaments', discover)
+    e['transport'].index.project_ids.add(33123)
+    e['post']['projects'] = {'default_project': {'id': venue}}
+    snap = {**snapshot_from_post(e['post'], 'synthetic'), 'tournament_id': venue, 'snapshot_id': 's1'}
+    e['seed'](snap)
+    e['make']().run()
+    assert rows(e)[-1]['status'] == ('comment_ok' if allowed else 'rejected_precheck')
+    assert bool(e['transport'].writes) == allowed
+
+
+@pytest.mark.parametrize('failure', ['missing_round', 'exception', 'incomplete', 'inconsistent', 'ambiguous'])
+def test_dynamic_discovery_failures_are_temporary_and_recover(environment, monkeypatch, failure):
+    from flab.config import load_tournaments
+    e = environment
+    e['cfg'] = load_tournaments()
+    update_cfg(e)
+    e['seed']()
+    original = e['transport'].current_tournaments
+    calls = []
+    def discover(cfg):
+        calls.append(1)
+        if failure == 'exception':
+            raise OSError('secret must not be logged')
+        cfg = original(cfg)
+        if failure == 'missing_round':
+            cfg['excluded_project_ids'].append(33123)
+        elif failure == 'incomplete':
+            cfg['tournaments'].pop('metaculus_cup')
+        elif failure == 'inconsistent' and len(calls) > 1:
+            cfg['tournaments']['metaculus_cup']['id'] = 555
+        elif failure == 'ambiguous':
+            cfg['tournaments']['metaculus_cup']['id'] = 32977
+        return cfg
+    with monkeypatch.context() as m:
+        m.setattr(e['transport'], 'current_tournaments', discover)
+        e['make']().run()
+    assert rows(e)[-1]['status'] == 'rejected_precheck'
+    assert not e['transport'].writes and 'secret' not in str(rows(e))
+    e['make']().run()
+    assert rows(e)[-1]['status'] == 'comment_ok'
+
+
+def test_live_dynamic_discovery_cannot_create_whitelist(environment):
+    e = environment
+    e['seed']({**e['snap'], 'tournament_id': 33108})
+    set_mode(e, mode='live')
+    e['make']().run()
+    assert rows(e)[-1]['status'] == 'rejected_precheck' and not e['transport'].writes
+
+
+def test_discovery_does_not_hold_ledger_transaction(environment, monkeypatch):
+    import threading
+    from flab.ledger import transaction
+    e = environment
+    e['seed']()
+    original = e['transport'].current_tournaments
+    workers, checks = [], []
+    def discovery(cfg):
+        done = threading.Event()
+        def write():
+            with transaction(e['root']):
+                append_record(e['root'] / 'scheduler_jobs.jsonl', {'type': 'synthetic'})
+            done.set()
+        worker = threading.Thread(target=write)
+        workers.append(worker)
+        worker.start()
+        checks.append(done.wait(1))
+        return original(cfg)
+    monkeypatch.setattr(e['transport'], 'current_tournaments', discovery)
+    e['make']().run()
+    for worker in workers:
+        worker.join(2)
+    assert checks and all(checks) and rows(e)[-1]['status'] == 'comment_ok'
+
+
+def test_cli_stdout_is_single_json_counts_only(monkeypatch, capsys):
+    monkeypatch.setattr(S.Submitter, 'run', lambda *a, **k: {'events': 1, 'statuses': {'unknown': 1}})
+    assert S.main(['run']) == 0
+    output = capsys.readouterr().out
+    assert len(output.splitlines()) == 1
+    assert json.loads(output) == {'events': 1, 'statuses': {'unknown': 1}}

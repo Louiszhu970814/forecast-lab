@@ -1,4 +1,4 @@
-"""Offline, discrete-event coverage replay (coverage_sim_v2).
+"""Offline, discrete-event coverage replay (coverage_sim_v3).
 
 Register freezes settings AND schedule bytes as parsed JSON before any results exist.
 Only coverage_sims.jsonl / coverage_sim_results.jsonl are read or appended. No model,
@@ -28,7 +28,7 @@ from flab.ledger import read_complete, transaction
 from flab.timeutil import parse_iso, to_iso, utc_now
 from flab.workdir import PROJECT_ROOT
 
-VERSION = "coverage_sim_v2"
+VERSION = "coverage_sim_v3"
 SUPPORTED = ("binary", "multiple_choice")
 
 
@@ -47,7 +47,7 @@ def _samples(value, name):
 
 def validate(settings, schedule):
     if settings.get("version") != VERSION or not isinstance(settings.get("sim_id"), str) or not settings["sim_id"]:
-        raise ValueError("coverage_sim_v2 and nonempty sim_id required")
+        raise ValueError("coverage_sim_v3 and nonempty sim_id required")
     start, end = (parse_iso(settings["observation"][k]) for k in ("start", "end"))
     if start >= end:
         raise ValueError("invalid observation window")
@@ -286,7 +286,8 @@ class Simulation:
             if not self._eligible(q):
                 continue
             enabled = [p for p in PLAYERS if self.stop_reason(p) != "disabled"]
-            done = all(q["states"][p, 1]["terminal"] for p in enabled)
+            runnable = [p for p in enabled if p not in self.paused and not self.stop_reason(p)]
+            done = all(q["states"][p, 1]["terminal"] for p in runnable)
             unfinished |= not done
             if done and q["candidate"] is None:
                 q["candidate"] = any(q["states"][p, 1]["valid"] for p in PLAYERS) and self.rng.random() < self.settings["escalation_rate"]
@@ -492,6 +493,7 @@ class Simulation:
         limits = self.cfg["timing_limits"]
         self.admission_end = started + timedelta(seconds=limits["admission_window_s"])
         self.cycle = {"started_at": to_iso(started), "worker_deadline": started + timedelta(seconds=limits["worker_timeout_s"]), "status": "complete", "submit_calls": []}
+        handoff_deadline = started + timedelta(seconds=limits["handoff_s"])
         self.cycle_jobs = 0
         self.paused = set()
         try:
@@ -501,6 +503,9 @@ class Simulation:
                 if self.stop_reason(p):
                     self.paused.add(p)
             while True:
+                if not self.active and self.now >= handoff_deadline and self.settings.get("submission_policy", "on_finalized") == "on_finalized":
+                    self.cycle["handoff"] = True
+                    break
                 for q in self.questions.values():
                     if self._eligible(q):
                         q["reasons"].update(filter(None, (self.stop_reason(p) for p in PLAYERS)))
@@ -515,6 +520,18 @@ class Simulation:
                         if job.player not in self.active and job.player not in self.paused:
                             self.start_attempt(job)
                 if not self.active:
+                    if self.settings.get("submission_policy", "on_finalized") == "on_finalized":
+                        if self.now >= handoff_deadline:
+                            self.cycle["handoff"] = True
+                            break
+                        deadlines = [self.deadline(q) for q in self.questions.values()
+                                     if q["seen"] is not None and not q["sealed"] and not q["blocked"]
+                                     and not q["fallback"] and q["question_type"] in SUPPORTED
+                                     and q["submitted"] is None]
+                        delay = S.idle_delay(self.now, deadlines, handoff_deadline)
+                        if delay is not None:
+                            self._advance(self.now + timedelta(seconds=delay))
+                            continue
                     break
                 wake = max(self.now, min(a["finish"] for a in self.active.values()))
                 if self.settings.get("submission_policy", "on_finalized") == "on_finalized":
@@ -529,10 +546,11 @@ class Simulation:
                     self.complete(p)
                     if p not in self.active:
                         self.poll(force=True)
-            newly_ready = self.finalize()
-            if newly_ready and self.settings.get("submission_policy", "on_finalized") == "on_finalized":
-                self.publish(during_schedule=True, question_ids=newly_ready)
-            self.publish()
+            if not self.cycle.get("handoff"):
+                newly_ready = self.finalize()
+                if newly_ready and self.settings.get("submission_policy", "on_finalized") == "on_finalized":
+                    self.publish(during_schedule=True, question_ids=newly_ready)
+                self.publish()
         except WorkerTimeout:
             self.cycle["status"] = "timeout"
             for p, active in self.active.items():

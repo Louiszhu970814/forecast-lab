@@ -290,7 +290,7 @@ def run(ctx: F.Context, snapshot: dict[str, Any], *,
         except F.QuestionDone as exc:
             summary.update(outcome="stopped_waiting", reason=str(exc))
         except F.LineStop as exc:
-            summary.update(outcome="quota_5h_wait" if exc.quota_retry_at_utc else "line_stopped",
+            summary.update(outcome=exc.outcome,
                            reason=str(exc), notify_louis=exc.notify, quota_retry_at_utc=exc.quota_retry_at_utc)
             if exc.notify:
                 append_record(ctx.line_status_log, {"type": "line_stop", "player": ctx.player,

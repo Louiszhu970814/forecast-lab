@@ -1,4 +1,4 @@
-"""Append-only snapshot queue and bounded campaign registration for continuous_v3."""
+"""Append-only snapshot queue and bounded campaign registration for continuous_v4."""
 from __future__ import annotations
 
 import copy
@@ -16,14 +16,14 @@ from flab.timeutil import parse_iso, to_iso, utc_now
 from m2_campaign import discover_tournaments
 from poll_questions import TournamentIndex, latest_snapshots, poll
 
-VERSION = "continuous_v3"
+VERSION = "continuous_v4"
 STRUCTURAL = ("question_type", "options", "scheduled_close_time", "post_id", "tournament_id")
 
 
 def register(root: Path, policy: dict, *, now=utc_now):
     """Freeze an explicit budget window and venue selection before polling any outputs."""
-    if policy.get("version") not in ("continuous_v2", VERSION) or not isinstance(policy.get("campaign_id"), str) or not policy["campaign_id"]:
-        raise ValueError("continuous_v2 or continuous_v3 campaign identity required")
+    if policy.get("version") not in ("continuous_v2", "continuous_v3", VERSION) or not isinstance(policy.get("campaign_id"), str) or not policy["campaign_id"]:
+        raise ValueError("continuous_v2, continuous_v3 or continuous_v4 campaign identity required")
     start, end = parse_iso(policy["budget_window_start"]), parse_iso(policy["budget_window_end"])
     if not start <= now() < end or end - start > timedelta(days=7):
         raise ValueError("continuous budget window must be active and at most seven days")
@@ -58,6 +58,32 @@ def register(root: Path, policy: dict, *, now=utc_now):
             "campaign": copy.deepcopy(policy), "sha256": hash_obj(policy), "at": to_iso(now())})
 
 
+def current_tournaments(client, *, configured, now=utc_now):
+    """Read-only official discovery shared with the future V15 Transport.
+
+    Return the discovered configuration plus every ongoing/upcoming MiniBench ID
+    (also the current alias). No static fallback on any metadata failure.
+    """
+    cfg = discover_tournaments(client, configured=configured)
+    mini = client.get("projects/minibenches/")
+    if not isinstance(mini, list) or not mini or not any(
+            isinstance(r, dict) and r.get("slug") == "minibench" and
+            r.get("id") == cfg["tournaments"]["minibench"]["id"] for r in mini):
+        raise F.PreflightError("MiniBench index unavailable or inconsistent")
+    exclusions = {cfg["tournaments"][role]["id"] for role in ("main", "minibench")}
+    seen = set()
+    for r in mini:
+        if not isinstance(r, dict) or type(r.get("id")) is not int or r["id"] <= 0 or \
+                type(r.get("is_ongoing")) is not bool or r["id"] in seen or (not r["is_ongoing"] and not r.get("start_date")):
+            raise F.PreflightError("incomplete MiniBench metadata")
+        seen.add(r["id"])
+        if r["is_ongoing"] or parse_iso(r["start_date"]) > now():
+            exclusions.add(r["id"])
+    if any(type(v) is not int or v <= 0 for v in exclusions):
+        raise F.PreflightError("main and MiniBench exclusion IDs required")
+    return {**cfg, "excluded_project_ids": sorted(exclusions)}
+
+
 class Poller:
     """Use the existing poller, with current tournament metadata and trial copy exclusions."""
     def __init__(self, client, root: Path, policy: dict, *, now=utc_now):
@@ -68,7 +94,7 @@ class Poller:
         cfg = load_tournaments()
         mode = load_submit_mode()["mode"]
         if mode != "live":
-            cfg = discover_tournaments(self.client, configured=cfg)
+            cfg = current_tournaments(self.client, configured=cfg, now=self.now)
         entries = cfg["tournaments"]
         venues = self.policy["venues"]
         for v in venues:
@@ -82,17 +108,7 @@ class Poller:
         index = None
         records = []
         if mode != "live":
-            exclusions = [entries.get(role, {}).get("id") for role in ("main", "minibench")]
-            mini = self.client.get("projects/minibenches/")
-            if not isinstance(mini, list) or not mini or not any(r.get("slug") == "minibench" for r in mini):
-                raise F.PreflightError("MiniBench index unavailable")
-            for r in mini:
-                if type(r.get("id")) is not int or not isinstance(r.get("is_ongoing"), bool):
-                    raise F.PreflightError("incomplete MiniBench metadata")
-                if r["is_ongoing"] or (r.get("start_date") and parse_iso(r["start_date"]) > self.now()):
-                    exclusions.append(r["id"])
-            if any(type(v) is not int or v <= 0 for v in exclusions):
-                raise F.PreflightError("main and MiniBench exclusion IDs required")
+            exclusions = cfg["excluded_project_ids"]
             records = [poll(self.client, v, metadata_only=True, poll_log=self.root / "poll_log.jsonl")
                        for v in sorted(set(exclusions))]
             index = TournamentIndex.from_polls(records)

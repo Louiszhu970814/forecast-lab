@@ -459,7 +459,10 @@ def test_first_tier_global_gate_matches_scheduler_with_busy_or_paused_line(tmp_p
     monkeypatch.setattr(scheduler, "_terminal", lambda qid, p, tier, *args: sim.questions[qid]["states"][p, tier]["terminal"])
     monkeypatch.setattr(S, "load_players_enabled", lambda: dict.fromkeys(PLAYERS, True))
     monkeypatch.setattr(S.E, "evaluate", lambda *a, **kw: {"escalation": {"candidate": True}})
-    assert sim.jobs() == scheduler.jobs(snaps, paused=sim.paused, active=set(sim.active)) == []
+    simulated = [(j.question_id, j.player, j.tier) for j in sim.jobs()]
+    actual = [(j.question_id, j.player, j.tier) for j in scheduler.jobs(snaps, paused=sim.paused, active=set(sim.active))]
+    expected = [(q, p, 2) for q in (1, 2) for p in ('claude', 'gemini')] if paused else []
+    assert simulated == actual == expected
     sim.questions[2]["states"]["gpt", 1]["terminal"] = True
     actual = sim.jobs()
     expected = scheduler.jobs(snaps, paused=sim.paused, active=set(sim.active))
@@ -518,3 +521,47 @@ def test_simulated_submit_busy_skips_and_retries_later(tmp_path):
 def test_submission_policy_validation(tmp_path, change):
     with pytest.raises(ValueError):
         replay(tmp_path, cfg={**settings(), **change})
+
+
+@pytest.mark.parametrize('deadline', [300, 575, 610, 1190, 4175])
+def test_idle_paused_single_question_is_submitted_without_other_work(tmp_path, deadline):
+    cfg = settings()
+    cfg['players']['gemini']['stops'] = [{'start': at(0), 'end': at(20000), 'reason': 'preflight_blocked'}]
+    result = replay(tmp_path, [question(closing=deadline + 1500)], cfg)
+    q, = result['questions']
+    assert q['on_time']
+    assert parse_iso(q['submitted_at']) <= NOW + timedelta(seconds=deadline + 60)
+    assert len(result['attempts']) == 2
+
+
+def test_paused_line_does_not_block_simulated_tier2(tmp_path):
+    cfg = settings()
+    cfg['escalation_rate'] = 1
+    cfg['players']['gemini']['stops'] = [{'start': at(0), 'end': at(20000), 'reason': 'preflight_blocked'}]
+    result = replay(tmp_path, [question(closing=2300)], cfg)
+    assert result['questions'][0]['with_tier2']
+    assert {(a['player'], a['tier']) for a in result['attempts']} == {('claude', 1), ('gpt', 1), ('claude', 2), ('gpt', 2)}
+
+
+def test_idle_simulator_handoff_releases_before_next_tick(tmp_path):
+    cfg = settings()
+    cfg['players']['gemini']['stops'] = [{'start': at(0), 'end': at(20000), 'reason': 'preflight_blocked'}]
+    # A continuous stream of known deadlines keeps this otherwise idle worker alive
+    # until its handoff. Each question already has a completed first-layer answer.
+    deadlines = list(range(700, 4200, 500)) + [4171]
+    record = CS.register(tmp_path, cfg, [question(i + 1, closing=d + 1500) for i, d in enumerate(deadlines)])
+    sim = CS.Simulation(record['frozen'], cfg['seed'])
+    for q in sim.questions.values():
+        q['seen'] = NOW
+        q['states']['claude', 1].update(terminal=True, valid=True)
+        q['states']['gpt', 1].update(terminal=True, valid=True)
+    sim.next_tick = NOW + timedelta(seconds=600)
+    sim.run_cycle()
+    cycle = sim.cycles[-1]
+    assert cycle['handoff'] and cycle['finished_at'] == at(4170)
+    assert sim.next_tick == NOW + timedelta(seconds=4200)
+    assert not sim.questions[len(deadlines)]['sealed']
+    sim.now = sim.next_tick
+    sim.next_tick += timedelta(seconds=600)
+    sim.run_cycle()
+    assert sim.questions[len(deadlines)]['submitted'] <= NOW + timedelta(seconds=4171 + 60)

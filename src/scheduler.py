@@ -10,9 +10,10 @@ import argparse
 import copy
 import importlib
 import json
+import time
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Callable
@@ -32,7 +33,24 @@ from flab.ledger import transaction, read_complete
 from flab.timeutil import parse_iso, to_iso, utc_now
 from poll_questions import latest_snapshots
 
-VERSION = "scheduler_v5"
+VERSION = "scheduler_v6"
+QUOTA_WAITS = {"quota_5h_wait", "quota_weekly_wait"}
+IDLE_LOOKAHEAD_S = 780  # next 600-second tick + bounded submission tail + startup allowance
+
+
+def idle_delay(now, deadlines, handoff_deadline=None):
+    """Pure timing rule, also used by the coverage simulator; never busy-wait."""
+    upcoming = [d for d in deadlines if d is not None and d > now]
+    if not upcoming or min(upcoming) > now + timedelta(seconds=IDLE_LOOKAHEAD_S):
+        return None
+    if handoff_deadline is not None and now >= handoff_deadline:
+        return None
+    targets = [now + timedelta(seconds=60), min(upcoming)]
+    if handoff_deadline is not None:
+        targets.append(handoff_deadline)
+    return max(0.0, (min(targets) - now).total_seconds())
+
+
 TERMINAL = {"selected", "already_selected", "prior_answer_excluded", "output_excluded", "attempts_exhausted",
             "schema_failed", "semantic_failed", "parse_failed", "invalid_output", "not_candidate", "not_admitted", "budget_skipped"}
 
@@ -117,7 +135,8 @@ class Scheduler:
                  now: Callable[[], datetime] = utc_now,
                  acceptance_log: Path = baseline.ACCEPTANCE_LOG,
                  continuous: bool = False, execution_deadline: datetime | None = None,
-                 on_finalized: Callable[[list[int]], None] | None = None):
+                 on_finalized: Callable[[list[int]], None] | None = None,
+                 handoff_deadline: datetime | None = None, sleep=None):
         if snapshots is None:
             from m2_campaign import SafeSnapshots
             from metaculus import MetaculusClient
@@ -126,6 +145,8 @@ class Scheduler:
             snapshots = SafeSnapshots(MetaculusClient(get_secret("METACULUS_TOKEN", PROJECT_ROOT / ".env")), root, campaign)
         self.continuous, self.execution_deadline = continuous, execution_deadline
         self.on_finalized = on_finalized
+        self.handoff_deadline, self.sleep = handoff_deadline, sleep or time.sleep
+        self.handoff = False
         self.snapshot_ids = {}
         self.root, self.campaign, self.provider, self.now = root, campaign, snapshots, now
         self.cfg, self.policy = load_run_config(), load_quota_policy()
@@ -160,8 +181,13 @@ class Scheduler:
         attempts, aggregates, events, view = self.state()
         with transaction(self.root):
             rows = read_complete(self.jobs_log)
-        waiting = {r["player"] for r in rows if r.get("outcome") == "quota_5h_wait"
+        waiting = {r["player"] for r in rows if r.get("outcome") in QUOTA_WAITS
                    and r.get("quota_retry_at_utc") and self.now() < parse_iso(r["quota_retry_at_utc"])}
+        if self.continuous:
+            waiting.update(r["player"] for r in attempts if r.get("quota_retry_at_utc")
+                           and self.now() < parse_iso(r["quota_retry_at_utc"]))
+            waiting.update(p for p in PLAYERS if F.line_stopped(self.root / "line_status.jsonl", p,
+                                                              self.root / "forecasts.jsonl"))
         enabled = load_players_enabled()
         sealed = {a["question_id"] for a in aggregates if a.get("scheduler_campaign_id") == self.campaign["campaign_id"]
                   and a.get("completion_status") == "complete_local"
@@ -175,7 +201,9 @@ class Scheduler:
             deadline = F.decision_deadline(snap, self.cfg)
             if deadline is None:
                 continue
-            tier1_done = all(not enabled[p] or self._terminal(qid, p, 1, attempts, rows) for p in PLAYERS)
+            tier1_done = all(not enabled[p] or
+                             (self.continuous and (p in paused or p in waiting)) or
+                             self._terminal(qid, p, 1, attempts, rows) for p in PLAYERS)
             unfinished_first |= not tier1_done
             candidate = E.evaluate(snap, attempts, audit_events=view, now=self.now()) if tier1_done else None
             for p in PLAYERS:
@@ -188,7 +216,7 @@ class Scheduler:
                 estimate = B.duration_estimate(attempts, p, tier, self.cfg)
                 job = Job(p, tier, qid, snap, entry["priority"], deadline, estimate)
                 (first if tier == 1 else second).append(job)
-        # All first-layer work has precedence, including other lines still running or paused.
+        # Running first-layer work still has precedence; continuous paused lines do not block upgrades.
         return order_jobs(first if unfinished_first else second, now=self.now(), urgent_slack_s=self.campaign["urgent_slack_s"])
 
     def _protected(self, player):
@@ -268,7 +296,7 @@ class Scheduler:
             except F.QuestionDone as exc:
                 result.update(outcome="stopped_waiting", reason=str(exc))
             except F.LineStop as exc:
-                result.update(outcome="quota_5h_wait" if exc.quota_retry_at_utc else "line_stopped",
+                result.update(outcome=exc.outcome,
                               reason=str(exc), notify_louis=exc.notify, quota_retry_at_utc=exc.quota_retry_at_utc)
                 if exc.notify:
                     with transaction(self.root):
@@ -343,15 +371,18 @@ class Scheduler:
         append_record(self.root / "comments.jsonl", comment)
         return comment["type"] == "comment"
 
-    def _wait_timeout(self, snapshots):
-        if not self.continuous:
-            return None
+    def _pending_deadlines(self, snapshots):
         with transaction(self.root):
             sealed = {a.get("question_snapshot_id") for a in read_complete(self.root / "aggregates.jsonl")
                       if a.get("scheduler_campaign_id") == self.campaign["campaign_id"]
                       and a.get("completion_status") == "complete_local"}
-        deadlines = [F.decision_deadline(s, self.cfg) for s in snapshots.values()
-                     if s["snapshot_id"] not in sealed]
+        return [F.decision_deadline(s, self.cfg) for s in snapshots.values()
+                if s["snapshot_id"] not in sealed]
+
+    def _wait_timeout(self, snapshots):
+        if not self.continuous:
+            return None
+        deadlines = self._pending_deadlines(snapshots)
         return min([60.0, *(max(0.0, (d - self.now()).total_seconds()) for d in deadlines if d is not None)])
 
     def run(self, *, max_jobs=180, lock_held=False, paused_players=()) -> dict:
@@ -367,6 +398,9 @@ class Scheduler:
             started = to_iso(self.now())
             with ThreadPoolExecutor(max_workers=3) as pool:
                 while True:
+                    if self.continuous and not active and self.handoff_deadline is not None and self.now() >= self.handoff_deadline:
+                        self.handoff = True
+                        break
                     snapshots = self.provider()
                     if self.continuous:
                         self.finalize(snapshots)
@@ -379,6 +413,15 @@ class Scheduler:
                                 break
                             active[pool.submit(self.execute, job)] = job
                     if not active:
+                        if self.continuous:
+                            deadlines = self._pending_deadlines(snapshots)
+                            if self.handoff_deadline is not None and self.now() >= self.handoff_deadline:
+                                self.handoff = True
+                                break
+                            delay = idle_delay(self.now(), deadlines, self.handoff_deadline)
+                            if delay is not None:
+                                self.sleep(delay)
+                                continue
                         break
                     completed, _ = wait(active, timeout=self._wait_timeout(snapshots), return_when=FIRST_COMPLETED)
                     for future in completed:
@@ -404,9 +447,10 @@ class Scheduler:
                         else:
                             self.provider()
                     self.finalize(self.provider())
-            self.finalize(self.provider())
+            if not self.handoff:
+                self.finalize(self.provider())
             summary = {"type": "scheduler_run", "run_id": self.run_id, "version": VERSION, "mode": load_submit_mode()["mode"] if self.continuous else "local",
-                       "continuous": self.continuous,
+                       "continuous": self.continuous, "handoff": self.handoff,
                        "campaign_id": self.campaign["campaign_id"], "started_at": started, "finished_at": to_iso(self.now()),
                        "jobs_completed": len(results), "paused_players": sorted(paused), "max_jobs": max_jobs}
             append_record(self.root / "scheduler_runs.jsonl", summary)

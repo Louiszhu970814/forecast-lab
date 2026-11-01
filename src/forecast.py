@@ -196,20 +196,19 @@ def check_acceptance(pf: Preflight, records: list[dict[str, Any]], fingerprint: 
             pf.problems.append(f"runtime code changed since acceptance: {changed}")
     production = [r for r in records if r.get("mode") == "production" and r.get("line_pass")
                   and (production is None or (r.get("model"), r.get("effort")) == (production.get("model"), production.get("effort")))]
-    if pf.tier == 2:
-        current = []
-        for record in production:
-            if record.get("cli_version") != pf.cli_version or record.get("judge_version") != J.JUDGE_VERSION:
-                continue
-            try:
-                path = project_root / str(record.get("evidence_path") or "")
-                proof = json.loads(path.read_text()) if _sha_file(path) == record.get("evidence_sha256") else {}
-            except (OSError, ValueError):
-                continue
-            if isinstance(proof, dict) and proof.get("tier2_equivalent_to_tier1") is True and all(
-                    (proof.get("code_sha256") or {}).get(name) == sha for name, sha in fingerprint.items()):
-                current.append(record)
-        production = current
+    current = []
+    for record in production:
+        if record.get("cli_version") != pf.cli_version or record.get("judge_version") != J.JUDGE_VERSION:
+            continue
+        try:
+            path = project_root / str(record.get("evidence_path") or "")
+            proof = json.loads(path.read_text()) if _sha_file(path) == record.get("evidence_sha256") else {}
+        except (OSError, ValueError):
+            continue
+        if isinstance(proof, dict) and (pf.tier != 2 or proof.get("tier2_equivalent_to_tier1") is True) and all(
+                (proof.get("code_sha256") or {}).get(name) == sha for name, sha in fingerprint.items()):
+            current.append(record)
+    production = current
     if production:
         pf.production_record_id = production[-1].get("record_id")
     else:
@@ -287,10 +286,12 @@ class LineStop(RuntimeError):
     """Stop this line. With ``notify`` the stop is recorded in data/line_status.jsonl and lasts until
     Louis records a resume (``forecast.py resume``); otherwise it ends this run only (§7.5, §7.7)."""
 
-    def __init__(self, reason: str, *, notify: bool = False, quota_retry_at_utc: str | None = None) -> None:
+    def __init__(self, reason: str, *, notify: bool = False, quota_retry_at_utc: str | None = None,
+                 quota_wait: str = "quota_5h_wait") -> None:
         super().__init__(reason)
         self.notify = notify
         self.quota_retry_at_utc = quota_retry_at_utc
+        self.outcome = quota_wait if quota_retry_at_utc else "line_stopped"
 
 
 def line_stopped(log: Path, player: str, forecasts_log: Path | None = None) -> dict[str, Any] | None:
@@ -486,6 +487,13 @@ def gemini_admission(ctx: Context, before: Any) -> tuple[str | None, dict[str, A
     estimate, samples = argon_estimate(ctx.quota_log, policy, ctx.forecasts_log, tier=ctx.tier, current=before)
     used = {"quota_layout": buckets.layout, "quota_weekly_bucket": buckets.weekly.id, "argon_remaining": remaining, "estimate": estimate, "estimate_samples": samples, "reserve": reserve}
     if remaining - estimate < reserve:
+        try:
+            reset = to_iso(parse_iso(buckets.weekly.reset_time))
+            if parse_iso(reset) <= ctx.now():
+                raise ValueError("expired quota reset")
+        except (TypeError, ValueError):
+            return quota.UNKNOWN_LAYOUT_REASON, used
+        used.update(quota_retry_at_utc=reset, quota_wait="quota_weekly_wait")
         return (f"quota_exhausted: Argon {remaining:.4f} - estimate {estimate:.4f} is below the reserve line "
                 f"{reserve:.2f}"), used
     estimate_5h, samples_5h = argon_estimate(ctx.quota_log, policy, ctx.forecasts_log,
@@ -546,7 +554,8 @@ def run_attempt(ctx: Context, snap: dict[str, Any], *, kind: str, prompt: str, s
             with transaction(ctx.quota_log.parent):
                 append_record(ctx.quota_log, {"type": "quota_admission_denied", "attempt_id": attempt_id,
                     "player": player, "tier": ctx.tier, "at": to_iso(ctx.now()), "reason": reason, **admission})
-            raise LineStop(reason, quota_retry_at_utc=admission.get("quota_retry_at_utc"))
+            raise LineStop(reason, quota_retry_at_utc=admission.get("quota_retry_at_utc"),
+                           quota_wait=admission.get("quota_wait", "quota_5h_wait"))
     # recomputed after the quota query, and leaving time for the one after the run (§3.5)
     timeout = int(min(limit, require_time(f"a {kind} attempt after the quota check")))
     # Recheck after an external quota query as well: late audits must precede every exposure.
@@ -899,7 +908,7 @@ def run(player: str, question_ids: list[int], *, allow_unapproved_baseline: bool
                 try:
                     summary["questions"].append(forecast_question(ctx, snap))
                 except LineStop as exc:
-                    summary["questions"].append({"question_id": qid, "outcome": "quota_5h_wait" if exc.quota_retry_at_utc else "line_stopped",
+                    summary["questions"].append({"question_id": qid, "outcome": exc.outcome,
                                                   "reason": str(exc), "quota_retry_at_utc": exc.quota_retry_at_utc})
                     summary["line_stopped"] = str(exc)
                     if exc.notify:

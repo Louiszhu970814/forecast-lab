@@ -1,4 +1,4 @@
-"""One bounded continuous polling/forecast/submission cycle (cycle_v3).
+"""One bounded continuous polling/forecast/submission cycle (cycle_v4).
 
 Usage: .venv/bin/python src/cycle.py --campaign config/cycle_campaign.json
 The campaign is explicit and finite; no implicit quota increases or launchd installation.
@@ -9,6 +9,7 @@ import argparse
 import copy
 import importlib
 import json
+import math
 import os
 import signal
 import subprocess
@@ -28,7 +29,7 @@ from flab.ledger import read_complete, transaction
 from flab.timeutil import parse_iso, to_iso, utc_now
 from flab.workdir import PROJECT_ROOT
 
-VERSION = "cycle_v3"
+VERSION = "cycle_v4"
 INTERVAL_S = 600
 SAFETY_S = 30
 ADMISSION_WINDOW_S = INTERVAL_S - SAFETY_S - 60
@@ -45,9 +46,14 @@ def timing_limits(cfg, admission_window_s=ADMISSION_WINDOW_S):
     timeouts = cfg["timeouts_s"]
     worst_job_s = 2 * (max(timeouts["tier1"], timeouts["tier2"]) + timeouts["repair"]
                        + 4 * F.QUOTA_QUERY_S)
-    worker_timeout_s = max(0, admission_window_s) + worst_job_s + SUBMIT_TIMEOUT_S
+    # Drain existing jobs, then retain enough time to reach a launchd handoff tick.
+    # Exit 30 seconds before that tick without another network/submission tail.
+    handoff_tick_s = math.ceil((max(0, admission_window_s) + worst_job_s +
+                                2 * SUBMIT_TIMEOUT_S + SAFETY_S) / INTERVAL_S) * INTERVAL_S
+    handoff_s = handoff_tick_s - SAFETY_S
+    worker_timeout_s = handoff_tick_s + SUBMIT_TIMEOUT_S
     return {"admission_window_s": admission_window_s, "worst_job_s": worst_job_s,
-            "submit_timeout_s": SUBMIT_TIMEOUT_S, "cleanup_reserve_s": CLEANUP_RESERVE_S,
+            "handoff_s": handoff_s, "submit_timeout_s": SUBMIT_TIMEOUT_S, "cleanup_reserve_s": CLEANUP_RESERVE_S,
             "worker_timeout_s": worker_timeout_s,
             "supervisor_timeout_s": worker_timeout_s + CLEANUP_RESERVE_S}
 
@@ -102,15 +108,34 @@ def submit_cli(project: Path, timeout_s: float):
         return {"status": "deferred", "reason": "cycle time limit"}
     # submit.py owns mode, identity, whitelist and STOP_SUBMIT rechecks for every API write.
     result = subprocess.run([str(project / ".venv" / "bin" / "python"), str(script), "run"],
-                            cwd=project, timeout=timeout_s, check=False)
-    return {"status": "busy" if result.returncode == BUSY_EXIT_CODE else
-            "ok" if result.returncode == 0 else "error", "returncode": result.returncode}
+                            cwd=project, timeout=timeout_s, check=False, capture_output=True, text=True)
+    base = {"returncode": result.returncode}
+    if result.returncode == BUSY_EXIT_CODE:
+        return {"status": "busy", **base}
+    if result.returncode:
+        return {"status": "error", **base}
+    try:
+        counts = json.loads(result.stdout)
+        statuses = counts["statuses"]
+        if set(counts) != {"events", "statuses"} or type(counts["events"]) is not int or counts["events"] < 0 or \
+                not isinstance(statuses, dict) or any(k not in SUBMISSION_STATES or type(v) is not int or v < 0
+                                                     for k, v in statuses.items()) or \
+                sum(statuses.values()) != counts["events"]:
+            raise ValueError("invalid submission counts")
+    except (ValueError, TypeError, KeyError):
+        return {"status": "error", "reason": "invalid submission counts", **base}
+    return {"status": "attention" if any(statuses.get(s, 0) for s in ATTENTION_STATES) else "ok",
+            **base, **counts}
+
+
+ATTENTION_STATES = {"rejected_precheck", "unknown", "confirmed_failed", "forecast_failed", "comment_failed", "abandoned"}
+SUBMISSION_STATES = ATTENTION_STATES | {"intent", "dry_run", "request_started", "forecast_ok", "comment_ok"}
 
 
 def run_cycle(root: Path, campaign: dict, poller, *, project: Path = PROJECT_ROOT,
               now=utc_now, adapter_loader=lambda p: importlib.import_module(f"adapters.{p}"),
               preflight=None, context_extra=None, submit=submit_cli, cycle_id=None,
-              deadline=None, acceptance_log=None, started_at=None):
+              deadline=None, acceptance_log=None, started_at=None, sleep=None):
     started = started_at or now()
     deadline = deadline or started + timedelta(seconds=ADMISSION_WINDOW_S)
     limits = timing_limits(load_run_config(), (deadline - started).total_seconds())
@@ -184,7 +209,8 @@ def run_cycle(root: Path, campaign: dict, poller, *, project: Path = PROJECT_ROO
 
         scheduler = S.Scheduler(root, runtime, snapshots=queue, now=now, adapter_loader=adapter_loader,
             preflight=preflight, context_extra=context_extra, continuous=True,
-            execution_deadline=deadline, on_finalized=on_finalized,
+            execution_deadline=deadline, on_finalized=on_finalized, sleep=sleep,
+            handoff_deadline=started + timedelta(seconds=limits["handoff_s"]),
             acceptance_log=acceptance_log or F.baseline.ACCEPTANCE_LOG)
         checkpoint("preflight")
         paused = set()
@@ -215,6 +241,11 @@ def run_cycle(root: Path, campaign: dict, poller, *, project: Path = PROJECT_ROO
                 last = next((r for r in reversed(rows) if r.get("player") == p and r.get("run_id") == scheduler.run_id), {})
                 rec["players"][p] = {"status": last.get("outcome", "paused"),
                                      "reason": last.get("reason"), "preflight": last.get("preflight")}
+        if scheduler.handoff:
+            rec["steps"]["publish"] = {"status": "deferred", "reason": "launchd handoff"}
+            rec["steps"]["submit"] = {"status": "deferred", "reason": "launchd handoff"}
+            rec["status"] = "complete"
+            return rec
         checkpoint("publish")
         # Refresh once more before publishing; revisions may arrive during the final model call.
         snapshots = queue(force=True)
@@ -237,6 +268,9 @@ def run_cycle(root: Path, campaign: dict, poller, *, project: Path = PROJECT_ROO
         rec["steps"][step] = {"status": "error", "error_type": type(exc).__name__}
         rec["status"] = "error"
     finally:
+        if rec.get("status") == "complete" and (rec["steps"]["submit"].get("status") == "attention" or
+                any(c.get("status") == "attention" for c in rec["steps"]["on_finalized"]["calls"])):
+            rec["status"] = "attention"
         if queue is not None:
             rec["new_question_ids"], rec["revised_question_ids"] = sorted(queue.new), sorted(queue.revised)
         for result in rec["steps"].values():

@@ -106,7 +106,8 @@ def integrated(environment, tmp_path, monkeypatch):
     def run(**kw):
         result = C.run_cycle(root, campaign, poller, project=project, now=lambda: clock[0],
             adapter_loader=obj.loader, preflight=kw.pop("preflight", obj.pf), context_extra=extra,
-            acceptance_log=root / "acceptance.jsonl", submit=kw.pop("submit", submit), **kw)
+            acceptance_log=root / "acceptance.jsonl", submit=kw.pop("submit", submit),
+            sleep=kw.pop("sleep", sleep), **kw)
         assert result["status"] == "complete", result
         return result
 
@@ -365,7 +366,13 @@ def test_deadline_publishes_and_submits_while_another_model_is_running(integrate
     e.post["question"]["scheduled_close_time"] = to_iso(NOW + timedelta(seconds=1800))
     def preflight(player, tier, adapter):
         return F.Preflight(player, tier=tier, problems=["synthetic paused line"] if player == "claude" else [])
-    e.run(preflight=preflight)
+    # Simulate a process interruption during idle waiting, after the first answer.
+    # The new scheduler otherwise stays alive and submits this question itself.
+    from test_submit import Crash
+    def interrupted_sleep(seconds):
+        raise Crash()
+    with pytest.raises(Crash):
+        e.run(preflight=preflight, sleep=interrupted_sleep)
     assert not offers(e)  # B has one valid line, but still waits for the paused line.
     other = copy.deepcopy(e.post)
     other["id"], other["question"]["id"] = 1101, 101

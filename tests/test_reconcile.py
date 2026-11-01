@@ -546,3 +546,14 @@ def test_nonobject_acceptance_proof_is_rejected_without_crashing(tmp_path, bad_p
     row = dict(read_records(log)[-1], evidence_path=str(ev), evidence_sha256=hashlib.sha256(ev.read_bytes()).hexdigest())
     append_record(log, row)
     assert not _pf(log, cfg=load_run_config(), tier=2, allow_unapproved_baseline=True).ok
+
+
+def test_weekly_wait_reconciliation_keeps_typed_outcome_without_stop(ctx, monkeypatch):
+    retry = to_iso(NOW + timedelta(days=1))
+    def denied(*args):
+        raise F.LineStop('weekly reserve', quota_retry_at_utc=retry, quota_wait='quota_weekly_wait')
+    monkeypatch.setattr(F, 'forecast_question', denied)
+    result = R.run(ctx, SNAP, admit=admit)
+    assert result['outcome'] == 'quota_weekly_wait'
+    assert result['quota_retry_at_utc'] == retry and not result['notify_louis']
+    assert not ctx.line_status_log.exists()
