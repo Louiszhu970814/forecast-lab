@@ -854,7 +854,8 @@ class _FakeClaude:
         return _result(argv=self.build_argv(req))
 
 
-def test_run_line_wires_evidence_judge_and_record(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+@pytest.mark.parametrize("tier,production", [(1, False), (2, True)])
+def test_run_line_wires_evidence_judge_and_record(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, tier, production) -> None:
     monkeypatch.setattr(acc, "make_attempt_dir", _tmpdir)
     monkeypatch.setattr(acc, "remove_attempt_dir", lambda d: shutil.rmtree(d, ignore_errors=True))
     monkeypatch.setattr(acc, "_Server", _FakeServer)
@@ -871,10 +872,15 @@ def test_run_line_wires_evidence_judge_and_record(tmp_path: Path, monkeypatch: p
     monkeypatch.setattr(acc, "setup_fixture", lambda player, redirector=None: real_setup(
         player, home=tmp_path, project_root=tmp_path, redirector=redirector))
     snap = {"taken_at": "t", "sources": {}, "versions": {}, "gemini_credits": 0, "extra": {}}
-    rec = acc.run_line("claude", production=False, run_id="accrun_test",
+    rec = acc.run_line("claude", production=production, run_id="accrun_test", tier=tier,
                        adapter_loader=lambda p: _FakeClaude(), snapshot=lambda v: snap)
     assert rec["line_pass"], (rec["problems"], [t for t in rec["tests"] if t["status"] != J.PASS])
     assert rec["baseline_status"].startswith("pending")
+    assert rec["tier"] == tier and rec["profiles"][0] == f"tier{tier}"
+    calls = [json.loads(line) for line in acc.ACCEPTANCE_LOG.read_text().splitlines() if '"acceptance_call_started"' in line]
+    assert len(calls) == 3 and len({c["attempt_id"] for c in calls}) == 3
+    assert [c["profile"] for c in calls] == [f"tier{tier}", f"tier{tier}", "format_repair"]
+    assert all(c["tier"] == tier and c["model"] == rec["model"] for c in calls)
     evidence = json.loads((tmp_path / rec["evidence_path"]).read_text())
     neg = evidence["runs"]["negative"]
     assert neg["guard_denied_ports"] and neg["files_after"] and neg["scheduler_after"] and neg["raw_sha256"]
@@ -913,3 +919,34 @@ def test_server_records_every_connection_method_and_path(host: str) -> None:
         assert not any(c["harness"] for c in conns)
     finally:
         srv.close()
+
+
+@pytest.mark.parametrize("fraction", [.44, None, float("nan"), 1.5])
+def test_gemini_acceptance_respects_personal_reserve_before_cli(tmp_path, monkeypatch, fraction):
+    from types import SimpleNamespace
+    monkeypatch.setattr(acc, "ACCEPTANCE_LOG", tmp_path / "acceptance.jsonl")
+    quota = SimpleNamespace(remaining_fraction=lambda _: fraction, remaining_credits=0, stale=False,
+                           concurrent_agy_detected=False, to_dict=lambda: {"redacted_test": True})
+    monkeypatch.setattr(acc.quota, "snapshot", lambda **kw: quota)
+    monkeypatch.setattr(acc.quota, "credits_ok", lambda _: True)
+    adapter = SimpleNamespace(run=lambda req: pytest.fail("quota-denied acceptance must not call model"))
+    with pytest.raises(acc.AcceptancePaused):
+        acc._run(adapter, "gemini", "tier2", "synthetic", tmp_path, tmp_path,
+                 {"model": "gemini-4-argon-high", "effort": "high"}, 60, run_id="quota", tier=2)
+    assert '"acceptance_paused"' in acc.ACCEPTANCE_LOG.read_text()
+    assert '"acceptance_call_started"' not in acc.ACCEPTANCE_LOG.read_text()
+
+
+def test_flash_acceptance_does_not_spend_or_require_an_argon_reserve(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.setattr(acc, "ACCEPTANCE_LOG", tmp_path / "acceptance.jsonl")
+    quota = SimpleNamespace(remaining_fraction=lambda _: .1, remaining_credits=0, stale=False,
+                           concurrent_agy_detected=False, to_dict=lambda: {"remaining_credits": 0})
+    monkeypatch.setattr(acc.quota, "snapshot", lambda **kw: quota)
+    monkeypatch.setattr(acc.quota, "credits_ok", lambda _: True)
+    result = _result()
+    adapter = SimpleNamespace(run=lambda req: result)
+    observed, _ = acc._run(adapter, "gemini", "tier1", "synthetic", tmp_path, tmp_path,
+                           {"model": "gemini-3.8-flash-low", "effort": "low"}, 60, run_id="flash")
+    assert observed is result
+    assert '"acceptance_call_finished"' in acc.ACCEPTANCE_LOG.read_text()

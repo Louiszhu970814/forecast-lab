@@ -34,6 +34,7 @@ from adapters.base import AdapterRequest, AdapterResult, is_metaculus_host, url_
 from flab.config import load_players_enabled, load_quota_policy, load_run_config, load_submit_mode  # noqa: E402
 from flab.ids import new_id  # noqa: E402
 from flab.jsonl import append_record, read_records  # noqa: E402
+from flab.ledger import transaction  # noqa: E402
 from flab.timeutil import parse_iso, to_iso, utc_now  # noqa: E402
 from flab.workdir import PROJECT_ROOT, make_attempt_dir, remove_attempt_dir  # noqa: E402
 from poll_questions import latest_snapshots  # noqa: E402
@@ -48,7 +49,7 @@ LOCK_PATH = DATA / "forecast.lock"
 PROMPTS = PROJECT_ROOT / "prompts"
 PROMPT_VERSION = "forecast_v2"
 REPAIR_PROMPT_VERSION = "repair_v1"
-PIPELINE_VERSION = "forecast_pipeline_v3"
+PIPELINE_VERSION = "forecast_pipeline_v4"
 QUOTA_BACKOFF_S = 1800  # V5 reset-time formats are not yet measured; use the §7.5 fixed fallback.
 RERUN_ERRORS = ("quota_exhausted", "timeout", "tool_denied", "cli_error")
 EXCLUDED_FLAGS = ("leak_confirmed",)
@@ -150,6 +151,15 @@ def _acceptance_records(log: Path, player: str) -> list[dict[str, Any]]:
     return [r for r in read_records(log) if r.get("type") == "acceptance_result" and r.get("player") == player]
 
 
+def incomplete_acceptance(log: Path, player: str) -> bool:
+    """A newly started but unfinished acceptance cannot leave an older pass in force."""
+    with transaction(log.parent):
+        rows = list(read_records(log)) if log.exists() else []
+    mine = [r for r in rows if r.get("player") == player]
+    latest_result = max((i for i, r in enumerate(mine) if r.get("type") == "acceptance_result"), default=-1)
+    return any(r.get("type") == "acceptance_call_started" for r in mine[latest_result + 1:])
+
+
 def check_acceptance(pf: Preflight, records: list[dict[str, Any]], fingerprint: dict[str, str],
                      project_root: Path = PROJECT_ROOT, production: dict[str, Any] | None = None) -> dict[str, Any] | None:
     """The latest acceptance must have passed with this judge, CLI version and runtime code, and one
@@ -237,11 +247,21 @@ def preflight(player: str, *, cfg: dict[str, Any], allow_unapproved_baseline: bo
         pf.problems.append("line is disabled in players_enabled.json")
     if mode != "local":
         pf.problems.append(f"submit_mode is {mode!r}; this pipeline runs only in local mode (M1-W8)")
+    if incomplete_acceptance(acceptance_log, player):
+        pf.problems.append("latest isolation acceptance run is incomplete; an older pass cannot authorize forecasting")
     vers = versions()
     pf.cli_version = vers.get(player)
     latest = check_acceptance(pf, _acceptance_records(acceptance_log, player), fingerprint or runtime_fingerprint(player),
                               production=(cfg.get("players") or {}).get(player, {}).get(f"tier{tier}"))
-    snap = (snapshot or (lambda v: baseline.take_snapshot(versions=v).to_record()))(vers)
+    if snapshot is not None:
+        snap = snapshot(vers)
+    else:
+        credits = None
+        if player == "gemini":
+            observed = quota.snapshot(timeout_s=30)
+            if not observed.stale and not observed.concurrent_agy_detected:
+                credits = observed.remaining_credits
+        snap = baseline.take_snapshot(versions=vers, gemini_credits=credits).to_record()
     check_baseline(pf, baseline.latest_approved(acceptance_log), snap, allow_unapproved=allow_unapproved_baseline)
     if player == "gpt" and adapter is not None and latest is not None:
         model = cfg["players"]["gpt"][f"tier{tier}"]["model"]
@@ -506,8 +526,9 @@ def run_attempt(ctx: Context, snap: dict[str, Any], *, kind: str, prompt: str, s
             quota_before = ctx.quota_snapshot(timeout_s=min(QUOTA_QUERY_S, max(1.0, seconds_left())))
         except Exception as exc:  # noqa: BLE001 - any failure means the run may not start
             raise LineStop(f"agy /usage before the run failed: {type(exc).__name__}: {exc}") from exc
-        append_record(ctx.quota_log, {"type": "quota_snapshot", "attempt_id": attempt_id, "when": "before",
-                                      **quota_before.to_dict()})
+        with transaction(ctx.quota_log.parent):
+            append_record(ctx.quota_log, {"type": "quota_snapshot", "attempt_id": attempt_id, "when": "before",
+                                          **quota_before.to_dict()})
         reason, admission = gemini_admission(ctx, quota_before)
         if reason:
             raise LineStop(reason)
@@ -538,14 +559,16 @@ def run_attempt(ctx: Context, snap: dict[str, Any], *, kind: str, prompt: str, s
         started = ctx.now()
         # fsync the start before the external call. A missing outcome after restart is ambiguous,
         # so that question stays unresolved instead of obtaining a fresh attempt budget.
-        append_record(starts_log(ctx.forecasts_log), {
+        start_record = {
             "type": "forecast_attempt_started", "attempt_id": attempt_id, "run_id": ctx.run_id,
             "player": player, "question_id": qid, "question_snapshot_id": snap.get("snapshot_id"),
             "tier": ctx.tier, "attempt_kind": kind, "prev_attempt_id": (prev or {}).get("attempt_id"),
             "reconciliation_id": inputs.get("record_id"), "input_attempt_ids": inputs.get("input_attempt_ids"),
             "input_order": inputs.get("input_order"),
             "admission_decision_id": inputs.get("admission_decision_id"),
-            "started_at_utc": to_iso(started), "pipeline_version": PIPELINE_VERSION})
+            "started_at_utc": to_iso(started), "pipeline_version": PIPELINE_VERSION}
+        with transaction(ctx.forecasts_log.parent):
+            append_record(starts_log(ctx.forecasts_log), start_record)
         start_written = True
         try:
             result = ctx.adapter.run(req, catalog=ctx.preflight.catalog) if player == "gpt" else ctx.adapter.run(req)
@@ -562,8 +585,9 @@ def run_attempt(ctx: Context, snap: dict[str, Any], *, kind: str, prompt: str, s
                 stop_after = f"agy /usage after the run failed: {type(exc).__name__}: {exc}"
                 ctx.adapter.apply_quota_model_check(result, "undetermined")
             else:
-                append_record(ctx.quota_log, {"type": "quota_snapshot", "attempt_id": attempt_id, "when": "after",
-                                              **quota_after.to_dict()})
+                with transaction(ctx.quota_log.parent):
+                    append_record(ctx.quota_log, {"type": "quota_snapshot", "attempt_id": attempt_id, "when": "after",
+                                                  **quota_after.to_dict()})
                 ctx.adapter.apply_quota_model_check(result, quota.judge(quota_before, quota_after))
     finally:
         try:
@@ -606,7 +630,6 @@ def run_attempt(ctx: Context, snap: dict[str, Any], *, kind: str, prompt: str, s
                               raw_files=sorted(p for p in raw_dir.rglob("*") if p.is_file()), prompt=prompt,
                               inherited=set((prev or {}).get("audit_flags") or ()) | set(inputs.get("audit_flags") or ()),
                               prev_attempt_id=(prev or {}).get("attempt_id"))
-    append_record(ctx.audits_log, aud)
     usage = {"raw": result.usage_raw, **result.usage}
     rec = {
         "type": "forecast_attempt", "record_id": new_id("fc"), "run_id": ctx.run_id, "mode": "local",
@@ -656,7 +679,9 @@ def run_attempt(ctx: Context, snap: dict[str, Any], *, kind: str, prompt: str, s
                    comparison_method="normalized_probability_equality_v1")
     rec, nonfinite = json_safe(rec)
     rec["nonfinite_fields"] = nonfinite
-    append_record(ctx.forecasts_log, rec)
+    with transaction(ctx.forecasts_log.parent):
+        append_record(ctx.audits_log, aud)
+        append_record(ctx.forecasts_log, rec)
     if violations:
         raise LineStop(f"tool_scope_violation on attempt {attempt_id}: stop the line and notify Louis; "
                        "re-acceptance required (§7.3, D60, D62)", notify=True)
@@ -805,7 +830,7 @@ def run(player: str, question_ids: list[int], *, allow_unapproved_baseline: bool
         lock: Lock | None = None, **ctx_overrides: Any) -> dict[str, Any]:
     cfg = load_run_config()
     run_id = new_id("run")
-    with (lock or Lock()):
+    with (lock or Lock(DATA / f"forecast.{player}.lock")):
         adapter = adapter_loader(player)
         pf = ctx_overrides.pop("preflight", None) or preflight(
             player, cfg=cfg, allow_unapproved_baseline=allow_unapproved_baseline, adapter=adapter)

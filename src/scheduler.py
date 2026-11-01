@@ -1,0 +1,373 @@
+"""Bounded, local-only cross-question scheduler for registered M2 campaigns.
+
+One scheduler instance, at most one CLI per line; no submission or launchd installation.
+Campaign selection/caps are frozen before outputs. A missing approval/cap never becomes a waiver.
+"""
+from __future__ import annotations
+
+import argparse
+import copy
+import importlib
+import json
+from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
+from dataclasses import dataclass
+from datetime import datetime
+from pathlib import Path
+from typing import Any, Callable
+
+import aggregate as A
+import audit_ledger as L
+import baseline
+import budget as B
+import comment as C
+import escalate as E
+import forecast as F
+import reconcile as R
+from flab.config import PLAYERS, load_players_enabled, load_quota_policy, load_run_config, load_submit_mode
+from flab.ids import hash_obj, new_id
+from flab.jsonl import append_record
+from flab.ledger import transaction, read_complete
+from flab.timeutil import parse_iso, to_iso, utc_now
+from poll_questions import latest_snapshots
+
+VERSION = "scheduler_v1"
+TERMINAL = {"selected", "already_selected", "prior_answer_excluded", "output_excluded", "attempts_exhausted",
+            "schema_failed", "semantic_failed", "parse_failed", "invalid_output", "not_candidate", "not_admitted", "budget_skipped"}
+
+
+def register(root: Path, campaign: dict, *, now=None) -> dict:
+    """Freeze question selection, windows and numerical caps; never load or show model answers."""
+    if campaign.get("version") != "m2_campaign_v1" or not isinstance(campaign.get("campaign_id"), str):
+        raise ValueError("invalid campaign identity")
+    questions = campaign.get("questions")
+    if not isinstance(questions, list) or not questions:
+        raise ValueError("campaign needs questions")
+    ids = []
+    for q in questions:
+        if type(q.get("question_id")) is not int or q["question_id"] <= 0 \
+                or q.get("ground") not in ("bot_testing_area", "metaculus_cup", "main_site_questions") \
+                or q.get("priority") not in ("main", "minibench"):
+            raise ValueError("invalid test question or queue priority")
+        ids.append(q["question_id"])
+    if len(set(ids)) != len(ids):
+        raise ValueError("duplicate campaign question")
+    if parse_iso(campaign["budget_window_start"]) >= parse_iso(campaign["budget_window_end"]):
+        raise ValueError("invalid campaign budget window")
+    for p in PLAYERS:
+        if type(campaign.get("weekly_attempt_caps", {}).get(p)) is not int or campaign["weekly_attempt_caps"][p] <= 0:
+            raise ValueError("explicit positive weekly caps are required, including prior attempts and acceptance")
+    for field in ("expected_new_questions", "repair_reserve", "urgent_slack_s"):
+        if type(campaign.get(field)) is not int or campaign[field] < 0:
+            raise ValueError(f"explicit nonnegative {field} required")
+    if campaign.get("run_config_sha256") != hash_obj(load_run_config()) \
+            or campaign.get("quota_policy_sha256") != hash_obj(load_quota_policy()):
+        raise ValueError("campaign must pin the current run config and quota policy")
+    record = {"type": "campaign_registered", "campaign": copy.deepcopy(campaign), "sha256": hash_obj(campaign),
+              "registered_at": to_iso(now or utc_now())}
+    with transaction(root):
+        rows = [r for r in read_complete(root / "campaigns.jsonl")
+                if r.get("campaign", {}).get("campaign_id") == campaign["campaign_id"]]
+        if rows:
+            if any(r.get("sha256") != record["sha256"] for r in rows):
+                raise ValueError("registered campaign cannot be changed after seeing outputs")
+            return rows[0]
+        if any(r.get("question_id") in ids for r in read_complete(root / "forecasts.jsonl")):
+            raise ValueError("new campaign selection must precede forecasts of its questions")
+        append_record(root / "campaigns.jsonl", record)
+    return record
+
+
+@dataclass(frozen=True)
+class Job:
+    player: str
+    tier: int
+    question_id: int
+    snapshot: dict
+    priority: str
+    deadline: datetime
+    estimate_s: float
+    urgent_override: bool = False
+
+
+def order_jobs(jobs: list[Job], *, now: datetime, urgent_slack_s: int) -> list[Job]:
+    def key(job):
+        rank = (job.tier - 1) * 2 + (job.priority == "minibench")
+        return rank, job.deadline, job.question_id, job.player
+    ordered = sorted(jobs, key=key)
+    main = [j for j in jobs if j.tier == 1 and j.priority == "main"]
+    urgent = [j for j in jobs if j.tier == 1 and j.priority == "minibench"
+              and (j.deadline - now).total_seconds() <= j.estimate_s + urgent_slack_s
+              and all((m.deadline - now).total_seconds() > 2 * m.estimate_s + urgent_slack_s for m in main)]
+    if main and urgent:
+        from dataclasses import replace
+        ids = {(j.player, j.question_id, j.tier) for j in urgent}
+        ordered = [replace(j, urgent_override=True) for j in sorted(urgent, key=key)] + [
+            j for j in ordered if (j.player, j.question_id, j.tier) not in ids]
+    return ordered
+
+
+class Scheduler:
+    def __init__(self, root: Path, campaign: dict, *,
+                 snapshots: Callable[[], dict[int, dict]] | None = None,
+                 adapter_loader: Callable[[str], Any] = lambda p: importlib.import_module(f"adapters.{p}"),
+                 preflight: Callable[[str, int, Any], F.Preflight] | None = None,
+                 context_extra: Callable[[str], dict] | None = None,
+                 now: Callable[[], datetime] = utc_now,
+                 acceptance_log: Path = baseline.ACCEPTANCE_LOG):
+        if snapshots is None:
+            from m2_campaign import SafeSnapshots
+            from metaculus import MetaculusClient
+            from flab.envfile import get_secret
+            from flab.workdir import PROJECT_ROOT
+            snapshots = SafeSnapshots(MetaculusClient(get_secret("METACULUS_TOKEN", PROJECT_ROOT / ".env")), root, campaign)
+        self.root, self.campaign, self.provider, self.now = root, campaign, snapshots, now
+        self.cfg, self.policy = load_run_config(), load_quota_policy()
+        self.loader, self.pf, self.extra = adapter_loader, preflight, context_extra or (lambda _: {})
+        self.run_id = new_id("scheduler")
+        self.budget = B.Budget(root, campaign, self.policy, self.run_id, now, acceptance_log)
+        self.jobs_log = root / "scheduler_jobs.jsonl"
+
+    def state(self):
+        with transaction(self.root):
+            attempts = read_complete(self.root / "forecasts.jsonl")
+            aggregates = read_complete(self.root / "aggregates.jsonl")
+            events = read_complete(self.root / "audits.jsonl")
+            graph = L.ImpactGraph([*attempts, *aggregates])
+            L.append_impacts(self.root / "audit_impacts.jsonl", graph, events, now=self.now())
+            return attempts, aggregates, events, graph.attempt_audit_view(events)
+
+    def _terminal(self, qid, player, tier, attempts, rows):
+        if any(r["question_id"] == qid and r["player"] == player and r["tier"] == tier
+               and r.get("validation_status") == "valid" for r in attempts):
+            return True
+        latest = next((r for r in reversed(rows) if r.get("type") == "scheduler_job_finished"
+                       and (r["question_id"], r["player"], r["tier"]) == (qid, player, tier)), {})
+        return latest.get("outcome") in TERMINAL
+
+    def jobs(self, snapshots: dict[int, dict], *, paused: set[str], active: set[str]) -> list[Job]:
+        attempts, aggregates, events, view = self.state()
+        with transaction(self.root):
+            rows = read_complete(self.jobs_log)
+        enabled = load_players_enabled()
+        sealed = {a["question_id"] for a in aggregates if a.get("scheduler_campaign_id") == self.campaign["campaign_id"]
+                  and a.get("completion_status") == "complete_local"}
+        first, second = [], []
+        unfinished_first = False
+        for entry in self.campaign["questions"]:
+            qid, snap = entry["question_id"], snapshots.get(entry["question_id"])
+            if qid in sealed or snap is None or F.eligible(snap, self.cfg, self.now()):
+                continue
+            deadline = F.decision_deadline(snap, self.cfg)
+            if deadline is None:
+                continue
+            tier1_done = all(not enabled[p] or self._terminal(qid, p, 1, attempts, rows) for p in PLAYERS)
+            unfinished_first |= not tier1_done
+            candidate = E.evaluate(snap, attempts, audit_events=view, now=self.now()) if tier1_done else None
+            for p in PLAYERS:
+                if not enabled[p] or p in paused or p in active:
+                    continue
+                tier = 1 if not self._terminal(qid, p, 1, attempts, rows) else 2
+                if tier == 2 and (not candidate or not candidate["escalation"]["candidate"]
+                                  or self._terminal(qid, p, 2, attempts, rows)):
+                    continue
+                estimate = B.duration_estimate(attempts, p, tier, self.cfg)
+                job = Job(p, tier, qid, snap, entry["priority"], deadline, estimate)
+                (first if tier == 1 else second).append(job)
+        # All first-layer work has precedence, including other lines still running or paused.
+        return order_jobs(first if unfinished_first else second, now=self.now(), urgent_slack_s=self.campaign["urgent_slack_s"])
+
+    def _protected(self, player):
+        attempts, _, _, _ = self.state()
+        rows = read_complete(self.jobs_log)
+        return sum(not self._terminal(q["question_id"], player, 1, attempts, rows) for q in self.campaign["questions"])
+
+    def execute(self, job: Job) -> dict:
+        adapter = self.loader(job.player)
+        pf = self.pf(job.player, job.tier, adapter) if self.pf else F.preflight(job.player, cfg=self.cfg, tier=job.tier, adapter=adapter)
+        result = {"type": "scheduler_job_finished", "run_id": self.run_id, "version": VERSION,
+                  "campaign_id": self.campaign["campaign_id"], "question_id": job.question_id,
+                  "question_snapshot_id": job.snapshot["snapshot_id"], "player": job.player, "tier": job.tier,
+                  "urgent_override": job.urgent_override, "estimated_completion_s": job.estimate_s,
+                  "started_at": to_iso(self.now())}
+        if not pf.ok:
+            result.update(outcome="preflight_blocked", preflight=pf.summary())
+        else:
+            shared = {"scheduler_run_id": self.run_id}
+            def admit(request):
+                return self.budget.reserve(request, pending_tier1=self._protected(job.player),
+                    expected_new=self.campaign["expected_new_questions"], repair_reserve=self.campaign["repair_reserve"])
+            def recheck():
+                if hash_obj(load_run_config()) != self.campaign["run_config_sha256"] or hash_obj(load_quota_policy()) != self.campaign["quota_policy_sha256"]:
+                    raise F.LineStop("campaign configuration changed during execution")
+                latest = self.provider().get(job.question_id)
+                if latest is None or hash_obj(latest) != hash_obj(job.snapshot):
+                    raise F.QuestionDone("question snapshot revised; no stale-input call")
+                if not load_players_enabled().get(job.player):
+                    raise F.LineStop("line disabled")
+            def before(kind, attempt_id):
+                recheck()
+                decision = admit({"player": job.player, "tier": 1, "question_id": job.question_id,
+                                  "attempt_kind": kind, "attempt_id": attempt_id})
+                if not decision["allowed"]:
+                    raise F.QuestionDone("budget_skipped: " + decision["reason"])
+                shared["admission_decision_id"] = decision["decision_id"]
+            ctx = F.Context(player=job.player, adapter=adapter, cfg=self.cfg, run_id=self.run_id, preflight=pf,
+                tier=job.tier, now=self.now, forecasts_log=self.root / "forecasts.jsonl", audits_log=self.root / "audits.jsonl",
+                line_status_log=self.root / "line_status.jsonl", quota_log=self.root / "quota.jsonl", raw_root=self.root / "raw",
+                reconciliation=shared, before_attempt=before, recheck_inputs=recheck,
+                admission_outcome=self.budget.outcome, **self.extra(job.player))
+            try:
+                if job.tier == 2:
+                    output = R.run(ctx, job.snapshot, admit=admit, estimated_completion_s=job.estimate_s)
+                    # A denied upgrade is a recorded decision for this campaign, not a reason to
+                    # consume repeated prompt permutations while waiting for more budget.
+                    if output.get("outcome") == "stopped_waiting":
+                        output = {**output, "outcome": "not_admitted"}
+                else:
+                    with F.Lock(self.root / f"forecast.{job.player}.lock"):
+                        if stop := F.line_stopped(ctx.line_status_log, job.player, ctx.forecasts_log):
+                            raise F.LineStop(stop["reason"])
+                        for r in read_complete(ctx.forecasts_log):
+                            if r.get("player") == job.player and r.get("quota_retry_at_utc") and self.now() < parse_iso(r["quota_retry_at_utc"]):
+                                raise F.LineStop("quota_exhausted: fixed backoff active")
+                        if reason := F.eligible(job.snapshot, self.cfg, self.now()):
+                            raise F.QuestionDone(reason)
+                        output = F.forecast_question(ctx, job.snapshot)
+                result.update(output)
+                if job.tier == 1 and output.get("outcome") == "stopped_waiting" and output.get("reason") in (
+                    "budget_skipped: weekly_attempt_capacity_reserved_or_exhausted",
+                    "budget_skipped: argon_personal_or_tier1_reserve"):
+                    result["outcome"] = "budget_skipped"
+                if output.get("outcome") in ("timeout", "cli_error", "tool_denied", "incomplete"):
+                    past = F.history(ctx.forecasts_log, job.player, job.question_id, job.tier)
+                    if any(r.get("attempt_kind") == "rerun" for r in past):
+                        result.update(outcome="attempts_exhausted", last_error=output["outcome"])
+            except F.QuestionDone as exc:
+                result.update(outcome="stopped_waiting", reason=str(exc))
+            except F.LineStop as exc:
+                result.update(outcome="line_stopped", reason=str(exc), notify_louis=exc.notify)
+                if exc.notify:
+                    with transaction(self.root):
+                        append_record(ctx.line_status_log, {"type": "line_stop", "player": job.player,
+                            "run_id": self.run_id, "at": to_iso(self.now()), "reason": str(exc)})
+        # Reconciliation returns its own typed record; keep the scheduler event identity so
+        # terminal denials without a forecast are visible on restart as well as in this run.
+        result.update(type="scheduler_job_finished", version=VERSION, run_id=self.run_id,
+                      campaign_id=self.campaign["campaign_id"], player=job.player, tier=job.tier,
+                      question_id=job.question_id, question_snapshot_id=job.snapshot["snapshot_id"])
+        result["finished_at"] = to_iso(self.now())
+        with transaction(self.root):
+            append_record(self.jobs_log, result)
+        return result
+
+    def finalize(self, snapshots):
+        with transaction(self.root):
+            attempts, aggregates, events, view = self.state()
+            jobs = read_complete(self.jobs_log)
+            enabled = load_players_enabled()
+            for entry in self.campaign["questions"]:
+                qid = entry["question_id"]
+                existing = next((a for a in aggregates if a.get("scheduler_campaign_id") == self.campaign["campaign_id"]
+                                 and a["question_id"] == qid and a.get("completion_status") == "complete_local"), None)
+                if existing is not None:
+                    # Crash after aggregate append must not permanently lose its comment.
+                    snap = snapshots.get(qid)
+                    if snap is not None:
+                        self._comment(snap, existing, attempts, aggregates, events)
+                    continue
+                snap = snapshots.get(qid)
+                if snap is None:
+                    continue
+                deadline = F.decision_deadline(snap, self.cfg)
+                expired = deadline is not None and self.now() >= deadline
+                first_done = all(not enabled[p] or self._terminal(qid, p, 1, attempts, jobs) for p in PLAYERS)
+                candidate = E.evaluate(snap, attempts, audit_events=view, now=self.now())
+                second_done = not candidate["escalation"]["candidate"] or all(
+                    not enabled[p] or self._terminal(qid, p, 2, attempts, jobs) for p in PLAYERS)
+                if not expired and not (first_done and second_done):
+                    continue
+                final = A.build_aggregate(snap, attempts, stage="final", audit_events=view, now=self.now())
+                final.update(completion_status="complete_local", scheduler_campaign_id=self.campaign["campaign_id"],
+                             scheduler_version=VERSION, completion_reason="decision_deadline" if expired else "all_lines_accounted_for",
+                             submission_eligible=False)
+                append_record(self.root / "aggregates.jsonl", final)
+                aggregates.append(final)
+                self._comment(snap, final, attempts, aggregates, events)
+            L.append_impacts(self.root / "audit_impacts.jsonl", L.ImpactGraph([*attempts, *aggregates]), events, now=self.now())
+
+    def _comment(self, snap, final, attempts, aggregates, events):
+        if final["status"] != "ready":
+            return
+        existing = [r for r in read_complete(self.root / "comments.jsonl") if r.get("aggregate_id") == final["record_id"]]
+        if any(r["type"] == "comment" for r in existing):
+            return
+        try:
+            comment = C.build(snap, final, [*attempts, *aggregates], events, now=self.now())
+        except C.CommentError as exc:
+            if any(r.get("error") == str(exc) for r in existing):
+                return
+            comment = {"type": "comment_failed", "aggregate_id": final["record_id"], "question_id": final["question_id"],
+                       "error": str(exc), "at": to_iso(self.now())}
+        append_record(self.root / "comments.jsonl", comment)
+
+    def run(self, *, max_jobs=180) -> dict:
+        if load_submit_mode().get("mode") != "local":
+            raise F.PreflightError("M2 scheduler only runs in local mode")
+        if type(max_jobs) is not int or max_jobs <= 0:
+            raise ValueError("max_jobs must be a positive integer")
+        with F.Lock(self.root / "scheduler.lock"):
+            register(self.root, self.campaign, now=self.now())
+            self.budget.recover()
+            paused, active, results = set(), {}, []
+            started = to_iso(self.now())
+            with ThreadPoolExecutor(max_workers=3) as pool:
+                while True:
+                    snapshots = self.provider()
+                    if len(results) + len(active) < max_jobs:
+                        jobs = self.jobs(snapshots, paused=paused, active={j.player for j in active.values()})
+                        for job in jobs:
+                            if job.player in {j.player for j in active.values()} or len(results) + len(active) >= max_jobs:
+                                continue
+                            active[pool.submit(self.execute, job)] = job
+                    if not active:
+                        break
+                    completed, _ = wait(active, return_when=FIRST_COMPLETED)
+                    for future in completed:
+                        job = active.pop(future)
+                        result = future.result()
+                        results.append(result)
+                        if result.get("outcome") not in TERMINAL:
+                            paused.add(job.player)
+                        # A production provider refreshes the live exclusion index after each item.
+                        from m2_campaign import SafeSnapshots
+                        if isinstance(self.provider, SafeSnapshots):
+                            self.provider(force=True)
+                        else:
+                            self.provider()
+                    self.finalize(self.provider())
+            self.finalize(self.provider())
+            summary = {"type": "scheduler_run", "run_id": self.run_id, "version": VERSION, "mode": "local",
+                       "campaign_id": self.campaign["campaign_id"], "started_at": started, "finished_at": to_iso(self.now()),
+                       "jobs_completed": len(results), "paused_players": sorted(paused), "max_jobs": max_jobs}
+            append_record(self.root / "scheduler_runs.jsonl", summary)
+            return summary
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--campaign", type=Path, required=True, help="pre-registered bounded M2 selection and caps")
+    parser.add_argument("--max-jobs", type=int, default=180)
+    args = parser.parse_args(argv)
+    campaign = json.loads(args.campaign.read_text())
+    from m2_campaign import SafeSnapshots
+    from metaculus import MetaculusClient
+    from flab.envfile import get_secret
+    from flab.workdir import PROJECT_ROOT
+    provider = SafeSnapshots(MetaculusClient(get_secret("METACULUS_TOKEN", PROJECT_ROOT / ".env")), F.DATA, campaign)
+    result = Scheduler(F.DATA, campaign, snapshots=provider).run(max_jobs=args.max_jobs)
+    print(json.dumps(result, ensure_ascii=False))  # Never print predictions or question text.
+    return 0 if not result["paused_players"] else 1
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

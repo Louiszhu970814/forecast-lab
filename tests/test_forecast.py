@@ -551,3 +551,26 @@ def test_explicit_resume_starts_a_new_leak_stop_window_without_erasing_history(e
     resumed, recs, adapter = env([{"structured": _good(question_id=43334)}], snap={**SNAP, "question_id": 43334},
                                now=NOW + timedelta(minutes=2))
     assert resumed["preflight"]["ok"] and adapter.ran == 1 and len(recs) == 3
+
+
+def test_interrupted_acceptance_revokes_older_pass_until_full_acceptance(tmp_path):
+    log = tmp_path / "acceptance.jsonl"
+    _accept(log, tmp_path, mode="production")
+    assert _pf(log, allow_unapproved_baseline=True).ok
+    append_record(log, {"type": "acceptance_call_started", "player": "claude", "run_id": "interrupted"})
+    assert "incomplete" in " ".join(_pf(log, allow_unapproved_baseline=True).problems)
+    _accept(log, tmp_path, mode="production")
+    assert _pf(log, allow_unapproved_baseline=True).ok
+
+
+def test_default_gemini_preflight_gets_credits_from_official_quota_snapshot(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+    log = tmp_path / "acceptance.jsonl"
+    _accept(log, tmp_path, mode="production", cli="1")
+    record = list(read_records(log))[-1]
+    append_record(log, {**record, "player": "gemini"})
+    monkeypatch.setattr(F.quota, "snapshot", lambda **kw: _qsnap(.8))
+    monkeypatch.setattr(F.baseline, "take_snapshot", lambda versions, gemini_credits: SimpleNamespace(
+        to_record=lambda: {**SNAPSHOT, "gemini_credits": gemini_credits}))
+    pf = _pf(log, player="gemini", snapshot=None, players_enabled={"gemini": True}, allow_unapproved_baseline=True)
+    assert pf.ok, pf.problems

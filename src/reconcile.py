@@ -24,9 +24,10 @@ import validate as V
 from flab.config import PLAYERS, load_submit_mode
 from flab.ids import hash_obj, new_id
 from flab.jsonl import append_record, read_records
+from flab.ledger import transaction, read_complete
 from flab.timeutil import parse_iso, to_iso
 
-VERSION = "reconciliation_pipeline_v1"
+VERSION = "reconciliation_pipeline_v2"
 PROMPT_VERSION = "reconcile_v1"
 SUMMARY_FIELDS = ("probability", "option_probabilities", "reasoning_summary", "key_factors",
                   "base_rate", "sources", "market_refs")
@@ -39,14 +40,8 @@ class InputsUnavailable(ValueError):
 
 
 def _read(path: Path) -> list[dict[str, Any]]:
-    if not path.exists():
-        return []
-    if path.stat().st_size:
-        with path.open("rb") as stream:
-            stream.seek(-1, 2)
-            if stream.read(1) != b"\n":
-                raise ValueError(f"unterminated ledger: {path.name}")
-    return list(read_records(path))
+    with transaction(path.parent):
+        return read_complete(path)
 
 
 def state(records: list[dict[str, Any]], events: list[dict[str, Any]]) -> tuple[list, list]:
@@ -145,7 +140,7 @@ def revalidate(bundle: dict[str, Any], snapshot: dict[str, Any], records: list, 
 
 def run(ctx: F.Context, snapshot: dict[str, Any], *,
         admit: Callable[[dict[str, Any]], dict[str, Any]] | None = None,
-        dependency_paths: tuple[Path, ...] = ()) -> dict[str, Any]:
+        dependency_paths: tuple[Path, ...] = (), estimated_completion_s: float | None = None) -> dict[str, Any]:
     """Execute one admitted local tier-2 line. No admission callback means no model call.
 
     ``ctx.preflight`` must come from forecast.preflight(..., tier=2). ``admit`` is the future
@@ -156,7 +151,7 @@ def run(ctx: F.Context, snapshot: dict[str, Any], *,
     root = ctx.forecasts_log.parent
     bundles_log, runs_log, aggregates_log = (root / name for name in
         ("reconciliation_inputs.jsonl", "reconciliation_runs.jsonl", "aggregates.jsonl"))
-    with F.Lock(root / "forecast.lock"):
+    with F.Lock(root / f"forecast.{ctx.player}.lock"):
         if load_submit_mode().get("mode") != "local" or not ctx.preflight.ok \
                 or ctx.preflight.tier != 2 or ctx.preflight.player != ctx.player:
             raise F.PreflightError("local mode and a passing tier-2 preflight are required")
@@ -171,12 +166,12 @@ def run(ctx: F.Context, snapshot: dict[str, Any], *,
                    "started_at_utc": to_iso(ctx.now()), "preflight": ctx.preflight.summary(), "admissions": []}
 
         def load() -> tuple[list, list]:
-            records = [*_read(ctx.forecasts_log), *_read(aggregates_log),
-                       *[r for p in dependency_paths for r in _read(p)]]
-            events = _read(ctx.audits_log)
-            # Persist W2's immutable source registration and late effects before more exposure.
-            L.append_impacts(root / "audit_impacts.jsonl", L.ImpactGraph(records), events, now=ctx.now())
-            return records, events
+            with transaction(root):
+                records = [*_read(ctx.forecasts_log), *_read(aggregates_log),
+                           *[r for p in dependency_paths for r in _read(p)]]
+                events = _read(ctx.audits_log)
+                L.append_impacts(root / "audit_impacts.jsonl", L.ImpactGraph(records), events, now=ctx.now())
+                return records, events
 
         def gates() -> None:
             if reason := F.eligible(snapshot, ctx.cfg, ctx.now()):
@@ -219,6 +214,11 @@ def run(ctx: F.Context, snapshot: dict[str, Any], *,
                 estimate = ctx.cfg["timeouts_s"]["tier2"] + F.MIN_ATTEMPT_S
                 if ctx.player == "gemini":
                     estimate += 2 * F.QUOTA_QUERY_S
+                if estimated_completion_s is not None:
+                    import math
+                    if isinstance(estimated_completion_s, bool) or not math.isfinite(estimated_completion_s) or estimated_completion_s < F.MIN_ATTEMPT_S:
+                        raise ValueError("invalid scheduler completion estimate")
+                    estimate = estimated_completion_s
                 if deadline is None or (deadline - ctx.now()).total_seconds() <= estimate:
                     raise F.QuestionDone("insufficient time for conservative tier-2 completion estimate")
                 bundles = [r for r in _read(bundles_log) if r.get("player") == ctx.player
@@ -239,6 +239,8 @@ def run(ctx: F.Context, snapshot: dict[str, Any], *,
                     raise F.QuestionDone(f"inputs no longer eligible: {exc}") from exc
 
                 def recheck_inputs() -> None:
+                    if ctx.recheck_inputs is not None:
+                        ctx.recheck_inputs()
                     gates()
                     current_records, current_events = load()
                     try:
@@ -274,6 +276,8 @@ def run(ctx: F.Context, snapshot: dict[str, Any], *,
                     append_record(runs_log, {"type": "reconciliation_admission_outcome", "run_id": ctx.run_id,
                         "attempt_id": attempt_id, "decision_id": active["admission_decision_id"],
                         "status": "started" if started else "released", "at": to_iso(ctx.now())})
+                    if ctx.admission_outcome is not None:
+                        ctx.admission_outcome(attempt_id, started)
 
                 execution = replace(ctx, tier=2, reconciliation=active, before_attempt=before_attempt,
                                     recheck_inputs=recheck_inputs, admission_outcome=admission_outcome)

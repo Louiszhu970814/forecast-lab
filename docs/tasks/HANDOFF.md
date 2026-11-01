@@ -1,8 +1,51 @@
 # 給 Claude 的接手紀錄
 
-更新時間：2026-11-01T05:29:42Z。記錄者：Codex。
+更新時間：2026-11-01T06:34:53.975Z。記錄者：Codex。
 
 ## 最新進度（優先讀這段）
+
+使用者要求「繼續做完整個 M2」，並確認 Gemini 的參與。已完成 **M2-W4 本地排程／預算、W5 留言、W6 的場地與報表工具**，並補齊缺少的正式模型設定隔離驗收。**M1／M2 仍未整體驗收完成**：缺 Louis 的人工 baseline／autoload 證據，以及真實 20 題量測。不能將以下 532 個離線測試或合成 20 題當作 W6 實測。
+
+- **版本**：PLAN v1.9／D68；`scheduler_v1`、`budget_v1`、`comment_v1`、`m2_safety_v1`、`m2_report_v1`；共用引擎 `forecast_pipeline_v4`、reconcile `reconciliation_pipeline_v2`。未改正式模型、prompt、整合權重或升級門檻。
+- **程式**：三線平行且同線最多 1 個 CLI；跨題先首層、再按門檻升級；逐次預算 reservation／start／outcome；p90 截止估計、週上限、保留線與每題／整週熔斷；共用帳冊短交易；真正的 local finalization、英文留言及中斷後只補留言。執行中設定 hash 改變即停；新驗收中斷不能沿用舊 PASS。
+- **實際排程缺陷已修正**：W3 回傳紀錄曾覆蓋 `scheduler_job_finished` 類型，導致沒有 forecast 的拒絕結果被重新排入；現在恢復 scheduler 身分再寫入，回歸測試確認 budget skip 後重啟為零工作。不是僅靠複審文字宣告正確。
+- **驗證**：完整 `.venv/bin/python -m pytest -q` 為 **532 passed in 20.40s**；合成 20 題／120 jobs 覆蓋兩層、三線併行、留言、成本、重啟及晚到稽核。`git diff --check` 通過。
+- **Gemini 確實參與**：官方 agy 的 Argon Medium 完成 W1 靜態審查與 W4／W5 初審、定點複查；後續增量由 Gemini Flash Low 複查。末輪無 findings。review 有明確來源包 hash 與範圍，未提供真實題目的模型輸出；部分 quota 判定 undetermined，不冒稱精確模型／成本驗收。詳細見 [M2-W4-W6.md](M2-W4-W6.md)。
+- **場地**：官方 API 發現主賽 33121、兩個 ongoing/upcoming MiniBench 33132／33135、當期 Cup 33108、主站 project 144。執行時使用 metadata，不修改需要 Louis 核准的 `config/tournaments.json`／送出白名單。MiniBench 別名已指向下一輪，不能漏排前一輪同步題。
+- **正式題集**：`data/campaigns/m2_1793513402324_f7c9d20c.json`，固定 20 題、每線 bootstrap 七天上限 64 次（含既有嘗試、失敗、修復與驗收），預期新題 0、修復保留 2。已註冊；最早 decision deadline `2026-11-02T12:35:00Z`（台北 11/2 20:35）。`scheduler_1793514325500_732b33c4` 的 3 個 preflight 全被未核准 baseline 擋下，**模型預測 attempt start = 0**。不要變更註冊的題集／預算來挑結果。
+- **目前額度**：2026-11-01T06:30:46.242Z，Argon 剩 **45.96%**，credits **0**，重置 `2026-11-06T12:03:52Z`。40% 是 Louis 的保留線；目前距保留線只有約 5.96 個百分點，實測須由准入政策決定是否有空間，不自行降低保留線。部分用量會延遲或逆向調整，不能以開發審查的單次差值當精確成本。
+- **外部操作**：本輪只有隔離驗收、開發審查及官方 API 的試驗題／比賽 metadata 讀取；沒有真實預測、沒有送出、沒有安裝 launchd 或留下自動喚醒服務。Claude 14:30 重置後只做一次 bounded high 驗收重試，已完成。
+- **保存**：使用者先前已授權 commit／push。本輪程式與文件一併提交為 `feat: add bounded M2 scheduler and acceptance tooling`；確切 hash 以 git log 為準。data、reports、raw review logs 與機密均不進 git。
+
+## 正式設定隔離驗收
+
+| 線／設定 | 本輪結果 | acceptance record ID |
+|---|---|---|
+| GPT medium | PASS | `acc_1793512916372_5ebf8657` |
+| GPT high | PASS | `acc_1793513071352_7dbc192e` |
+| Gemini Argon medium | PASS | `acc_1793513411089_0548bb4b` |
+| Gemini Argon high | PASS | `acc_1793513886709_537868eb` |
+| Claude Opus high | 先 quota_exhausted；按 CLI 回報台北 14:30 重置後重試 PASS | `acc_1793514692978_160dbd29` |
+
+Claude medium 沿用前輪正式紀錄 `acc_1793503952689_ba33c23e`，本輪沒有冒稱重新跑過 medium。最新 high 證據與既有 medium 證據目前符合 preflight 的兩層設定檢查。最新報表 `reports/m2report_1793514798833_c34b7228.json` 顯示六個 production acceptance 檢查皆 OK，但 `baseline_approved_id=null`、`autoload_passed=false`，`m2_complete=false`。
+
+V5：本輪實際看到 Claude `quota_exhausted`，原始 result 為 `You've hit your 5-hour limit · resets 2:30pm (Asia/Taipei)`（`is_error=true`，但 subtype 是 success）。首次失敗紀錄 `acc_1793512907869_13ab7923` 與原始 logs 保留；不是安全驗收通過。GPT／Gemini 真正耗盡的錯誤證據仍未齊，不要為了取得錯誤而取消個人額度保留線。固定 30 分鐘退避尚未改成完整解析各 CLI 重置語法。
+
+## Claude 恢復後的下一步
+
+1. 先讀 [M2-W4-W6.md](M2-W4-W6.md)、PLAN v1.9 §16，檢查 git status。不要重做已通過的 W1～W5，也不要把 agy/Opus 開發呼叫算作原 claude 線驗收。
+2. **需要 Louis 的部分**：依 PLAN §7.2／§7.6 第 7 項人工審查全域內容，放置／還原 canary 並核對實際載入來源。盤點在 `reports/baseline_inventory_1793512681977_99f25159.json`。本輪已詢問是否有既有證據，尚未收到；不要自行建立假的 passing autoload_result 或替 Louis 核准。取得有效 autoload_result 後，按當前快照／credits 記錄 baseline approval。
+3. baseline 通過後，先執行 `python src/m2_report.py`，再用既有註冊 campaign 執行 `python src/scheduler.py --campaign data/campaigns/m2_1793513402324_f7c9d20c.json`。它只支援 local，會重新核對場地、CLI、baseline、預算與模型設定；沒有 waiver。若期限或額度阻擋，留下紀錄，不重設帳冊。
+4. 用 `python src/m2_report.py --campaign data/campaigns/m2_1793513402324_f7c9d20c.json` 核對：真實 20 題、每線首層至少 90%、兩層／升級／留言、耗時／token／Argon、各 CLI 耗盡證據。仍缺的欄位不能以合成測試或估計填成 PASS。基準核准後的有效主站 E2E 也須補足 M1 的單線門檻。
+5. M3 的持續新題輪詢／launchd、送出狀態機、修訂後重新預測與 14 天 trial 尚未啟用；切換 trial/live 仍須 Louis 核准。
+
+---
+
+## 前輪紀錄（2026-11-01T05:29:42Z；以下為歷史，以本頁頂端為準）
+
+更新時間：2026-11-01T05:29:42Z。記錄者：Codex。
+
+### 當時進度
 
 使用者要求「先幫我 commit & push 然後繼續下面的計劃」。已先將 W8、M2-W1／W2 與前輪交接提交為 **`382841f`** 並推送 `origin/main`，接著完成 **M2-W3 匿名摘要與第 2 層 local API**。PLAN 已升 **v1.8**，新增 D67 與 §16；README 及 M2 工作表已同步。
 
@@ -13,7 +56,7 @@
 - **外部操作**：本輪模型呼叫只有程式審查，未查看真實題目輸出、未改寫正式預測帳冊、未送出預測、未開排程。使用者已明確要求 commit／push；W3 與本段交接隨後續 `feat: add audited tier-two reconciliation flow` 提交保存，確切 hash 以 git log 為準。
 - **額度**：最後查詢 2026-11-01T05:27:41.477Z，agy 第三方週額度剩約 **60.92%**、五小時 **21.83%**，Argon **51.72%**、credits 0。別把 Argon 剩餘量當成 Opus 可用額度；後續審查宜縮小包或等待第三方窗口恢復。raw review logs 仍在 ignored 的 scratch，不要提交。
 
-## 下一步：M2-W4
+### 當時下一步：M2-W4
 
 1. 跨題工作佇列，依 PLAN §9 先廣後深：先保留未完成首層、預期新題及必要修復的容量，再給第 2 層。W3 的合成 admit callback 不可拿到正式環境使用。
 2. 完成逐線額度／重置窗口、每題上限與整週熔斷；同線同層 p90 加驗證時間的截止准入。W3 目前保守用整次上限加餘裕；Argon 歷史成本樣本已按層分開。

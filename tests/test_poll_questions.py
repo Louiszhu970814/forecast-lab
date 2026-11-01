@@ -107,7 +107,7 @@ def test_record_snapshots_new_unchanged_and_revised(tmp_path: Path) -> None:
     assert recs[1]["revision_of"] == recs[0]["snapshot_id"]
     assert recs[1]["t0"] == recs[0]["t0"] == "2026-10-31T00:00:00.000Z"
     assert recs[1]["revision"] == {"content_changed": True, "close_time_changed": False,
-                                   "type_changed": False, "options_changed": False}
+                                   "type_changed": False, "options_changed": False, "mapping_changed": False}
 
 
 def test_synced_copy_exclusion() -> None:

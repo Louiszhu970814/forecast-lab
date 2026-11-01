@@ -132,14 +132,16 @@ def record_snapshots(snaps: Iterable[dict[str, Any]], *, log: Path = QUESTIONS_L
         if prev is None:
             rec = {**snap, "snapshot_id": new_id("qs"), "seen_at": now, "t0": now, "revision_of": None}
             outcome["new"].append(snap["question_id"])
-        elif prev["content_hash"] != snap["content_hash"] or prev.get("scheduled_close_time") != snap.get("scheduled_close_time"):
+        elif prev["content_hash"] != snap["content_hash"] or prev.get("scheduled_close_time") != snap.get("scheduled_close_time") \
+                or any(prev.get(k) != snap.get(k) for k in ("post_id", "tournament_id")):
             # Type, options or close-time changes block a fallback submission; text-only edits do not (D53).
             rec = {**snap, "snapshot_id": new_id("qs"), "seen_at": now, "t0": prev["t0"],
                    "revision_of": prev["snapshot_id"],
                    "revision": {"content_changed": prev["content_hash"] != snap["content_hash"],
                                 "close_time_changed": prev.get("scheduled_close_time") != snap.get("scheduled_close_time"),
                                 "type_changed": prev.get("question_type") != snap.get("question_type"),
-                                "options_changed": prev.get("options") != snap.get("options")}}
+                                "options_changed": prev.get("options") != snap.get("options"),
+                                "mapping_changed": any(prev.get(k) != snap.get(k) for k in ("post_id", "tournament_id"))}}
             outcome["revised"].append(snap["question_id"])
         else:
             outcome["unchanged"].append(snap["question_id"])

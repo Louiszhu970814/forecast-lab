@@ -24,6 +24,7 @@ import hashlib
 import http.client
 import importlib
 import json
+import math
 import os
 import re
 import secrets
@@ -45,11 +46,13 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import acceptance_judge as J  # noqa: E402
 import baseline  # noqa: E402
+import quota  # noqa: E402
 from adapters.base import AdapterRequest, AdapterResult  # noqa: E402
 from flab import netguard, runner  # noqa: E402
 from flab.config import load_run_config  # noqa: E402
 from flab.ids import new_id  # noqa: E402
 from flab.jsonl import append_record  # noqa: E402
+from flab.ledger import transaction  # noqa: E402
 from flab.timeutil import to_iso, utc_now  # noqa: E402
 from flab.workdir import PROJECT_ROOT, make_attempt_dir, remove_attempt_dir  # noqa: E402
 
@@ -677,13 +680,47 @@ def _final_text(result: AdapterResult) -> str:
     return "\n".join([result.final_text or "", json.dumps(result.structured or {}, ensure_ascii=False)])
 
 
+class AcceptancePaused(RuntimeError):
+    """Known quota gate stopped acceptance before another model call."""
+
+
+def _append(record):
+    with transaction(ACCEPTANCE_LOG.parent):
+        append_record(ACCEPTANCE_LOG, record)
+
+
 def _run(adapter: Any, player: str, profile: str, prompt: str, workdir: Path, raw_dir: Path,
-         model_cfg: dict[str, Any], timeout: int, catalog: dict[str, Any] | None = None) -> tuple[AdapterResult, dict[str, float]]:
+         model_cfg: dict[str, Any], timeout: int, catalog: dict[str, Any] | None = None,
+         *, run_id: str | None = None, tier: int = 1) -> tuple[AdapterResult, dict[str, float]]:
     req = AdapterRequest(player=player, profile=profile, prompt=prompt, schema=SCHEMA, workdir=workdir,
                          raw_dir=raw_dir, model=model_cfg["model"], effort=model_cfg["effort"], timeout_s=timeout)
+    call_id = new_id("acccall")
+    if player == "gemini":
+        before = quota.snapshot(timeout_s=30)
+        fraction = before.remaining_fraction(quota.ARGON_BUCKET_ID)
+        if not quota.credits_ok(before) or before.stale or before.concurrent_agy_detected \
+                or (model_cfg["model"].startswith("gemini-4-argon-") and (
+                    not isinstance(fraction, (int, float)) or not math.isfinite(fraction) or not .45 <= fraction <= 1)):
+            reason = "Gemini acceptance requires credits=0 and a trustworthy Argon balance of at least 45% (40% reserve + 5% estimate)"
+            _append({"type": "acceptance_paused", "run_id": run_id, "player": player, "tier": tier,
+                     "profile": profile, "at": to_iso(utc_now()), "reason": reason, "quota_snapshot": before.to_dict()})
+            raise AcceptancePaused(reason)
+        _append({"type": "acceptance_quota_snapshot", "attempt_id": call_id, "when": "before", **before.to_dict()})
+    if run_id is not None:
+        _append({"type": "acceptance_call_started", "attempt_id": call_id,
+            "run_id": run_id, "player": player, "tier": tier, "profile": profile,
+            "model": model_cfg["model"], "effort": model_cfg["effort"], "started_at": to_iso(utc_now())})
     window = {"start": time.time()}
     result = adapter.run(req, catalog=catalog) if catalog is not None else adapter.run(req)
     window["end"] = time.time()
+    if run_id is not None:
+        _append({"type": "acceptance_call_finished", "attempt_id": call_id,
+            "run_id": run_id, "player": player, "finished_at": to_iso(utc_now()),
+            "completed": result.completed, "error_type": result.error_type, "usage": result.usage,
+            "exit_code": result.run.exit_code if result.run else None, "raw_dir": str(raw_dir)})
+    if player == "gemini":
+        after = quota.snapshot(timeout_s=30)
+        _append({"type": "acceptance_quota_snapshot", "attempt_id": call_id, "when": "after", **after.to_dict()})
     return result, window
 
 
@@ -704,12 +741,15 @@ def _targets_on_disk(fx: Fixture) -> list[Path]:
     return [Path(s.target) for s in fx.specs if s.target.startswith("/")]
 
 
-def run_line(player: str, *, production: bool, run_id: str,
+def run_line(player: str, *, production: bool, run_id: str, tier: int = 1,
              adapter_loader: Callable[[str], Any] = _adapter,
              snapshot: Callable[[dict[str, str | None]], dict[str, Any]] | None = None) -> dict[str, Any]:
+    if tier not in (1, 2) or (tier == 2 and not production):
+        raise ValueError("tier 2 acceptance requires --production")
     cfg = load_run_config()
-    model_cfg = cfg["players"][player]["tier1"] if production else cfg["acceptance"][player]
-    timeout = int(cfg["timeouts_s"]["tier1"])
+    profile = f"tier{tier}"
+    model_cfg = cfg["players"][player][profile] if production else cfg["acceptance"][player]
+    timeout = int(cfg["timeouts_s"][profile])
     adapter = adapter_loader(player)
     base_raw = RUNS_DIR / run_id / player
     base_raw.mkdir(parents=True, exist_ok=True)
@@ -720,7 +760,7 @@ def run_line(player: str, *, production: bool, run_id: str,
     # One catalog for the probe and every run of this line, so the declaration matches the runs.
     catalog = adapter.load_catalog() if player == "gpt" else None
     evidence: dict[str, Any] = {
-        "player": player, "run_id": run_id, "model": model_cfg, "versions": versions,
+        "player": player, "run_id": run_id, "tier": tier, "model": model_cfg, "versions": versions,
         "mode": "production" if production else "acceptance", "judge_version": J.JUDGE_VERSION,
         "code_sha256": code_fingerprint(player), "acceptance_config": cfg["acceptance"],
         "baseline_status": f"approved baseline {approved['record_id']}" if approved else
@@ -743,22 +783,22 @@ def run_line(player: str, *, production: bool, run_id: str,
         assert not any(c in prompt for c in fx.canaries.values())
         declared = source = None
         if player == "gpt":
-            probe_req = AdapterRequest(player=player, profile="tier1", prompt="", schema=SCHEMA, workdir=fx.workdir,
+            probe_req = AdapterRequest(player=player, profile=profile, prompt="", schema=SCHEMA, workdir=fx.workdir,
                                        raw_dir=neg_raw, model=model_cfg["model"], effort=model_cfg["effort"],
                                        timeout_s=timeout)
             declared, source = codex_declaration(adapter, probe_req, catalog or {})
         if hasattr(adapter, "prepare_agent_files"):  # gemini: the agent file is configuration, not a run effect
-            adapter.prepare_agent_files(AdapterRequest(player=player, profile="tier1", prompt="", schema=SCHEMA,
+            adapter.prepare_agent_files(AdapterRequest(player=player, profile=profile, prompt="", schema=SCHEMA,
                                                        workdir=fx.workdir, raw_dir=neg_raw, model=model_cfg["model"],
                                                        effort=model_cfg["effort"], timeout_s=timeout))
         alive_before = all([s.probe("before") for s in fx.servers.values()])
         files_before = file_manifest(fx.watch_dirs, _targets_on_disk(fx))
         sched_before = scheduler_state()
         started = datetime.now(timezone.utc)
-        neg, window = _run(adapter, player, "tier1", prompt, fx.workdir, neg_raw, model_cfg, timeout, catalog)
+        neg, window = _run(adapter, player, profile, prompt, fx.workdir, neg_raw, model_cfg, timeout, catalog, run_id=run_id, tier=tier)
         ended = datetime.now(timezone.utc)
         alive_after = all([s.probe("after") for s in fx.servers.values()])
-        ev, errors = collect(player, "tier1", neg, neg_raw, fx.workdir)
+        ev, errors = collect(player, profile, neg, neg_raw, fx.workdir)
         if player == "gpt":
             ev.declared_tools, ev.declaration_source = declared, source
         ev.servers_alive = alive_before and alive_after
@@ -821,8 +861,8 @@ def run_line(player: str, *, production: bool, run_id: str,
         page_url = fresh_url(POSITIVE_URL)
         prompt = positive_prompt(label, market, page_url)
         assert token not in prompt
-        pos, window = _run(adapter, player, "tier1", prompt, pos_dir, pos_raw, model_cfg, timeout, catalog)
-        ev, errors = collect(player, "tier1", pos, pos_raw, pos_dir)
+        pos, window = _run(adapter, player, profile, prompt, pos_dir, pos_raw, model_cfg, timeout, catalog, run_id=run_id, tier=tier)
+        ev, errors = collect(player, profile, pos, pos_raw, pos_dir)
         if player == "gemini":
             evidence["runs"]["positive_pages"] = gemini_preserve_pages(ev, pos_raw)
         pos_tests = J.judge_positive(ev, canary_url=page_url, expected_token=token, market_url=market,
@@ -852,7 +892,7 @@ def run_line(player: str, *, production: bool, run_id: str,
         (fr_dir / "notes.txt").write_text(canary)
         page_url = fresh_url(POSITIVE_URL)
         fr, window = _run(adapter, player, "format_repair", repair_prompt(label, fr_dir, page_url), fr_dir, fr_raw,
-                          model_cfg, int(cfg["timeouts_s"]["repair"]), catalog)
+                          model_cfg, int(cfg["timeouts_s"]["repair"]), catalog, run_id=run_id, tier=tier)
         ev, errors = collect(player, "format_repair", fr, fr_raw, fr_dir)
         if player == "gpt":
             probe_req = AdapterRequest(player=player, profile="format_repair", prompt="", schema=SCHEMA,
@@ -894,15 +934,15 @@ def run_line(player: str, *, production: bool, run_id: str,
     ev_path.write_text(json.dumps(evidence, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
     record = {
         "type": "acceptance_result", "record_id": new_id("acc"), "run_id": run_id, "player": player,
-        "mode": evidence["mode"], "model": model_cfg["model"], "effort": model_cfg["effort"],
+        "mode": evidence["mode"], "tier": tier, "model_call_count": 3, "model": model_cfg["model"], "effort": model_cfg["effort"],
         "cli_version": versions.get(player), "finished_at": to_iso(utc_now()), "judge_version": J.JUDGE_VERSION,
-        "profiles": ["tier1", "format_repair", "tier2 (argv equivalence, subagents off)"],
+        "profiles": [profile, "format_repair", "tier2 (argv equivalence, subagents off)"],
         "line_pass": not problems and all(t.status == J.PASS for t in tests),
         "baseline_status": evidence["baseline_status"], "catalog_entry_sha256": evidence.get("catalog_entry_sha256"),
         "tests": [asdict(t) for t in tests], "problems": problems,
         "evidence_path": str(ev_path.relative_to(PROJECT_ROOT)), "evidence_sha256": _sha(ev_path),
     }
-    append_record(ACCEPTANCE_LOG, record)
+    _append(record)
     return record
 
 
@@ -910,12 +950,20 @@ def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("command", choices=("run",))
     ap.add_argument("--players", default="claude,gemini,gpt")
-    ap.add_argument("--production", action="store_true", help="use production tier-1 models (manual acceptance)")
+    ap.add_argument("--production", action="store_true", help="use production models for the selected tier (manual acceptance)")
+    ap.add_argument("--tier", type=int, choices=(1, 2), default=1)
     args = ap.parse_args(argv)
+    if args.tier == 2 and not args.production:
+        ap.error("--tier 2 requires --production")
     run_id = new_id("accrun")
     ok = True
     for player in [p.strip() for p in args.players.split(",") if p.strip()]:
-        rec = run_line(player, production=args.production, run_id=run_id)
+        try:
+            rec = run_line(player, production=args.production, run_id=run_id, tier=args.tier)
+        except AcceptancePaused as exc:
+            print(f"{player}: PAUSED: {exc}")
+            ok = False
+            continue
         ok &= rec["line_pass"]
         print(f"{player}: {'PASS' if rec['line_pass'] else 'NOT PASSED'}")
         for t in rec["tests"]:
