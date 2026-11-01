@@ -1089,7 +1089,8 @@ def test_snapshot_invalidated_during_remote_precheck_is_not_sent(environment, mo
     assert rows(e)[-1]["status"] == "abandoned"
 
 
-@pytest.mark.parametrize('venue,allowed', [(32977, True), (33108, True), (144, True),
+# Cup (33108) left the trial grounds when Louis entered it as a human (PLAN D79).
+@pytest.mark.parametrize('venue,allowed', [(32977, True), (33108, False), (144, True),
                                           (33121, False), (33122, False), (33123, False), (999, False)])
 def test_trial_discovery_with_repository_configuration(environment, monkeypatch, venue, allowed):
     from flab.config import load_tournaments
@@ -1128,7 +1129,7 @@ def test_dynamic_discovery_failures_are_temporary_and_recover(environment, monke
         if failure == 'missing_round':
             cfg['excluded_project_ids'].append(33123)
         elif failure == 'incomplete':
-            cfg['tournaments'].pop('metaculus_cup')
+            cfg['tournaments'].pop('main_site_questions')
         elif failure == 'inconsistent' and len(calls) > 1:
             cfg['tournaments']['metaculus_cup']['id'] = 555
         elif failure == 'ambiguous':

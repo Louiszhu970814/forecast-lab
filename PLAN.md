@@ -1,6 +1,6 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.25（v1.0 凍結後的修訂，見 §16；M2 量測、M3 離線開發、MiniBench 改為驗收通過即參賽）
+> 版本：v1.26（v1.0 凍結後的修訂，見 §16；M2 量測、M3 離線開發、MiniBench 改為驗收通過即參賽）
 > 初稿：Claude
 > 本回合整合者：Claude（v1.10 起；v1.5～v1.9 由 Codex 整合）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
@@ -83,7 +83,8 @@
 - 兩種比賽的題目都在隨機時段開出，每題開放 3 小時；同時開放的題目通常不超過 5 題，偶爾約 10 題（§3.5、§9）。
 - **試驗場地**（D45）：不計獎、允許重跑的場地，試驗期只在這些地方作答與送出：
   - bot testing area（project ID `bot-testing-area`）：每種題型各一題，不計分。
-  - Metaculus Cup 與其他主站題目：機器人不能領獎，但可以重跑，送出後能取得官方分數與結算值。
+  - 主站題目：機器人不能領獎，但可以重跑，送出後能取得官方分數與結算值。
+  - **Metaculus Cup 不再是試驗場地**（D79）：Louis 以本人帳號參加 Cup 人類賽，機器人不在 Cup 送出，以免被視為同一人用兩個帳號參加同一場比賽。Cup 的題目常常同時掛在主站，所以主站題目也要排除任何同時屬於 Cup 的題目（M3-W9 實作）。
   - 排除同步題（D53）：試驗場地的題目若與主賽或 MiniBench 中開放中、即將開放的題目是同一題（例如同步到主站的題目），一律排除，而且排除優先於場地允許。判斷以平台的 ID 與歸屬對應為主；標題相同只當作疑似重複的訊號，標題不同也不代表安全。無法確定時，改選其他題目。
 - 額度不足時採「先廣後深」：先完成所有比賽的第 1 層，再依優先序做第 2 層，最後才做人類賽輔助（§9）。
 - 每場比賽參加前都要完成規則核對並記錄（§3.7）。核對完成並經 Louis 核准的比賽，才會列入 `config/tournaments.json` 的送出白名單。
@@ -1647,11 +1648,13 @@ view_image                  stable true
 | D76 | 2026-11-01 | Louis 希望參加 Market Pulse 26Q4（project 33131），以機器人身分參賽；Louis 確認新的機器人帳號沒有在該賽提交過預測。Louis 也接受 Metaculus Cup（33108）採 AI 協助研究、本人判斷並手動提交的人類賽方式（§8）。Market Pulse 要先支援數值題與題組、完成該賽的規則核對與專屬送出契約，才能加入白名單；Cup 的 `advise.py` 與私人 Telegram 參考報告尚未實作 | 本輪指示（GPT 記錄，`docs/tasks/EXPAND-TOURNAMENTS.md`、`docs/tournament_checks/market-pulse-26q4.md`、`metaculus-cup-fall-2026.md`）。Louis 以人類身分參加 Cup 期間，機器人是否仍可把 Cup 當試驗場地送出，須先核對通用規則的單次參賽限制 |
 | D77 | 2026-11-01 | Louis 確認 MiniBench 每輪獨立計分後，取消 M3「在試驗場地連續 14 天」的固定日數門檻：§10 M3 的必要驗收通過、Louis 在 §15 核准後，就進入 MiniBench，第一輪同時取得實戰回饋並爭取獎金。其他必要驗收全部保留，不另設 48／72 小時等待期。主賽的 M4／M5 前置條件與 D49 不變 | 本輪指示（GPT 記錄於 §14.2、`docs/tournament_checks/futureeval.md` 補記）。官方規則每題只送一次、禁止人為介入，仍然適用 |
 | D78 | 2026-11-01 | Louis 核准切換到 `trial`，使用機器人帳號 311763（`approved_bot_id`）。因為固定 M2 題集的排程器只能在 `local` 執行，切換延到 M2 題集 `m2_1793529615987_7867f9f1` 量測結束後才進行；真實 Transport 完成並通過審查之前，`trial` 也不會實際寫入任何資料。launchd 週期等前置條件都完成後才安裝，安裝時由 Louis 當場核准權限提示 | 本輪指示。`trial` 只送到試驗場地（硬性規則 2）；Cup 是否保留為試驗場地待 Louis 決定（D76） |
+| D79 | 2026-11-01 | Louis 決定把 Metaculus Cup 從試驗場地拿掉：`config/tournaments.json` 的 `trial_ground_types` 只剩 bot testing area 與主站題目。主站題目若同時屬於 Cup，也不得在 `trial` 送出 | 本輪決定。Louis 以本人帳號參加 Cup 人類賽（D76），通用規則限制每人只能用一種身分參賽。M2 的本地量測不送出，不受影響 |
 
 ---
 
 ## 16. 變更紀錄
 
+- **v1.26**（2026-11-01）：依 D79，`trial_ground_types` 拿掉 `metaculus_cup`；`tests/test_submit.py` 改為斷言 Cup（33108）在 `trial` 被拒絕，「發現不完整」的案例改為缺少主站場地。不改預測行為。主站題目排除同時屬於 Cup 的題目，列入 M3-W9。
 - **v1.25**（2026-11-01）：記錄 Louis 核准 `trial`（D78），切換延到 M2 量測結束後；補記 FutureEval 的必填參與表單與比賽頁面報名（`docs/tournament_checks/futureeval.md`）。不改程式或預測行為。
 - **v1.24**（2026-11-01）：整合 Louis 的參賽決定（D76、D77）。§10 M3 的第二項由「試驗場地連續 14 天」改為「以 `trial` 由 launchd 無人介入地完成端到端流程，不設固定天數」；新增第七項（MiniBench 系列白名單與每輪 ID 核對、規則核對經 Louis 核准）；第五項補上每週上限與跨週運作。§3.6 新增 MiniBench 的進入條件與系列白名單；§10 M4 註明第一輪即正式參賽與觀察期。不改程式或預測行為。
 - **v1.23**（2026-11-01）：M3-W8，修正 Gemini 稽核（`docs/tasks/AUDIT-ARGON-2026-11-01.md`）中經 Claude 核對屬實的 trial 前契約錯誤。GPT 實作、Claude 審查。`submit_v4` → `submit_v5`，`scheduler_v5` → `scheduler_v6`，`cycle_v3` → `cycle_v4`，`continuous_v3` → `continuous_v4`，`coverage_sim_v2` → `coverage_sim_v3`；`forecast_pipeline_v6` 不變。
