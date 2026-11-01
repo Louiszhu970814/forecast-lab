@@ -19,7 +19,7 @@ import aggregate as A
 import comment as C
 from forecast import Lock, PreflightError
 from flab.config import load_submit_mode, load_tournaments, load_run_config
-from flab.ids import new_id, sha256_hex
+from flab.ids import hash_obj, new_id, sha256_hex
 from flab.jsonl import append_record
 from flab.ledger import read_complete, transaction
 from flab.timeutil import parse_iso, to_iso, utc_now
@@ -29,7 +29,7 @@ from validate import submit_deadline
 from project_policy import trial_membership_error
 from submit_contract import ConfirmedFailure, Readback
 
-VERSION = "submit_v7"
+VERSION = "submit_v8"
 BUSY_EXIT_CODE = 75
 FORECAST_PATH = "/api/questions/forecast/"
 COMMENT_PATH = "/api/comments/create/"
@@ -124,6 +124,32 @@ def _unique(rows: list[dict], field: str) -> dict:
             raise PrecheckError(f"missing or duplicate {field} in ledger")
         result[key] = row
     return result
+
+
+def probe_reservations(root: Path) -> list[tuple[int, int, str]]:
+    """All attempted API probes reserve bot/question identities across write clients."""
+    with transaction(root):
+        rows = read_complete(root / "v15_probes.jsonl")
+    plans = {}
+    for row in rows:
+        if row.get("state") == "prepared":
+            pid = row.get("probe_id")
+            if not isinstance(pid, str) or not pid or pid in plans:
+                raise PrecheckError("invalid probe plan identity")
+            plan = row.get("plan")
+            if not isinstance(plan, dict) or row.get("plan_sha256") != hash_obj(plan) \
+                    or any(type(plan.get(k)) is not int or plan[k] <= 0 for k in ("bot_id", "question_id")):
+                raise PrecheckError("invalid probe plan reservation")
+            plans[pid] = plan
+    reserved = set()
+    for row in rows:
+        if row.get("state") == "request_started" and row.get("operation") == "forecast":
+            pid = row.get("probe_id")
+            if pid not in plans:
+                raise PrecheckError("probe request without frozen plan")
+            plan = plans[pid]
+            reserved.add((plan["bot_id"], plan["question_id"], pid))
+    return sorted(reserved)
 
 
 class Submitter:
@@ -297,6 +323,9 @@ class Submitter:
 
     def _duplicate(self, intent):
         with transaction(self.root):
+            if any((bot, qid) == (intent["bot_id"], intent["question_id"]) and pid != intent["intent_id"]
+                   for bot, qid, pid in probe_reservations(self.root)):
+                raise PrecheckError("bot/question reserved by API component probe")
             rows = self._rows()
             others = [r for r in rows if r["status"] == "intent" and r["intent_id"] != intent["intent_id"]
                       and (r.get("bot_id"), r.get("question_id")) == (intent["bot_id"], intent["question_id"])]

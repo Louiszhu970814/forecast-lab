@@ -69,3 +69,73 @@ Gemini 的跨週審查於 17:02:51 回覆 FAIL：完成狀態仍以週 campaign 
 Gemini 最後複審 PASS，先前 B1／NB1 均解決，沒有新發現。合併已通過 Claude 審查的 API 修正後完整 **1348 passed in 27.64s**；28 個跨週案例含停用送出、重開模型線、已封存預算跳過、未知跨週呼叫，以及新題取得新週容量。最初一個測試 fixture 寫錯帳冊檔名，修正後重跑通過，沒有把那次失敗算成通過。
 
 已整合 `continuous_v7`／`cycle_v5`／`scheduler_v7`／`budget_v3`，PLAN v1.34／D86。未建立持續模式設定、未填正式上限、未啟用 launchd。既有 budget_skipped 完成結果跨週仍封存，這次沒有新增「重新打開已完成題目」的政策。
+
+## V15 元件驗收草案（尚未整合／執行）
+
+已在新的隔離副本 `forecast-v15-probe-maapytqn/work` 準備 `v15_probe_v1`。它選擇一題從未由此 bot 預測、仍開放超過一小時的 binary bot-testing 題，按截止時間與題號固定挑選；只用明確標記的 synthetic 50% 測試及私人測試留言，寫入獨立 probe 帳冊，不偽造正式模型紀錄。這是 API 元件驗收，不能當成正常三線預測、M3 端到端或 V15 全數通過。
+
+run 共用 scheduler／submit／三線鎖，並重用現行 Submitter 的完整前置檢查；只允許既有核准 bot 311763／ground 32977／trial，保留 STOP、跨賽／同步題排除、既有預測、題文及時間變動檢查。每次請求先記錄，再送一次；當回應遺失或崩潰後，重啟只讀回，連「記錄之後、實際寫入之前」中斷也不重送。私人留言另外讀取自己的 comment detail，確認私人旗標、附帶預測與完整文字 hash。
+
+21 個新離線案例通過，合併完整 **1369 passed in 28.34s**。目前主專案仍是先前 1348 passed 的版本；尚未套入或執行新工具。Gemini 複審已排入，先等待 M2 自然釋放 scheduler 鎖，不與模型預測重疊。台北 00:30 的 Claude 複驗與本項後續開發是不同工作，沒有重複宣稱實機驗收。
+
+## UTC 17:45 操作更新
+
+三線第一層已各 20/20；三線也各自完成至少一題第二層。Gemini 的第一筆第 2 層 `att_1793554631504_fcc07a74` 為 `model_check=undetermined`，前後額度快照都偵測到 interactive=2、IDE=6；17:42:03Z 依既定 `weekly_tier2_argon_breaker` 暫停升級至 2026-11-08T12:11:16Z。沒有解除熔斷，Claude／GPT 與整合流程繼續。
+
+V15 草案再補目標 ID 與已檢查快照的綁定、私人留言附帶 binary 50% 測試預測的核對，24 個新案例通過；隔離副本完整 **1372 passed in 27.69s**。尚未整合。Gemini 複審控制程序 97697，防睡眠 98412 綁定該程序，確保 M2 自然結束後能完成審查；沒有安裝服務。
+
+固定觀察期的條件式覆蓋率上限已追加於 measurement_observations：104 題中支援 67 題（53 binary、14 MC）；如果 14 題 MC 全部缺少可驗證順序，完美完成 binary 的支援題型上限也只有 53/67=79.1%。這是條件式結構上限，不是假裝跑完模擬，也未換分母。
+
+需 Louis／平台處理的項目已整理為 [待決報告](DECISIONS-AFTER-D84.md)。此時 M2 尚在執行，沒有因待決事項而取消已授權工作。
+
+## V15 跨入口保留紀錄
+
+草案發現「獨立 probe 帳冊」也必須被一般送出器識別：若測試請求結果未知，而正式入口不知道它，可能在平台暫時讀不到紀錄時再次送同一題。已在隔離副本加入 `submit_v8` 草案的共用 `probe_reservations()`；所有已開始的 forecast probe 保留 bot／question 身分，一般送出拒絕重送，probe 自己只能接續原請求讀回及留言。prepared 尚未請求不保留；不完整或改動的帳冊拒絕；選取下一個 probe 會跳過已試過的目標。沒有偽造正常模型／整合紀錄。
+
+新增後共 27 個 probe 案例，相關 175 passed；完整 **1375 passed in 27.73s**。仍未整合／執行，等待同一個 Gemini 審查空檔。這項共用檢查是對實際寫入的必要保護，不以「只是測試」略過去重。
+
+另於 17:54:01Z，GPT 觸發既有 `weekly_tier2_token_breaker`，期限為 2026-11-08T00:00:00Z；截至當時新題集 GPT 第二層已完成 4 題。這是本地每題 token 上限，不是 GPT Pro 額度耗盡，不能充當 V5 證據。沒有解除或重設。
+
+## V15 最終寫入邊界補強
+
+隔離草案補上遠端核對後與寫入前的本地截止時間／場地設定再檢查；檢查期間已過期時，在請求日誌之前拒絕，若記錄後才過期，維持 unknown 且不重送。新增 3 個回歸案例，共 30 個 probe 案例、相關 178 passed、完整 **1378 passed in 27.79s**。Gemini 尚未開始審查時完成此修正，將讀取最新來源；尚未套回或執行。
+
+## UTC 2026-11-01T18:23:47Z 固定 M2 執行結束
+
+題集 `m2_1793548033739_590c7d24` 接續排程於 18:23:46.748Z 正常退出（exit 0），自動報告 `reports/m2report_1793557427841_59e65bea.json`。三線首層各 **20/20**，20 題全部整合並產生本地留言；第二層採用 Claude 16、GPT 4、Gemini 1，其餘升級依既定預算不准入。沒有未完成啟動、沒有 preflight 豁免，六組正式設定驗收仍有效。
+
+報告 15 項檢查中 13 項通過，僅剩 `trusted_gemini_costs` 與 `all_cli_quota_exhaustion_observed`。Gemini 共 21 次成本不確定、可信 0；GPT／Gemini 尚無真實 CLI 耗盡證據，因此 `m2_complete=false`。題集執行結束不等同全部驗收通過，既有週期熔斷也沒有解除。
+
+Gemini 的 V15 元件審查已在 18:23:46.740Z 取得自然釋放的 scheduler 鎖後開始，與預測工作沒有重疊。所有模型輸出保持未人工檢視，只查操作計數與成本統計。模式仍 local，尚未寫入 API。
+
+正式覆蓋率仍需量出整個 worker 的時間：本段 wall time 約 4,398.7 秒，M2 成本表的模型呼叫時間不包含全部排程刷新／前置核對等等待；不可直接把 CLI 耗時當作完整週期，`startup_s`、`poll_s`、`overhead_s` 也不能無證據設為零。
+
+## V15 元件審查與唯讀準備（UTC 18:28）
+
+Gemini 第一輪獨立審查於 18:27:02Z **PASS，無 blocking**。它保留候選可能重複被前檢拒絕、依賴 Submitter 內部介面、CLI 載入設定例外不包成 JSON，以及僅元件驗收的限制；這些沒有被當成完整 M3 通過。
+
+唯讀準備另發現列表 API 未提供可驗證的個人歷史，原草案在 `own_forecast_records` 拒絕（ValueError，POST 0）。修正為先檢查列表 ID／題型，再讀取完整貼文，核對 post／question ID 一致，才檢查已有預測與其餘資格；詳細資料仍缺歷史時繼續拒絕。新增 3 個案例，共 33 個 probe 案例，相關 **181 passed**、完整 **1381 passed in 27.61s**。第一輪送審來源保持在 `gemini_prompt.txt`；新差異於 18:28:21Z 送 Gemini 針對性複審，沒有冒用前一輪 PASS。
+
+修正後唯讀準備成功：`v15_1793557715641_91989f46`，bot testing area 32977／post 43327／question 43332，寫入 0 次。計畫已凍結於獨立 `data/v15_probes.jsonl`，僅 synthetic 50% 測試與私人測試留言；主專案仍 local、程式尚未整合，實際寫入等待複審。
+
+私人留言的 included_forecast 依釘選官方來源使用 `ForecastSerializer`（question_type、probability_yes），不同於自己的歷史查詢所用 `MyForecastSerializer`。這解除來源層面的疑問，但部署結果仍須實際讀回檢查。
+
+## UTC 18:32 實機部分結果與恢復草案
+
+`v15_probe_v1`／`submit_v8` 已依兩輪 Gemini PASS 與 1381 項測試整合，PLAN v1.35／D87；18:30 依既有 D78 切到 trial。固定 probe `v15_1793557715641_91989f46` 的 forecast 在 18:30:53Z 開始，平台回空成功物件，18:30:57Z 獨立讀回為 found，驗證 D85 的三元組／基準對帳。預測 POST 僅一次。
+
+第一段在留言前的讀取遇 `TransportError`，當時沒有 comment request；等待後接續同一筆，只在 18:32:29Z 發出第一次留言。18:32:30Z 回 `ConfirmedFailure`，該類別依現行傳輸契約只代表 HTTP 400～499。第一版漏記數字狀態碼，因此不能聲稱是限流、權限或格式哪一種；後續唯讀 comment readback 為 unknown，不把查無當成未受理的新證據。
+
+唯讀確認帳號 active、bot／primary bot、forecasting enabled，該 post 的 user_permission=forecaster。釘選官方 `docs/openapi.yml` 的 `/api/comments/create/` 仍要求 included_forecast／is_private／on_post／text，現有請求符合所列形狀；這不是部署端的成功證據。**binary 預測成功，私人留言失敗，元件測試尚未完成。**
+
+為落實 §3.6 的「明確失敗時只補留言」，`v15_probe_v2` 在專案外準備有界恢復：明確 CLI 旗標、最多總共兩個留言請求、保留相同凍結 payload／舊拒絕紀錄；首次或第二次 unknown 只讀回，預測永不重送。追加安全的數字 HTTP 狀態碼，不寫遠端錯誤文字。十個新回歸案例、完整 1391 passed；目前尚未整合，Gemini 於 18:39:42Z 開始獨立審查。若再次遭拒，保留結果並交平台釐清，不無限重試。未增加模型呼叫、解除預算保護或更換試驗題目。
+
+## 本輪結束狀態（2026-11-01T18:46:56Z，台北 11/2 02:46）
+
+- **PLAN v1.36**，已整合 `v15_probe_v2`／`submit_v8`；Gemini 最後複審 PASS，隔離完整 **1396 passed in 27.95s**。恢復草案第一次 FAIL 找到的第二次請求對帳 ID 錯用已修正，並補上不完整恢復歷史拒絕。合計 48 個 probe 案例，其中 15 個恢復案例。
+- **實機結果未全數通過**：固定 probe `v15_1793557715641_91989f46`，bot 311763／ground 32977／post 43327／question 43332。預測 POST **1 次**，獨立讀回 found；私人留言 POST **2 次**，兩次均 confirmed_failed，第二次於 18:44:30.717Z 明確是 **HTTP 429**。第一個拒絕未記數字，不能事後說它也是 429。沒有第三次留言或第二次預測，也沒有改換題目來繼續試。
+- API 元件報告：`reports/v15report_1793558816848_4ba002b2.json`。私人旗標、附帶預測、留言全文、補送成功都尚未實機確認；MC、長度、真正重複 POST 與 launchd 端到端仍未通過。這不是 M3 完成。
+- 模式已回 **local**，正式白名單仍全 false，沒有持續 campaign 或 launchd。D78 trial 授權仍有效；這是本輪有界測試結束後停用寫入，不是要求 Louis 重新授權相同範圍。模型預算熔斷與所有歷史紀錄保留。
+- 固定 M2 完整報告 `m2report_1793557427841_59e65bea`：三線首層各 20/20、整合／本地留言 20/20、無未知啟動，15 項檢查通過 13 項；未過的只有可信 Gemini 成本與三家真實耗盡樣態。不能把資料集跑完稱為全部 M2 驗收完成。
+
+真正待 Louis 決定／操作與平台回覆的項目見 [待決報告](DECISIONS-AFTER-D84.md)。V5 非同步問題尚未回覆，原門檻繼續生效。程式開發仍有後續，尤其 HTTP 429 的節流／Retry-After 處理與留言實機驗證；本輪沒有把它列為已解決或以新請求次數繞過上限。
