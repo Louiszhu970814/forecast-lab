@@ -1,6 +1,6 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.27（v1.0 凍結後的修訂，見 §16；M2 量測、M3 離線開發、MiniBench 改為驗收通過即參賽）
+> 版本：v1.28（v1.0 凍結後的修訂，見 §16；M2 量測、M3 離線開發、MiniBench 改為驗收通過即參賽）
 > 初稿：Claude
 > 本回合整合者：Claude（v1.10 起；v1.5～v1.9 由 Codex 整合）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
@@ -1650,11 +1650,13 @@ view_image                  stable true
 | D78 | 2026-11-01 | Louis 核准切換到 `trial`，使用機器人帳號 311763（`approved_bot_id`）。因為固定 M2 題集的排程器只能在 `local` 執行，切換延到 M2 題集 `m2_1793529615987_7867f9f1` 量測結束後才進行；真實 Transport 完成並通過審查之前，`trial` 也不會實際寫入任何資料。launchd 週期等前置條件都完成後才安裝，安裝時由 Louis 當場核准權限提示 | 本輪指示。`trial` 只送到試驗場地（硬性規則 2）；Cup 是否保留為試驗場地待 Louis 決定（D76） |
 | D79 | 2026-11-01 | Louis 決定把 Metaculus Cup 從試驗場地拿掉：`config/tournaments.json` 的 `trial_ground_types` 只剩 bot testing area 與主站題目。主站題目若同時屬於 Cup，也不得在 `trial` 送出 | 本輪決定。Louis 以本人帳號參加 Cup 人類賽（D76），通用規則限制每人只能用一種身分參賽。M2 的本地量測不送出，不受影響 |
 | D80 | 2026-11-01 | M2「三線第 1 層有效率 ≥ 90%」用來檢查輸出是否合格：因預算上限而從未執行的題目（最新的第 1 層排程結果是 `budget_skipped`，且該線沒有任何第 1 層的開始或完成紀錄）不列入分母；報表同時列出涵蓋率與被跳過的題目，不隱藏缺題 | Louis 決定，在第 2 層結果出來之前做出。M2 題集 `m2_1793529615987_7867f9f1` 中，gemini 因凍結的每週 64 次上限（當天的驗收用掉 24 次）有 5 題第 1 層沒有執行，執行的 15 題全部合格 |
+| D81 | 2026-11-01 | 第一個 M2 題集碰到凍結的每週 64 次上限：claude 第 2 層只跑了 5 題、gemini 第 2 層 0 題。題集凍結後不得修改上限（D53），因此 Louis 決定另外登記一個新的 M2 題集：20 題尚未預測過的試驗場地題目（bot testing area 與主站題目，不含 Cup，也不含同時屬於任何比賽的題目），每線本週上限 130 次（視窗同為 2026-11-01～11-08，已用的次數也計入）。新題集以 M3-W9 修正後的選題程式準備。舊題集保留為歷史量測，不再修改 | 本輪決定。Louis 指出 Ultra 與 GPT Pro 的額度充足，不用很浪費；claude 線與 Claude 的開發對話共用額度，可能碰到 5 小時上限 |
 
 ---
 
 ## 16. 變更紀錄
 
+- **v1.28**（2026-11-01）：記錄 D81（另外登記每線上限 130 次的新 M2 題集）。不改程式或預測行為。
 - **v1.27**（2026-11-01）：依 D80，`m2_report_v2` → `m2_report_v3`：每條線新增 `budget_skipped_tier1_questions`、`campaign_questions` 與 `coverage_fraction`，`valid_fraction` 的分母不含從未執行的題目。Claude 實作，GPT 唯讀審查：一項 blocking（只看完成紀錄、漏看開始紀錄）已修正並補測試。不改預測行為。
 - **v1.26**（2026-11-01）：依 D79，`trial_ground_types` 拿掉 `metaculus_cup`；`tests/test_submit.py` 改為斷言 Cup（33108）在 `trial` 被拒絕，「發現不完整」的案例改為缺少主站場地。不改預測行為。主站題目排除同時屬於 Cup 的題目，列入 M3-W9。
 - **v1.25**（2026-11-01）：記錄 Louis 核准 `trial`（D78），切換延到 M2 量測結束後；補記 FutureEval 的必填參與表單與比賽頁面報名（`docs/tournament_checks/futureeval.md`）。不改程式或預測行為。
