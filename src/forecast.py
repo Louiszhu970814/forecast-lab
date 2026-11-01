@@ -152,10 +152,14 @@ def _acceptance_records(log: Path, player: str) -> list[dict[str, Any]]:
 
 
 def incomplete_acceptance(log: Path, player: str) -> bool:
-    """A newly started but unfinished acceptance cannot leave an older pass in force."""
+    """A newly started but unfinished acceptance cannot leave an older pass in force.
+
+    The autoload test journals its model calls as ``acceptance_call_started`` with
+    ``source = "autoload"`` so the budget counts them; it is not an isolation acceptance
+    and never writes ``acceptance_result``, so those rows must not revoke a pass."""
     with transaction(log.parent):
         rows = list(read_records(log)) if log.exists() else []
-    mine = [r for r in rows if r.get("player") == player]
+    mine = [r for r in rows if r.get("player") == player and r.get("source") != "autoload"]
     latest_result = max((i for i, r in enumerate(mine) if r.get("type") == "acceptance_result"), default=-1)
     return any(r.get("type") == "acceptance_call_started" for r in mine[latest_result + 1:])
 

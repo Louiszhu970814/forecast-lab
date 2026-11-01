@@ -2,7 +2,14 @@
 
 ## 最新進度（Claude，2026-11-01T10:40Z；優先讀這段）
 
-**2026-11-01T10:20Z 更新**：Louis 已建立機器人帳號（Metaculus ID 311763，`is_bot`、`is_primary_bot` 為真，`api_forecasting_access` 為 enabled，尚未報名任何比賽）。token 放在 `.env` 的 `METACULUS_TOKEN`；舊值改名為 `METACULUS_TOKEN_PREVIOUS`，程式不讀取。自動載入測試已通過，等 Louis 審查 `must_review`（見下方「等 Louis 回來處理」第 2 項；D70）。`config/submit_mode.json` 仍為 `local`，`approved_bot_id` 未填。
+**2026-11-01T10:45Z 更新（D70、D71）**
+
+- 機器人帳號：Louis 已建立（Metaculus ID 311763，`is_bot`、`is_primary_bot` 為真，`api_forecasting_access` 為 enabled，尚未報名任何比賽）。token 放在 `.env` 的 `METACULUS_TOKEN`；舊值改名為 `METACULUS_TOKEN_PREVIOUS`，程式不讀取。`config/submit_mode.json` 仍為 `local`，`approved_bot_id` 未填。
+- 全域基準：自動載入測試通過，Louis 審查 `must_review` 後核准，基準為 `base_1793529281499_4a1eccba`，三線檢查都是 `ok`。
+- Argon：Louis 將個人保留線由 40% 降為 20%（`quota_policy_v2`，gemini `weekly_cap` 0.8）；人工驗收門檻改由政策推導（25%）。
+- M2 題集重新登記為 **`data/campaigns/m2_1793529615987_7867f9f1.json`**（同樣 20 題、同樣上限，只換 ID 與政策雜湊）；舊的 `m2_1793513402324_f7c9d20c` 不再使用。
+- 隔離驗收：M2-W7 改過 `flab/runner.py`，三線六種正式設定都要重跑。另修正 autoload 的呼叫紀錄被誤判為「驗收未完成」的錯誤。
+- **進行中**：claude、gpt 的正式驗收（第 1、2 層）→ gemini 正式驗收 → `scheduler.py --campaign data/campaigns/m2_1793529615987_7867f9f1.json` → `m2_report.py --campaign …`。中斷時先看 `data/acceptance.jsonl` 最後的 `acceptance_result`，以及 `data/scheduler_runs.jsonl`。
 
 Louis 要求繼續 M2、M3，並指出 GPT 線是 Pro 方案、額度充裕：**耗用大量 token 的實作優先交給 GPT（代理開發模式），Claude 負責任務說明與審查**（PLAN D69）。
 
@@ -49,8 +56,8 @@ Louis 要求繼續 M2、M3，並指出 GPT 線是 Pro 方案、額度充裕：**
    - **claude init 列出 3 個內建外掛**：`cc-plugin-agents-md`、`cc-plugin-telemetry`、`cc-plugin-plugin-authoring`（`path = builtin`，不是 marketplace 外掛），已回報 Louis。
    - **codex `notify`**：系統日誌顯示 `SkyComputerUseClient`（`notify` 執行的程式）在互動式 codex 每輪結束時都有啟動紀錄（今天 12:54、13:11、13:30、14:35、15:12 台北時間，都對得上 codex app-server 的工作紀錄）。今天 9 次用 `--ignore-user-config` 執行的 `codex exec`（含這次 autoload）結束時都沒有啟動紀錄，判定 `notify` 被忽略。
    - **下一步**：Louis 審查 `must_review` 後，記錄 `baseline.approve()`。不得替 Louis 核准。
-3. **Argon 額度**：2026-11-01T06:47Z 剩 46.52%，保留線 40%，重置 2026-11-06T12:03Z。M2 註冊題集的 20 題中只有 1 題在重置前截止（11/02 13:00Z），其餘都在重置後。建議：claude 與 GPT 線先跑，gemini 線用剩餘額度，其餘等重置；不調整保留線。須 Louis 決定。
-4. 之後依上方 Codex 段落的步驟 3～5 執行 M2 的真實 20 題量測與報告。
+3. **Argon 額度**：已由 Louis 決定（D71）：保留線降為 20%，驗收與預測都適用。2026-11-01T10:40Z 剩 46.0%，重置 2026-11-06T12:03Z。
+4. 之後依上方 Codex 段落的步驟 3～5 執行 M2 的真實 20 題量測與報告；題集改用 `m2_1793529615987_7867f9f1`。
 
 ---
 

@@ -1,5 +1,5 @@
 {
-  "version": "quota_policy_v1",
+  "version": "quota_policy_v2",
   "max_concurrency_per_player": 1,
   "token_multiplier_cap": 3,
   "priority_order": [
@@ -19,7 +19,7 @@
   "urgent_minibench_override": true,
   "players": {
     "gemini": {
-      "weekly_cap": 0.6,
+      "weekly_cap": 0.8,
       "tier2_per_question_cap": 0.05,
       "credits_must_be_zero": true
     },
@@ -33,7 +33,7 @@
     }
   },
   "_notes": {
-    "version": "暫定：version 標記為 quota_policy_v1",
+    "version": "quota_policy_v2：Louis 將 Argon 個人保留線由 40% 降為 20%（PLAN D71），gemini weekly_cap 由 0.6 改為 0.8",
     "weekly_attempts_cap": "暫定：claude 與 gpt 的 weekly_attempts_cap 初始為 null，於 M2 量測後設定（PLAN §9）",
     "priority_identifiers": "暫定：priority_order 與 admission_reserve_order 的代號字串為暫定，對應 PLAN §9 的優先序與准入順序"
   }

@@ -563,6 +563,15 @@ def test_interrupted_acceptance_revokes_older_pass_until_full_acceptance(tmp_pat
     assert _pf(log, allow_unapproved_baseline=True).ok
 
 
+def test_autoload_call_journal_does_not_revoke_acceptance(tmp_path):
+    log = tmp_path / "acceptance.jsonl"
+    _accept(log, tmp_path, mode="production")
+    append_record(log, {"type": "acceptance_call_started", "player": "claude", "run_id": "autoload_x",
+                        "source": "autoload"})
+    assert _pf(log, allow_unapproved_baseline=True).ok
+    assert not F.incomplete_acceptance(log, "claude")
+
+
 def test_default_gemini_preflight_gets_credits_from_official_quota_snapshot(tmp_path, monkeypatch):
     from types import SimpleNamespace
     log = tmp_path / "acceptance.jsonl"

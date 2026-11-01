@@ -114,7 +114,7 @@ def test_gemini_requires_trustworthy_current_usage(ledger, change):
 
 
 def test_gemini_respects_personal_reserve_and_forecast_costs(ledger):
-    snapshot(ledger, remaining=.44)
+    snapshot(ledger, remaining=.24)
     assert reserve(ledger, player="gemini")["reason"] == "argon_personal_or_tier1_reserve"
     snapshot(ledger, aid="next", remaining=.7)
     assert reserve(ledger, player="gemini", aid="next")["allowed"]

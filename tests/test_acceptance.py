@@ -921,7 +921,7 @@ def test_server_records_every_connection_method_and_path(host: str) -> None:
         srv.close()
 
 
-@pytest.mark.parametrize("fraction", [.44, None, float("nan"), 1.5])
+@pytest.mark.parametrize("fraction", [.24, None, float("nan"), 1.5])
 def test_gemini_acceptance_respects_personal_reserve_before_cli(tmp_path, monkeypatch, fraction):
     from types import SimpleNamespace
     monkeypatch.setattr(acc, "ACCEPTANCE_LOG", tmp_path / "acceptance.jsonl")
@@ -935,6 +935,10 @@ def test_gemini_acceptance_respects_personal_reserve_before_cli(tmp_path, monkey
                  {"model": "gemini-4-argon-high", "effort": "high"}, 60, run_id="quota", tier=2)
     assert '"acceptance_paused"' in acc.ACCEPTANCE_LOG.read_text()
     assert '"acceptance_call_started"' not in acc.ACCEPTANCE_LOG.read_text()
+
+
+def test_gemini_acceptance_gate_follows_quota_policy():
+    assert acc.argon_acceptance_gate() == .25  # 20% personal reserve (PLAN D71) + 5% estimate
 
 
 def test_flash_acceptance_does_not_spend_or_require_an_argon_reserve(tmp_path, monkeypatch):

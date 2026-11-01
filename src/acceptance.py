@@ -49,7 +49,7 @@ import baseline  # noqa: E402
 import quota  # noqa: E402
 from adapters.base import AdapterRequest, AdapterResult  # noqa: E402
 from flab import netguard, runner  # noqa: E402
-from flab.config import load_run_config  # noqa: E402
+from flab.config import load_quota_policy, load_run_config  # noqa: E402
 from flab.ids import new_id  # noqa: E402
 from flab.jsonl import append_record  # noqa: E402
 from flab.ledger import transaction  # noqa: E402
@@ -680,6 +680,15 @@ def _final_text(result: AdapterResult) -> str:
     return "\n".join([result.final_text or "", json.dumps(result.structured or {}, ensure_ascii=False)])
 
 
+# One acceptance call may use up to this much Argon; the gate keeps it above the reserve.
+ARGON_CALL_ESTIMATE = .05
+
+
+def argon_acceptance_gate() -> float:
+    """Personal Argon reserve (1 - gemini weekly_cap, PLAN §9) plus one call's estimate."""
+    return round(1 - float(load_quota_policy()["players"]["gemini"]["weekly_cap"]) + ARGON_CALL_ESTIMATE, 6)
+
+
 class AcceptancePaused(RuntimeError):
     """Known quota gate stopped acceptance before another model call."""
 
@@ -698,10 +707,12 @@ def _run(adapter: Any, player: str, profile: str, prompt: str, workdir: Path, ra
     if player == "gemini":
         before = quota.snapshot(timeout_s=30)
         fraction = before.remaining_fraction(quota.ARGON_BUCKET_ID)
+        gate = argon_acceptance_gate()
         if not quota.credits_ok(before) or before.stale or before.concurrent_agy_detected \
                 or (model_cfg["model"].startswith("gemini-4-argon-") and (
-                    not isinstance(fraction, (int, float)) or not math.isfinite(fraction) or not .45 <= fraction <= 1)):
-            reason = "Gemini acceptance requires credits=0 and a trustworthy Argon balance of at least 45% (40% reserve + 5% estimate)"
+                    not isinstance(fraction, (int, float)) or not math.isfinite(fraction) or not gate <= fraction <= 1)):
+            reason = (f"Gemini acceptance requires credits=0 and a trustworthy Argon balance of at least {gate:.0%} "
+                      f"({gate - ARGON_CALL_ESTIMATE:.0%} reserve + {ARGON_CALL_ESTIMATE:.0%} estimate)")
             _append({"type": "acceptance_paused", "run_id": run_id, "player": player, "tier": tier,
                      "profile": profile, "at": to_iso(utc_now()), "reason": reason, "quota_snapshot": before.to_dict()})
             raise AcceptancePaused(reason)

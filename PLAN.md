@@ -1,6 +1,6 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.16（v1.0 凍結後的修訂，見 §16；M2 自動載入測試工具、M3 離線開發、機器人帳號建立）
+> 版本：v1.17（v1.0 凍結後的修訂，見 §16；M2 自動載入測試與基準核准、M3 離線開發、機器人帳號建立）
 > 初稿：Claude
 > 本回合整合者：Claude（v1.10 起；v1.5～v1.9 由 Codex 整合）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
@@ -888,7 +888,7 @@ M2 執行時透過官方 API 發現已允許試驗場地類型的數字 ID，不
 - **額度預算**（`config/quota_policy.json`；以下為初始值，試驗期量測後調整）：
   - 准入順序：先替尚未完成第 1 層的題目、額度重置前預期會開出的新題，以及必要的格式修復保留容量，剩下的容量才給第 2 層與人類賽輔助（D52）。
   - agy：
-    - 預測流程每週最多使用 Argon 週額度的 60%，其餘保留給 Louis。
+    - 預測流程每週最多使用 Argon 週額度的 80%，其餘 20% 保留給 Louis（D71；原為 60%／40%）。人工隔離驗收每次呼叫前要求剩餘至少「保留線 + 5%」。
     - 第 2 層每題最多 5%（D49，§5.3）。
     - 每次執行前以 `/usage` 檢查，剩餘低於「保留線 + 本次預估消耗」就暫停該線（§7.7）。
     - 超過上限而暫停升級時，以實際的額度重置時間為準。
@@ -1603,11 +1603,16 @@ view_image                  stable true
 | D68 | 2026-11-01 | 使用者要求繼續完成整個 M2 並確認 Gemini 的參與。Codex 接續 W4／W5 與 W6 工具，Gemini 透過官方 agy 做開發審查；另開始三線正式設定隔離驗收 | 本輪指示；不替代 Louis 的全域人工審查，不解除個人額度保留線，不啟用 trial／live。有界量測配置、真實與合成證據分開記錄 |
 | D69 | 2026-11-01 | Louis 指示：GPT 線為 Pro 方案、額度充裕，耗用大量 token 的實作優先交給 GPT（代理開發，D56），Claude 負責任務說明、審查與整合；Gemini／Argon 只做少量的跨文件稽核；不讓同一模型審查自己的實作。Louis 對全域基準人工審查的回覆：claude.ai 同步的 13 個官方 skills 接受列為「會載入」；未啟用 marketplace 外掛；同意以自動載入測試確認 codex `config.toml` 的 `notify` 在 `--ignore-user-config` 下被忽略 | 本輪指示與回覆。基準仍待自動載入測試與 `must_review` 審查後才核准；若 `notify` 實際會載入，該線不得核准 |
 | D70 | 2026-11-01 | Louis 指示：(1) 自動載入測試由 Claude 在開發對話中代為執行（原交接建議 Louis 在一般終端機親自執行）；執行時移除 Claude Code 自身的環境變數（`CLAUDE*`、`CLAUDECODE`），使子程序環境接近一般終端機；(2) 自動載入測試的 Argon 門檻由 45% 降為 20%，只適用 `autoload.py`，人工驗收與預測管線的保留額度不變；(3) Louis 已建立機器人帳號（Metaculus 使用者 ID 311763，`is_bot`、`is_primary_bot` 為真，`api_forecasting_access` 為 enabled），token 只放在 `.env` 的 `METACULUS_TOKEN` | 本輪指示。機器人帳號尚未報名任何比賽（`registered_campaigns` 為空）；切換到 `trial` 與填寫 `approved_bot_id` 仍待 Louis 另行核准（§3.6） |
+| D71 | 2026-11-01 | Louis 審查自動載入測試的 `must_review`（gpt 確定載入 `~/.codex/AGENTS.md` 與 `~/.codex/skills/`；其餘家目錄與暫存資料夾祖先路徑為未知且目前不存在；claude 的 3 個 CLI 內建外掛）後核准全域基準 `base_1793529281499_4a1eccba`。Louis 將 Argon 個人保留線由 40% 降為 20%：`quota_policy_v2` 的 gemini `weekly_cap` 改為 0.8，人工驗收門檻改由政策推導（保留線 + 5% = 25%）；M2 題集以同樣 20 題、同樣上限重新登記，以對應新的政策雜湊 | 本輪指示。重新登記時尚無任何模型預測輸出；舊題集 `m2_1793513402324_f7c9d20c` 不再使用 |
 
 ---
 
 ## 16. 變更紀錄
 
+- **v1.17**（2026-11-01）：依 D71 核准全域基準；額度政策升為 `quota_policy_v2`（Argon 個人保留線 40% → 20%，gemini `weekly_cap` 0.6 → 0.8），影響 gemini 線的准入，不改 prompt、模型參數、整合公式或篩題。
+  - `acceptance.py` 的 Gemini 驗收門檻改由 `quota_policy` 推導（保留線 + 5%），不再寫死 45%。
+  - 修正 `forecast.incomplete_acceptance()`：自動載入測試以 `source = "autoload"` 記錄的 `acceptance_call_started` 不再被當成未完成的隔離驗收（原本會讓三線的 preflight 全部被擋）。
+  - M2-W7 修改了 `flab/runner.py`，驗收綁定的執行程式碼雜湊因此改變，三線的正式隔離驗收重新執行。
 - **v1.16**（2026-11-01）：依 D70，`autoload.py` 的 Gemini Argon 門檻由 45% 改為 20%（常數 `ARGON_MIN_FRACTION`）；`acceptance.py` 與預測管線不變。記錄機器人帳號已建立。不改 prompt、模型參數、篩題或送出行為。
 - **v1.15**（2026-11-01）：M3-W7 落實 §3.5「到了決策截止點就送出已有的合格結果」；送出端升為 `submit_v4`，排程升為 `scheduler_v4`，週期升為 `cycle_v3`，模擬器升為 `coverage_sim_v2`。GPT 實作、Claude 審查（D69）。
   - `submit_v4` 改用專屬、不等待的 `submit.lock`（忙碌時回報 `busy`，CLI 退出碼 75），不再與排程器共用 `scheduler.lock`。帳冊交易只包住讀取與追加；`request_started` 之前，在短交易內重新驗證凍結輸入、去重、停用開關與本地截止。傳輸層呼叫、讀回與退避都在交易之外。
