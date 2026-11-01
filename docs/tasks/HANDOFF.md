@@ -1,6 +1,8 @@
 # 給下一個對話的接手紀錄
 
-## 最新進度（Claude，2026-11-01T07:51Z；優先讀這段）
+## 最新進度（Claude，2026-11-01T10:40Z；優先讀這段）
+
+**2026-11-01T10:20Z 更新**：Louis 已建立機器人帳號（Metaculus ID 311763，`is_bot`、`is_primary_bot` 為真，`api_forecasting_access` 為 enabled，尚未報名任何比賽）。token 放在 `.env` 的 `METACULUS_TOKEN`；舊值改名為 `METACULUS_TOKEN_PREVIOUS`，程式不讀取。自動載入測試已通過，等 Louis 審查 `must_review`（見下方「等 Louis 回來處理」第 2 項；D70）。`config/submit_mode.json` 仍為 `local`，`approved_bot_id` 未填。
 
 Louis 要求繼續 M2、M3，並指出 GPT 線是 Pro 方案、額度充裕：**耗用大量 token 的實作優先交給 GPT（代理開發模式），Claude 負責任務說明與審查**（PLAN D69）。
 
@@ -22,7 +24,7 @@ Louis 要求繼續 M2、M3，並指出 GPT 線是 Pro 方案、額度充裕：**
 | M3-W2 `cycle.py`（`cycle_v2`）、`continuous.py`（`continuous_v2`）、`launchd/` 範本；`scheduler_v3`、`forecast_pipeline_v6` | `d094440` | v1.12 | 781 passed |
 | M3-W6 週期與送出的整合測試（修正兩項契約錯誤：`submit_v3`、`continuous_v3`） | `874e0be` | v1.13 | 796 passed |
 | M3-W3 覆蓋率模擬器 `coverage_sim.py`（`coverage_sim_v1`；尚未用真實資料執行） | `9c554ec` | v1.14 | 848 passed |
-| M3-W7 決策截止即送出（`submit_v4`、`scheduler_v4`、`cycle_v3`、`coverage_sim_v2`） | 見 git log | v1.15 | 874 passed |
+| M3-W7 決策截止即送出（`submit_v4`、`scheduler_v4`、`cycle_v3`、`coverage_sim_v2`） | `e717eee` | v1.15 | 874 passed |
 
 每個任務的退回理由與通過依據，都寫在各任務說明末尾的「審查紀錄」。
 
@@ -40,7 +42,13 @@ Louis 要求繼續 M2、M3，並指出 GPT 線是 Pro 方案、額度充裕：**
 1. **全域基準人工審查**（§7.2）：claude 是 `~/.claude/skills/synced`（claude.ai 同步的 skills）、官方 plugin marketplace、`settings.json`（model、modelSettings、theme）；codex 只有內建 `.system` skills，`~/.codex/AGENTS.md` 為空；agy 幾乎是空的。盤點在 `reports/baseline_inventory_1793512681977_99f25159.json`。
    - **Louis 已回覆（2026-11-01T07:00Z）**：(a) claude 同步的 13 個官方 skills（docs、pdf、pptx、docx、xlsx、deep-research、computer-use、chrome-browser、built-in-browser、google-workspace、morning、import-memory、skill-creator）接受列為「會載入」，不關閉同步；(b) 未啟用過 marketplace 外掛（回答 "no"，依上下文解讀為「沒有啟用」；`settings.json` 也沒有 `enabledPlugins`；autoload 的 init 事件若列出外掛，仍要回報 Louis 審查）；(c) 同意由 autoload 測試確認 codex `config.toml` 的 `notify`（每輪結束執行 Computer Use 程式）在 `--ignore-user-config` 下被忽略；若實際仍會載入，該線不能核准基準，須先處理。
    - 人工內容審查的結論：三線目前存在的全域來源都沒有歷史答案、比賽資訊，啟用中的設定沒有可執行的 hook（codex `notify` 待 autoload 證實被忽略）。正式核准仍要等 autoload 結果與 `must_review` 清單。
-2. **自動載入測試**（§7.6 第 7 項）：M2-W7 已通過審查。Louis 在場、在**一般終端機**（不是 Claude Code 的 `!` 或沙箱）先執行 `agy /usage` 確認 Argon ≥ 45%，再執行 `.venv/bin/python src/autoload.py plan` 檢視要放的位置，最後執行 `.venv/bin/python src/autoload.py run --approved-by Louis --i-understand-this-edits-global-files`（會暫時修改全域檔案並還原；三線各呼叫模型一次）。取得 `passed = true` 的 `autoload_result` 後，由 Louis 審查 `must_review`，再 `baseline.approve()`。
+2. **自動載入測試（已執行，2026-11-01T10:20Z）**：依 D70，由 Claude 代為執行（移除 `CLAUDE*`／`CLAUDECODE` 環境變數、關閉 Claude Code 沙箱），Argon 門檻改為 20%（執行前 Argon 剩 47.0%、credits 0）。結果 `auto_1793528405575_83ee265b`（`data/acceptance.jsonl`）：`passed = true`、`restore_ok = true`，三線都完成，`errors` 為空；原始輸出在 `data/autoload_runs/autoload_1793528405574_fdee91d3/`。事後逐一確認所有 canary 路徑都已還原（原本不存在的仍不存在，`~/.codex/AGENTS.md` 仍是 0 bytes）。
+   - **確定會載入**：gpt 的 `~/.codex/AGENTS.md`（目前 0 bytes）與 `~/.codex/skills/`（canary skill 被讀到；目前只有內建 `.system`：imagegen、openai-docs、review-agent、skill-creator、skill-installer）。
+   - **未載入**：claude 的 `~/.claude/skills/`（init 的 skills 清單為空，所以 claude.ai 同步的 13 個 skills 實際上也不會載入）。
+   - **未知（視為可能載入）**：claude 的 `~/.claude/CLAUDE.md`；gemini 的 `~/.gemini/GEMINI.md`、`AGENTS.md`、`config/rules/`、`config/skills/`；三線共同的暫存資料夾祖先 `$TMPDIR/AGENTS.md`、`CLAUDE.md`、`GEMINI.md`、`.agents/rules/`。這些路徑目前都不存在。
+   - **claude init 列出 3 個內建外掛**：`cc-plugin-agents-md`、`cc-plugin-telemetry`、`cc-plugin-plugin-authoring`（`path = builtin`，不是 marketplace 外掛），已回報 Louis。
+   - **codex `notify`**：系統日誌顯示 `SkyComputerUseClient`（`notify` 執行的程式）在互動式 codex 每輪結束時都有啟動紀錄（今天 12:54、13:11、13:30、14:35、15:12 台北時間，都對得上 codex app-server 的工作紀錄）。今天 9 次用 `--ignore-user-config` 執行的 `codex exec`（含這次 autoload）結束時都沒有啟動紀錄，判定 `notify` 被忽略。
+   - **下一步**：Louis 審查 `must_review` 後，記錄 `baseline.approve()`。不得替 Louis 核准。
 3. **Argon 額度**：2026-11-01T06:47Z 剩 46.52%，保留線 40%，重置 2026-11-06T12:03Z。M2 註冊題集的 20 題中只有 1 題在重置前截止（11/02 13:00Z），其餘都在重置後。建議：claude 與 GPT 線先跑，gemini 線用剩餘額度，其餘等重置；不調整保留線。須 Louis 決定。
 4. 之後依上方 Codex 段落的步驟 3～5 執行 M2 的真實 20 題量測與報告。
 

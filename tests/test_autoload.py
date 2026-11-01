@@ -522,7 +522,7 @@ def test_calls_journaled_before_real_executor_and_counted_by_budget(fx, monkeypa
 def test_gemini_gate_pauses_without_counting_or_calling_model(fx, monkeypatch, problem):
     snapshot = quota.QuotaSnapshot(
         buckets={} if problem == "missing" else {quota.ARGON_BUCKET_ID: quota.BucketQuota(
-            id=quota.ARGON_BUCKET_ID, remaining_fraction=.44 if problem == "low" else
+            id=quota.ARGON_BUCKET_ID, remaining_fraction=.19 if problem == "low" else
             float("nan") if problem == "nan" else .9)},
         remaining_credits=1 if problem == "credits" else 0,
         stale=problem == "stale", concurrent_agy_detected=problem == "concurrent")
@@ -533,7 +533,7 @@ def test_gemini_gate_pauses_without_counting_or_calling_model(fx, monkeypatch, p
     paused = rows[0]
     assert paused["run_id"] == rec["run_id"] and paused["player"] == "gemini"
     assert paused["tier"] == 1 and paused["profile"] == "tier1" and paused["source"] == "autoload"
-    assert "quota_snapshot" in paused and "45%" in paused["reason"]
+    assert "quota_snapshot" in paused and "20%" in paused["reason"]
     if problem == "nan":
         assert paused["quota_snapshot"]["buckets"][quota.ARGON_BUCKET_ID]["remaining_fraction"] is None
     assert not rec["passed"] and rec["restore_ok"]

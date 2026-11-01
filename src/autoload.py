@@ -306,6 +306,11 @@ def _append(log: Path, record: dict[str, Any]) -> None:
         append_record(log, record)
 
 
+# Louis lowered the autoload-only Argon gate from 45% to 20% (PLAN D70). Manual
+# acceptance and the forecast pipeline keep their own reserves.
+ARGON_MIN_FRACTION = .20
+
+
 def _start_call(req: AdapterRequest, run_id: str, log: Path) -> None:
     """Gate and journal before entering the executor, including failed/interrupted calls."""
     call_id = new_id("acccall")
@@ -319,8 +324,8 @@ def _start_call(req: AdapterRequest, run_id: str, log: Path) -> None:
         fraction = before.remaining_fraction(quota.ARGON_BUCKET_ID)
         if not quota.credits_ok(before) or before.stale or before.concurrent_agy_detected or (
                 req.model.startswith("gemini-4-argon-") and (not isinstance(fraction, (int, float))
-                or not math.isfinite(fraction) or not .45 <= fraction <= 1)):
-            reason = "Gemini requires credits=0 and a trustworthy Argon balance of at least 45%"
+                or not math.isfinite(fraction) or not ARGON_MIN_FRACTION <= fraction <= 1)):
+            reason = "Gemini requires credits=0 and a trustworthy Argon balance of at least 20%"
             _append(log, {"type": "acceptance_paused", "run_id": run_id, "player": req.player,
                           "tier": 1, "profile": req.profile, "source": "autoload",
                           "at": to_iso(utc_now()), "reason": reason, "quota_snapshot": snapshot_record})
