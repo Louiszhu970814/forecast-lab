@@ -96,6 +96,67 @@ def test_plugin_cache_is_inventoried(tmp_path: Path) -> None:
     assert _decisions(a, _snap(home, tmp_path))["claude"] == "stop"
 
 
+def test_marketplace_refresh_is_informational_but_marketplace_content_stops(tmp_path: Path) -> None:
+    # claude 2.1.316 refreshed known_marketplaces.json (lastUpdated) and the plugin directory cache
+    # during a real M2 forecast run; the marketplace files themselves did not change.
+    home = _make_home(tmp_path)
+    plugins = home / ".claude" / "plugins"
+    (plugins / "marketplaces" / "official").mkdir(parents=True)
+    (plugins / "marketplaces" / "official" / "plugin.json").write_text('{"name": "p"}')
+    index = plugins / "known_marketplaces.json"
+    entry = {"source": {"source": "github", "repo": "anthropics/claude-plugins-official"},
+             "installLocation": "/x/marketplaces/official", "lastUpdated": "2026-11-01T06:00:00Z"}
+    index.write_text(json.dumps({"official": entry}))
+    (plugins / "plugin-directory-cache-v2.json").write_text('{"fetchedAt": "1", "listings": []}')
+    a = _snap(home, tmp_path)
+    index.write_text(json.dumps({"official": {**entry, "lastUpdated": "2026-11-01T11:49:08Z"}}))
+    (plugins / "plugin-directory-cache-v2.json").write_text('{"fetchedAt": "2", "listings": [{"n": 1}]}')
+    res = bl.compare(a.to_record(), _snap(home, tmp_path).to_record())
+    assert res["decisions"]["claude"] == "ok"
+    assert sorted((c["source"], c["category"]) for c in res["changes"]) == [
+        ("claude.marketplace_index", bl.INFORMATIONAL), ("claude.plugin_directory_cache", bl.INFORMATIONAL)]
+    # A new marketplace, a changed marketplace source, or changed marketplace files still stop the line.
+    other = {**entry, "source": {"source": "github", "repo": "someone/else"}}
+    for data in ({"official": entry, "new": other}, {"official": other}):
+        index.write_text(json.dumps(data))
+        assert _decisions(a, _snap(home, tmp_path))["claude"] == "stop"
+    index.write_text(json.dumps({"official": entry}))
+    assert _decisions(a, _snap(home, tmp_path))["claude"] == "ok"
+    (plugins / "marketplaces" / "official" / "plugin.json").write_text('{"name": "p", "hooks": "x"}')
+    assert _decisions(a, _snap(home, tmp_path))["claude"] == "stop"
+
+
+def test_marketplace_index_edge_cases_stay_conservative(tmp_path: Path) -> None:
+    home = _make_home(tmp_path)
+    plugins = home / ".claude" / "plugins"
+    (plugins / "marketplaces" / "official").mkdir(parents=True)
+    index = plugins / "known_marketplaces.json"
+    index.write_text(json.dumps({"official": {"source": "github", "lastUpdated": "1"}}))
+    a = _snap(home, tmp_path)
+    # Empty, unparsable or malformed indexes stop the line; they are never read as "{}".
+    for bad in ("", "{not json", "[]", '{"official": "x"}'):
+        index.write_text(bad)
+        assert _decisions(a, _snap(home, tmp_path))["claude"] == "stop", bad
+    index.write_text(json.dumps({"official": {"source": "github", "lastUpdated": "1"}}))
+    assert _decisions(a, _snap(home, tmp_path))["claude"] == "ok"
+    # Only the top-level files are excluded; a same-named file deeper in the tree is plugin content.
+    nested = plugins / "marketplaces" / "official" / "known_marketplaces.json"
+    nested.write_text("{}")
+    assert _decisions(a, _snap(home, tmp_path))["claude"] == "stop"
+    nested.unlink()
+    # The excluded paths must not become symlinks, and nothing may point into them.
+    index.unlink()
+    index.symlink_to(plugins / "marketplaces" / "official")
+    assert "error" in _snap(home, tmp_path).sources["claude.marketplace_index"]
+    assert _decisions(a, _snap(home, tmp_path))["claude"] == "stop"
+    index.unlink()
+    index.write_text(json.dumps({"official": {"source": "github", "lastUpdated": "1"}}))
+    (plugins / "plugin-directory-cache-v2.json").write_text("{}")
+    b = _snap(home, tmp_path)
+    (plugins / "marketplaces" / "official" / "link.json").symlink_to(plugins / "plugin-directory-cache-v2.json")
+    assert _decisions(b, _snap(home, tmp_path))["claude"] == "stop"
+
+
 def test_plugin_state_only_observed_run_keys_are_informational(tmp_path: Path) -> None:
     # claude 2.1.316 rewrites usage-rows-queued in ~/.claude/plugins/store on every run (M1 acceptance).
     home = _make_home(tmp_path)

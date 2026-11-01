@@ -1,6 +1,6 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.19（v1.0 凍結後的修訂，見 §16；M2 自動載入測試與基準核准、M3 離線開發、機器人帳號建立）
+> 版本：v1.20（v1.0 凍結後的修訂，見 §16；M2 自動載入測試與基準核准、M3 離線開發、機器人帳號建立）
 > 初稿：Claude
 > 本回合整合者：Claude（v1.10 起；v1.5～v1.9 由 Codex 整合）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
@@ -1624,11 +1624,15 @@ view_image                  stable true
 | D71 | 2026-11-01 | Louis 審查自動載入測試的 `must_review`（gpt 確定載入 `~/.codex/AGENTS.md` 與 `~/.codex/skills/`；其餘家目錄與暫存資料夾祖先路徑為未知且目前不存在；claude 的 3 個 CLI 內建外掛）後核准全域基準 `base_1793529281499_4a1eccba`。Louis 將 Argon 個人保留線由 40% 降為 20%：`quota_policy_v2` 的 gemini `weekly_cap` 改為 0.8，人工驗收門檻改由政策推導（保留線 + 5% = 25%）；M2 題集以同樣 20 題、同樣上限重新登記，以對應新的政策雜湊 | 本輪指示。重新登記時尚無任何模型預測輸出；舊題集 `m2_1793513402324_f7c9d20c` 不再使用 |
 | D72 | 2026-11-01 | M2 量測的第一個 claude 嘗試因管線白名單漏列 `StructuredOutput` 被判為 `tool_scope_violation` 而停線（v1.18 已修正）；Louis 判定為誤判，不重新驗收，直接恢復 claude 線（`line_resume`，by Louis）。正式驗收 `acc_1793529463945_ced0ca65`（第 1 層）、`acc_1793529642642_fba87085`（第 2 層）仍然有效 | 本輪決定。該次嘗試只用了 WebSearch 4 次與 StructuredOutput 2 次 |
 | D73 | 2026-11-01 | Louis 要求以 Telegram 作為手機控制台，並可從手機交辦開發任務；GPT 實作 `telegram_ops_v2`、`telegram_dev_v1`，Claude 審查通過後整合（§5.2）。開發模式由 Louis 透過已配對的私人帳號遠端操作，在專案外的隔離副本以 Codex 開發，結果一律經 Claude 審查才整合 | 本輪指示；審查紀錄見 `docs/tasks/TELEGRAM-DEV.md`。開發執行與 GPT 預測線共用訂閱，不計入預測預算 |
+| D74 | 2026-11-01 | Louis 指出 CLI 的 Argon 額度與手機 app 分開計算，CLI 用盡不影響他本人使用；開發階段可以用完 Argon。保留線改為 0%（gemini `weekly_cap` 1.0）延到 M2 題集 `m2_1793529615987_7867f9f1` 結束後生效，因為題集已凍結額度政策雜湊，且 gpt 已有該題集的輸出。重置前剩餘的 Argon 改用於 Gemini 的跨文件稽核（開發用途，不計入預測預算） | 本輪指示 |
 
 ---
 
 ## 16. 變更紀錄
 
+- **v1.20**（2026-11-01）：修正全域基準把 claude CLI 自動刷新的外掛市集索引當成內容。M2 實測中，claude 2.1.316 在預測執行時改寫了 `~/.claude/plugins/known_marketplaces.json`（只有 `lastUpdated`）與 `plugin-directory-cache-v2.json`，基準因此判定 claude 線 `stop`。
+  - `claude.plugins` 排除這兩個頂層檔案（`exclude` 改為也適用於檔案，只比對完整相對路徑）。新增 `claude.marketplace_index`：市集條目扣掉 `lastUpdated` 為內容，`lastUpdated` 為資訊類；新增 `claude.plugin_directory_cache`（資訊類）。空檔、無法解析或格式異常的索引、子目錄中的同名檔，以及指向排除路徑的符號連結，仍然停線。
+  - Claude 實作，GPT 唯讀獨立審查：一項 blocking（空檔被當成 `{}`）已修正並補測試。盤點方式改變，須由 Louis 重新核准基準。不改預測行為。
 - **v1.19**（2026-11-01）：整合 GPT 實作的 Telegram 手機控制台（`telegram_ops_v2`、`telegram_dev_v1`，D73）：`src/telegram_bot.py`、`src/flab/ops_report.py`、`src/flab/dev_tasks.py`、`src/flab/dev_runner.py`、`launchd/org.forecast-lab.telegram.plist`、`docs/telegram.md`。不改 prompt、模型參數、篩題、整合或送出行為。Claude 審查時實測開發沙箱讀不到 `.env`、`data/`、`~/.codex/auth.json`、`config.toml`、`~/.claude.json`、`~/.ssh` 與鑰匙圈，只有 `.venv` 可讀。
 - **v1.18**（2026-11-01）：修正 `forecast.tool_violations()` 的 claude 白名單漏列 `StructuredOutput`（claude CLI 以這個內建工具交付 `--json-schema` 輸出）。改為沿用驗收判定的 `CLAUDE_SAFE_TOOLS`／`CLAUDE_FORMAT_REPAIR_TOOLS`，兩邊不再各自維護。
   - 這個錯誤讓 M2 量測的第一個 claude 嘗試（`att_1793531558486_5668dcaf`，只用了 4 次 WebSearch 與 2 次 StructuredOutput）被判為 `tool_scope_violation` 並停線。離線測試的假 adapter 不會產生這個工具呼叫，所以先前沒有抓到。

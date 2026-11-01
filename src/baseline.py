@@ -55,6 +55,12 @@ CLAUDE_SETTINGS_CONTENT_KEYS = (
 AGY_SETTINGS_CONTENT_KEYS = ("hooks", "mcpServers", "plugins", "skills", "rules", "agents")
 # For "state_dir" sources these are the run-state keys (not content); everything else is content.
 CLAUDE_PLUGIN_STATE_KEYS = ("usage-rows-queued",)
+# Files claude 2.1.316 rewrites when it refreshes the plugin marketplaces (observed 2026-11-01T11:49Z
+# during an M2 forecast run). They are indexes, never loaded into the model; inventoried separately.
+CLAUDE_MARKETPLACE_INDEX = "known_marketplaces.json"
+CLAUDE_PLUGIN_DIRECTORY_CACHE = "plugin-directory-cache-v2.json"
+# Per-marketplace keys that change on every refresh; the rest of each entry is content.
+CLAUDE_MARKETPLACE_REFRESH_KEYS = ("lastUpdated",)
 
 
 @dataclass(frozen=True)
@@ -62,10 +68,10 @@ class Source:
     source_id: str
     player: str
     path: str
-    kind: str                      # "file" | "dir" | "json_mixed" | "state_dir"
+    kind: str                      # "file" | "dir" | "json_mixed" | "state_dir" | "marketplace_index"
     category: str = CONTENT
     content_keys: tuple[str, ...] = ()
-    exclude: tuple[str, ...] = ()  # sub-directories inventoried by another source
+    exclude: tuple[str, ...] = ()  # sub-directories or files inventoried by another source
     general_category: str = GENERAL  # how a change of the general part is classified
 
 
@@ -79,7 +85,14 @@ def default_sources(env: dict[str, str] | None = None) -> list[Source]:
         Source("claude.settings_local", "claude", "~/.claude/settings.local.json", "json_mixed",
                content_keys=CLAUDE_SETTINGS_CONTENT_KEYS),
         Source("claude.skills", "claude", "~/.claude/skills", "dir"),
-        Source("claude.plugins", "claude", "~/.claude/plugins", "dir", exclude=("store",)),
+        Source("claude.plugins", "claude", "~/.claude/plugins", "dir",
+               exclude=("store", CLAUDE_MARKETPLACE_INDEX, CLAUDE_PLUGIN_DIRECTORY_CACHE)),
+        # Which marketplaces are known is content; only their refresh time is informational.
+        Source("claude.marketplace_index", "claude", f"~/.claude/plugins/{CLAUDE_MARKETPLACE_INDEX}",
+               "marketplace_index", general_category=INFORMATIONAL),
+        # Listing of installable plugins; nothing in it is enabled or loaded (enabledPlugins is content).
+        Source("claude.plugin_directory_cache", "claude", f"~/.claude/plugins/{CLAUDE_PLUGIN_DIRECTORY_CACHE}",
+               "file", category=INFORMATIONAL),
         # Builtin plugins' state files. Only keys observed to change on every run (claude 2.1.316)
         # are informational; any other key, file or value change stops the line.
         Source("claude.plugin_state", "claude", "~/.claude/plugins/store", "state_dir",
@@ -197,6 +210,8 @@ def _hash_dir(root: Path, exclude: tuple[str, ...] = ()) -> dict[str, Any]:
         for name in sorted(filenames):
             p = Path(dirpath) / name
             rel = str(p.relative_to(root))
+            if rel in exclude:
+                continue
             if p.is_symlink():
                 target = p.resolve()
                 if _unsafe_target(target, root_real, exclude):
@@ -256,6 +271,19 @@ def _json_parts(path: Path, content_keys: tuple[str, ...]) -> tuple[str | None, 
     return (hash_obj(content) if content else None), (hash_obj(general) if general else None), sorted(data)
 
 
+def _marketplace_parts(path: Path) -> tuple[str, str | None]:
+    """(content hash, refresh hash): marketplace entries without their refresh keys, and those keys."""
+    # No empty-file fallback: a truncated or unparsable index is an inventory error (stop), not "{}".
+    data = json.loads(path.read_text(encoding="utf-8"))
+    if not isinstance(data, dict) or not all(isinstance(v, dict) for v in data.values()):
+        return hash_obj(data), None
+    content = {name: {k: v for k, v in entry.items() if k not in CLAUDE_MARKETPLACE_REFRESH_KEYS}
+               for name, entry in data.items()}
+    refresh = {name: {k: entry[k] for k in CLAUDE_MARKETPLACE_REFRESH_KEYS if k in entry}
+               for name, entry in data.items()}
+    return hash_obj(content), hash_obj(refresh)
+
+
 def _expand(path: str, home: Path) -> Path:
     return Path(str(home) + path[1:]) if path.startswith("~") else Path(path)
 
@@ -289,6 +317,8 @@ def inspect_source(src: Source, home: Path) -> dict[str, Any]:
             rec["hash"], rec["size"] = _hash_file(path), path.stat().st_size
         elif src.kind == "json_mixed":
             rec["content_hash"], rec["general_hash"], rec["keys"] = _json_parts(path, src.content_keys)
+        elif src.kind == "marketplace_index":
+            rec["content_hash"], rec["general_hash"] = _marketplace_parts(path)
         elif src.kind == "state_dir":
             if not path.is_dir():
                 rec["error"] = "expected directory"
@@ -343,7 +373,7 @@ def take_snapshot(home: Path | None = None, sources: list[Source] | None = None,
 def _fingerprint(rec: dict[str, Any]) -> tuple[Any, Any]:
     if not rec.get("exists"):
         return ("absent", None)
-    if rec["kind"] in ("json_mixed", "state_dir"):
+    if rec["kind"] in ("json_mixed", "state_dir", "marketplace_index"):
         return (canonical_json([rec.get("content_hash"), rec.get("error")]), rec.get("general_hash"))
     return (canonical_json([rec.get("hash"), rec.get("symlink_target"), rec.get("error")]), None)
 
