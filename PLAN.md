@@ -1,6 +1,6 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.17（v1.0 凍結後的修訂，見 §16；M2 自動載入測試與基準核准、M3 離線開發、機器人帳號建立）
+> 版本：v1.18（v1.0 凍結後的修訂，見 §16；M2 自動載入測試與基準核准、M3 離線開發、機器人帳號建立）
 > 初稿：Claude
 > 本回合整合者：Claude（v1.10 起；v1.5～v1.9 由 Codex 整合）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
@@ -1609,6 +1609,9 @@ view_image                  stable true
 
 ## 16. 變更紀錄
 
+- **v1.18**（2026-11-01）：修正 `forecast.tool_violations()` 的 claude 白名單漏列 `StructuredOutput`（claude CLI 以這個內建工具交付 `--json-schema` 輸出）。改為沿用驗收判定的 `CLAUDE_SAFE_TOOLS`／`CLAUDE_FORMAT_REPAIR_TOOLS`，兩邊不再各自維護。
+  - 這個錯誤讓 M2 量測的第一個 claude 嘗試（`att_1793531558486_5668dcaf`，只用了 4 次 WebSearch 與 2 次 StructuredOutput）被判為 `tool_scope_violation` 並停線。離線測試的假 adapter 不會產生這個工具呼叫，所以先前沒有抓到。
+  - 不升 `forecast_pipeline_v6`：沒有改 prompt、模型參數、篩題或整合，只修正安全檢查的誤判；修正前沒有任何 claude 嘗試被判為合格，題集內的版本仍然一致。
 - **v1.17**（2026-11-01）：依 D71 核准全域基準；額度政策升為 `quota_policy_v2`（Argon 個人保留線 40% → 20%，gemini `weekly_cap` 0.6 → 0.8），影響 gemini 線的准入，不改 prompt、模型參數、整合公式或篩題。
   - `acceptance.py` 的 Gemini 驗收門檻改由 `quota_policy` 推導（保留線 + 5%），不再寫死 45%。
   - 修正 `forecast.incomplete_acceptance()`：自動載入測試以 `source = "autoload"` 記錄的 `acceptance_call_started` 不再被當成未完成的隔離驗收（原本會讓三線的 preflight 全部被擋）。

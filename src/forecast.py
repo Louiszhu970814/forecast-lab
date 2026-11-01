@@ -388,7 +388,9 @@ def tool_violations(player: str, result: AdapterResult, *, repair: bool) -> list
     violations = list(getattr(result, "violations", None) or [])
     from adapters.gemini import ALWAYS_ADDED_TOOLS, FORMAT_REPAIR_TOOLS, TIER1_TOOLS
 
-    allowed = {"claude": set() if repair else {"WebSearch", "WebFetch"},
+    # Claude delivers --json-schema output through its built-in StructuredOutput tool; keep the
+    # same sets the acceptance judge accepted, so a passing profile is never stopped here.
+    allowed = {"claude": set(J.CLAUDE_FORMAT_REPAIR_TOOLS if repair else J.CLAUDE_SAFE_TOOLS),
                "gpt": set() if repair else {"web_search"},
                "gemini": set(FORMAT_REPAIR_TOOLS if repair else TIER1_TOOLS) | set(ALWAYS_ADDED_TOOLS)}
     # Gemini's adapter checks manage_task actions (only list/status are harmless, D62).

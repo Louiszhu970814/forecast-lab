@@ -489,6 +489,20 @@ def test_gemini_accepted_tools_remain_allowed_in_their_profile() -> None:
     assert F.tool_violations("gemini", result, repair=True)
 
 
+def test_claude_structured_output_tool_is_not_a_scope_violation() -> None:
+    # Real claude CLI 2.1.316 runs report StructuredOutput calls for --json-schema output.
+    result = AdapterResult(argv=[], run=None, cli_version="1", completed=True, final_text=None,
+        structured=None, reported_model_id=None, model_check="unverified", usage_raw=None,
+        tool_call_counts={"WebSearch": 4, "StructuredOutput": 2})
+    assert F.tool_violations("claude", result, repair=False) == []
+    result.tool_call_counts = {"StructuredOutput": 1}
+    assert F.tool_violations("claude", result, repair=True) == []
+    result.tool_call_counts = {"StructuredOutput": 1, "WebSearch": 1}
+    assert F.tool_violations("claude", result, repair=True)
+    result.tool_call_counts = {"WebSearch": 1, "Bash": 1}
+    assert F.tool_violations("claude", result, repair=False)
+
+
 def test_nonfinite_invalid_output_is_still_recorded_as_json(env) -> None:
     summary, recs, adapter = env([{"structured": _good(probability=float("nan"),
                                                        base_rate=float("inf"))}])
