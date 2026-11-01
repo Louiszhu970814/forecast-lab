@@ -74,6 +74,12 @@ def question_schema(snapshot: dict[str, Any], tier: int = 1, template: dict[str,
     if tier == 1:
         props["changed_from_tier1"] = {"type": "null"}
         props["change_reason"] = {"type": "null"}
+    elif tier == 2:
+        # The model cannot identify its own anonymised tier-1 answer. The host computes the boolean.
+        props["changed_from_tier1"] = {"type": "null"}
+        props["change_reason"] = {"type": "string", "minLength": 1}
+    else:
+        raise ValueError("tier must be 1 or 2")
     S.check_schema(sch)
     return sch
 
@@ -181,6 +187,9 @@ def validate_output(obj: Any, snapshot: dict[str, Any], sch: dict[str, Any]) -> 
     if sem:
         return Outcome(SEMANTIC_FAILED, sem)
     errs = S.validate(obj, sch)
+    if sch["properties"]["change_reason"].get("type") == "string" \
+            and isinstance(obj.get("change_reason"), str) and not obj["change_reason"].strip():
+        errs.append("change_reason must explain the judgement, not only whitespace")
     if errs:
         return Outcome(SCHEMA_FAILED, errs)
     if snapshot["question_type"] == "binary":
@@ -273,7 +282,7 @@ def _market_basis(objs: list[tuple[dict[str, Any], int, int]]) -> dict[str, Any]
     return markets
 
 
-def repair_basis(raw_text: str, snapshot: dict[str, Any]) -> dict[str, Any] | None:
+def _probability_repair_basis(raw_text: str, snapshot: dict[str, Any]) -> dict[str, Any] | None:
     """The unique set of probabilities in a failed output, or None (then the attempt is invalid_output).
 
     Every candidate counts: the top-level ``probability`` (numbers and numeric or percent strings) or
@@ -318,11 +327,26 @@ def repair_basis(raw_text: str, snapshot: dict[str, Any]) -> dict[str, Any] | No
     return {"option_probabilities": json.loads(sets.pop()), "markets": markets} if len(sets) == 1 else None
 
 
+def repair_basis(raw_text: str, snapshot: dict[str, Any], *, tier: int = 1) -> dict[str, Any] | None:
+    basis = _probability_repair_basis(raw_text, snapshot)
+    if basis is None or tier == 1:
+        return basis
+    if tier != 2:
+        raise ValueError("tier must be 1 or 2")
+    reasons = [o["change_reason"] for root, _, _ in json_objects(raw_text) for o in _estimate_values(root)
+               if isinstance(o, dict) and "change_reason" in o]
+    if not reasons or any(not isinstance(r, str) or not r.strip() for r in reasons) or len(set(reasons)) != 1:
+        return None  # Format repair cannot manufacture a research judgement or select between reasons.
+    return {**basis, "change_reason": reasons[0]}
+
+
 def repair_errors(repaired: dict[str, Any], basis: dict[str, Any], raw_text: str) -> list[str]:
     """Ways a repaired output departs from the original: changed probabilities, source URLs the raw
     output does not contain (whole URLs, not substrings), or markets that differ from the raw
     output's JSON market by market. A market that cannot be matched that way is rejected."""
     errs = []
+    if "change_reason" in basis and repaired.get("change_reason") != basis["change_reason"]:
+        errs.append("repair changed the original change_reason")
     if "probability" in basis:
         p = repaired.get("probability")
         if not (_finite(p) and abs(p - basis["probability"]) < 1e-9):

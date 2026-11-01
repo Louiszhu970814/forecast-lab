@@ -1,8 +1,29 @@
 # 給 Claude 的接手紀錄
 
-更新時間：2026-11-01T05:10:56Z。記錄者：Codex。
+更新時間：2026-11-01T05:29:42Z。記錄者：Codex。
 
 ## 最新進度（優先讀這段）
+
+使用者要求「先幫我 commit & push 然後繼續下面的計劃」。已先將 W8、M2-W1／W2 與前輪交接提交為 **`382841f`** 並推送 `origin/main`，接著完成 **M2-W3 匿名摘要與第 2 層 local API**。PLAN 已升 **v1.8**，新增 D67 與 §16；README 及 M2 工作表已同步。
+
+- **程式**：`reconcile.py`／`reconciliation_pipeline_v1`、`reconcile_v1.md`、第 2 層專用 `repair_v2.md`；共用引擎升為 `forecast_pipeline_v3`。首層 prompt／模型／門檻不變。正式設定仍是 `run_config_v2`，子代理關閉。
+- **行為**：只傳合格首層的白名單摘要；匿名順序、prompt 及來源 hash 在呼叫前凍結。每次呼叫前重新讀稽核，接上 W2 帳冊；重試不改選答案。host 計算 `changed_from_tier1`，模型不需知道自己的摘要身分。第 2 層修復必須逐字保留原理由，沒有唯一理由就不修復。
+- **准入與結果**：API 無預設准入，須由 W4 提供逐次預算保留政策；以 attempt ID 記錄 started／released，硬中斷仍要保守對帳。W3 的 `stage=final` 混合計算一律 **status=provisional、submission_eligible=false**，不要把它當成全題已完成。具體契約見 [M2-W3.md](M2-W3.md)。
+- **驗證**：60 個新增合成案例；完整 **469 passed in 5.34s**。官方 agy／Opus 初審提出五項修正，已處理，第二輪通過離線範圍。末輪三項 non-blocking 小修也完成自驗，未做第三輪。W1 數學／升級模組仍未經完整獨立審查。
+- **外部操作**：本輪模型呼叫只有程式審查，未查看真實題目輸出、未改寫正式預測帳冊、未送出預測、未開排程。使用者已明確要求 commit／push；W3 與本段交接隨後續 `feat: add audited tier-two reconciliation flow` 提交保存，確切 hash 以 git log 為準。
+- **額度**：最後查詢 2026-11-01T05:27:41.477Z，agy 第三方週額度剩約 **60.92%**、五小時 **21.83%**，Argon **51.72%**、credits 0。別把 Argon 剩餘量當成 Opus 可用額度；後續審查宜縮小包或等待第三方窗口恢復。raw review logs 仍在 ignored 的 scratch，不要提交。
+
+## 下一步：M2-W4
+
+1. 跨題工作佇列，依 PLAN §9 先廣後深：先保留未完成首層、預期新題及必要修復的容量，再給第 2 層。W3 的合成 admit callback 不可拿到正式環境使用。
+2. 完成逐線額度／重置窗口、每題上限與整週熔斷；同線同層 p90 加驗證時間的截止准入。W3 目前保守用整次上限加餘裕；Argon 歷史成本樣本已按層分開。
+3. 把 reservations、attempt starts、forecast outcomes 的重啟對帳接好；同一 shared lock 與跨檔一致來源集要保留，未知結果不能自動重送。由排程器判定所有線完成／截止，才能產生真正可採用的最終整合。
+4. 補 W1 的完整獨立審查，再做 W5 留言、W6 三線試驗場地實測。原 `claude` CLI 的正式路徑驗收仍需該線額度；各線 **high** 模型／effort 驗收也尚未齊備，W3 preflight 不接受 medium 證據或舊 CLI 的 high 證據。現有 acceptance CLI 只提供 production tier1 路徑，後續須實作對應 tier2 的驗收入口，不能人工偽造高層驗收紀錄。
+5. 全域基準人工核准與 trial／live 核准仍需 Louis。M1／M2 都還不能宣告驗收完成；保存進度的 git 提交不代表完成驗收。沒有自動喚醒或通知服務。
+
+---
+
+## 前輪進度（2026-11-01T05:10:56Z；以下保留歷史，最新狀態以上方為準）
 
 使用者說「OK 繼續接下來的計劃」，Codex 已完成 **M2-W2 事後稽核影響帳冊**，PLAN 升為 **v1.7**，新增 D66 及 §16 記錄。M1 的正式驗收門檻沒有改變，M2 也尚未整體完成。
 
@@ -13,7 +34,7 @@
 - **額度與外部操作**：最後查詢時間 2026-11-01T05:07:03.914Z，第三方週額度約剩 **75.83%**、五小時約剩 **51.67%**，Argon 約 **51.72%**，AI credits 為 0。只做程式審查，未呼叫真實預測題、未讀取正式預測帳冊、未送出預測、未啟動排程。原始審查證據留在 ignored 的 `scratch/opus-review/`。
 - **git 狀態**：仍未 commit／push。HEAD 仍是 `03860b3`；W8 與 M2 新檔案仍有 untracked，請勿清除。README、PLAN、M2 工作表與本檔已同步。
 
-## 下一個工作單位
+### 當時的下一個工作單位
 
 1. **M2-W3**：依 PLAN §6.2 實作匿名摘要、`reconcile_v1` 與第 2 層流程。只傳實際合格採用的 attempt，保留精確輸入 ID，接上 W2 的事後稽核投影。匿名性與 `changed_from_tier1` 的比較要一併設計；可由 host 計算與該線首層答案的差異，避免向模型透露摘要身分或讓它猜測。
 2. 然後是 W4 跨題佇列、額度／截止准入與一致來源快照，W5 留言，最後才是符合門檻的 W6 三線實測。W1 的完整獨立審查仍待補上。完整拆分見 [M2.md](M2.md)。

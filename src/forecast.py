@@ -48,7 +48,7 @@ LOCK_PATH = DATA / "forecast.lock"
 PROMPTS = PROJECT_ROOT / "prompts"
 PROMPT_VERSION = "forecast_v2"
 REPAIR_PROMPT_VERSION = "repair_v1"
-PIPELINE_VERSION = "forecast_pipeline_v2"
+PIPELINE_VERSION = "forecast_pipeline_v3"
 QUOTA_BACKOFF_S = 1800  # V5 reset-time formats are not yet measured; use the §7.5 fixed fallback.
 RERUN_ERRORS = ("quota_exhausted", "timeout", "tool_denied", "cli_error")
 EXCLUDED_FLAGS = ("leak_confirmed",)
@@ -96,13 +96,13 @@ def forecast_prompt(snapshot: dict[str, Any], today: str) -> str:
         market_probability_rule=market_prob, market_option_rule=market_opt, market_complete_rule=market_complete)
 
 
-def repair_prompt(snapshot: dict[str, Any], raw_text: str, basis: dict[str, Any]) -> str:
+def repair_prompt(snapshot: dict[str, Any], raw_text: str, basis: dict[str, Any], *, tier: int = 1) -> str:
     if "probability" in basis:
         hint = f" (the probability is {basis['probability']})"
     else:
         hint = f" (the option probabilities are {json.dumps(basis['option_probabilities'], ensure_ascii=False)})"
     # A random delimiter: the raw output (which may quote web pages) cannot close the data block.
-    return _template("repair_v1.md").substitute(question_id=snapshot["question_id"], raw_output=raw_text,
+    return _template("repair_v2.md" if tier == 2 else "repair_v1.md").substitute(question_id=snapshot["question_id"], raw_output=raw_text,
                                                 repair_probability_hint=hint, delimiter=new_id("raw"))
 
 
@@ -132,13 +132,14 @@ class Preflight:
     production_record_id: str | None = None
     cli_version: str | None = None
     catalog: dict[str, Any] | None = None
+    tier: int = 1
 
     @property
     def ok(self) -> bool:
         return not self.problems
 
     def summary(self) -> dict[str, Any]:
-        return {"player": self.player, "ok": self.ok, "problems": self.problems, "waivers": self.waivers,
+        return {"player": self.player, "tier": self.tier, "ok": self.ok, "problems": self.problems, "waivers": self.waivers,
                 "acceptance_record_id": self.acceptance_record_id, "production_record_id": self.production_record_id,
                 "cli_version": self.cli_version}
 
@@ -152,7 +153,7 @@ def _acceptance_records(log: Path, player: str) -> list[dict[str, Any]]:
 def check_acceptance(pf: Preflight, records: list[dict[str, Any]], fingerprint: dict[str, str],
                      project_root: Path = PROJECT_ROOT, production: dict[str, Any] | None = None) -> dict[str, Any] | None:
     """The latest acceptance must have passed with this judge, CLI version and runtime code, and one
-    acceptance must have passed with the production model and effort now configured for tier 1."""
+    acceptance must have passed with the production model and effort configured for this tier."""
     if not records:
         pf.problems.append("no acceptance record for this line")
         return None
@@ -170,15 +171,31 @@ def check_acceptance(pf: Preflight, records: list[dict[str, Any]], fingerprint: 
         evidence = json.loads(ev_path.read_text(encoding="utf-8")) if ok_hash else None
     except (OSError, ValueError):
         ok_hash, evidence = False, None
-    if not ok_hash or evidence is None:
+    if not ok_hash or not isinstance(evidence, dict):
         pf.problems.append("acceptance evidence missing or its sha256 does not match the record")
     else:
+        if pf.tier == 2 and evidence.get("tier2_equivalent_to_tier1") is not True:
+            pf.problems.append("no accepted tier-2 tool-profile equivalence evidence")
         accepted = evidence.get("code_sha256") or {}
         changed = [n for n, h in fingerprint.items() if accepted.get(n) != h]
         if changed:
             pf.problems.append(f"runtime code changed since acceptance: {changed}")
     production = [r for r in records if r.get("mode") == "production" and r.get("line_pass")
                   and (production is None or (r.get("model"), r.get("effort")) == (production.get("model"), production.get("effort")))]
+    if pf.tier == 2:
+        current = []
+        for record in production:
+            if record.get("cli_version") != pf.cli_version or record.get("judge_version") != J.JUDGE_VERSION:
+                continue
+            try:
+                path = project_root / str(record.get("evidence_path") or "")
+                proof = json.loads(path.read_text()) if _sha_file(path) == record.get("evidence_sha256") else {}
+            except (OSError, ValueError):
+                continue
+            if isinstance(proof, dict) and proof.get("tier2_equivalent_to_tier1") is True and all(
+                    (proof.get("code_sha256") or {}).get(name) == sha for name, sha in fingerprint.items()):
+                current.append(record)
+        production = current
     if production:
         pf.production_record_id = production[-1].get("record_id")
     else:
@@ -203,12 +220,17 @@ def check_baseline(pf: Preflight, approved: dict[str, Any] | None, current: dict
 
 
 def preflight(player: str, *, cfg: dict[str, Any], allow_unapproved_baseline: bool = False,
+              tier: int = 1,
               acceptance_log: Path = baseline.ACCEPTANCE_LOG,
               versions: Callable[[], dict[str, str | None]] = baseline.cli_versions,
               snapshot: Callable[[dict[str, str | None]], dict[str, Any]] | None = None,
               adapter: Any = None, fingerprint: dict[str, str] | None = None,
               players_enabled: dict[str, Any] | None = None, submit_mode: dict[str, Any] | None = None) -> Preflight:
-    pf = Preflight(player)
+    if tier not in (1, 2):
+        raise ValueError("tier must be 1 or 2")
+    pf = Preflight(player, tier=tier)
+    if tier == 2 and cfg["players"][player]["tier2"].get("subagents_enabled") is not False:
+        pf.problems.append("tier-2 subagents are not enabled by this pipeline")
     enabled = players_enabled if players_enabled is not None else load_players_enabled()
     mode = (submit_mode if submit_mode is not None else load_submit_mode()).get("mode")
     if not enabled.get(player):
@@ -218,11 +240,11 @@ def preflight(player: str, *, cfg: dict[str, Any], allow_unapproved_baseline: bo
     vers = versions()
     pf.cli_version = vers.get(player)
     latest = check_acceptance(pf, _acceptance_records(acceptance_log, player), fingerprint or runtime_fingerprint(player),
-                              production=(cfg.get("players") or {}).get(player, {}).get("tier1"))
+                              production=(cfg.get("players") or {}).get(player, {}).get(f"tier{tier}"))
     snap = (snapshot or (lambda v: baseline.take_snapshot(versions=v).to_record()))(vers)
     check_baseline(pf, baseline.latest_approved(acceptance_log), snap, allow_unapproved=allow_unapproved_baseline)
     if player == "gpt" and adapter is not None and latest is not None:
-        model = cfg["players"]["gpt"]["tier1"]["model"]
+        model = cfg["players"]["gpt"][f"tier{tier}"]["model"]
         try:
             pf.catalog = adapter.load_catalog()
             sha = adapter.catalog_entry_sha256(adapter.restricted_catalog(pf.catalog, model), model)
@@ -322,6 +344,11 @@ class Context:
     raw_root: Path = RAW_ROOT
     make_dir: Callable[[], Path] = make_attempt_dir
     remove_dir: Callable[[Path], None] = remove_attempt_dir
+    tier: int = 1
+    reconciliation: dict[str, Any] | None = None
+    before_attempt: Callable[[str, str], None] | None = None
+    recheck_inputs: Callable[[], None] | None = None
+    admission_outcome: Callable[[str, bool], None] | None = None
 
 
 def _structured_fields(obj: Any) -> dict[str, Any]:
@@ -373,7 +400,7 @@ def unresolved_starts(ctx: Context, question_id: int, past: list[dict[str, Any]]
     log = starts_log(ctx.forecasts_log)
     completed = {r["attempt_id"] for r in past}
     return [r["attempt_id"] for r in read_records(log) if r.get("player") == ctx.player
-            and r.get("question_id") == question_id and r.get("tier") == 1
+            and r.get("question_id") == question_id and r.get("tier") == ctx.tier
             and r["attempt_id"] not in completed] if log.exists() else []
 
 
@@ -390,8 +417,8 @@ def _fraction(v: Any) -> float | None:
     return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and 0 <= v <= 1 else None
 
 
-def argon_estimate(quota_log: Path, policy: dict[str, Any], forecasts_log: Path) -> tuple[float, int]:
-    """(expected Argon use of one tier-1 attempt, number of samples).
+def argon_estimate(quota_log: Path, policy: dict[str, Any], forecasts_log: Path, *, tier: int = 1) -> tuple[float, int]:
+    """(expected Argon use of one attempt at this tier, number of samples).
 
     Samples are before/after drops of attempts whose model check is ``verified``, from snapshots that
     are neither stale nor taken during other agy use, with finite fractions and a real decrease; the
@@ -402,7 +429,8 @@ def argon_estimate(quota_log: Path, policy: dict[str, Any], forecasts_log: Path)
     verified = set()
     if forecasts_log.exists():
         verified = {r.get("attempt_id") for r in read_records(forecasts_log)
-                    if r.get("type") == "forecast_attempt" and r.get("model_check") == "verified"}
+                    if r.get("type") == "forecast_attempt" and r.get("model_check") == "verified"
+                    and r.get("tier", 1) == tier}
     pairs: dict[str, dict[str, float]] = {}
     if quota_log.exists():
         for r in read_records(quota_log):
@@ -429,7 +457,7 @@ def gemini_admission(ctx: Context, before: Any) -> tuple[str | None, dict[str, A
         return "quota_exhausted: Argon remaining fraction is not a number in [0, 1]", {}
     policy = ctx.quota_policy or load_quota_policy()
     reserve = 1 - float(policy["players"]["gemini"]["weekly_cap"])
-    estimate, samples = argon_estimate(ctx.quota_log, policy, ctx.forecasts_log)
+    estimate, samples = argon_estimate(ctx.quota_log, policy, ctx.forecasts_log, tier=ctx.tier)
     used = {"argon_remaining": remaining, "estimate": estimate, "estimate_samples": samples, "reserve": reserve}
     if remaining - estimate < reserve:
         return (f"quota_exhausted: Argon {remaining:.4f} - estimate {estimate:.4f} is below the reserve line "
@@ -444,10 +472,16 @@ def run_attempt(ctx: Context, snap: dict[str, Any], *, kind: str, prompt: str, s
     Raises LineStop before running when the attempt may not start (time, quota), and after recording
     when the attempt shows the line must stop (model mismatch, quota check failed after the run).
     """
+    if ctx.recheck_inputs is not None:
+        ctx.recheck_inputs()
     player, qid = ctx.player, snap["question_id"]
+    inputs = ctx.reconciliation or {}
+    if ctx.tier == 2 and (not inputs.get("input_attempt_ids") or
+                         ctx.cfg["players"][player]["tier2"].get("subagents_enabled") is not False):
+        raise PreflightError("tier 2 requires audited inputs and disabled subagents")
     repair = kind == "format_repair"
-    model_cfg = ctx.cfg["players"][player]["tier1"]
-    limit = int(ctx.cfg["timeouts_s"]["repair" if repair else "tier1"])
+    model_cfg = ctx.cfg["players"][player][f"tier{ctx.tier}"]
+    limit = int(ctx.cfg["timeouts_s"]["repair" if repair else f"tier{ctx.tier}"])
     deadline = V.submit_deadline(snap, ctx.cfg["deadlines"])
     decide_by = decision_deadline(snap, ctx.cfg)
     gemini = player == "gemini"
@@ -479,21 +513,40 @@ def run_attempt(ctx: Context, snap: dict[str, Any], *, kind: str, prompt: str, s
             raise LineStop(reason)
     # recomputed after the quota query, and leaving time for the one after the run (§3.5)
     timeout = int(min(limit, require_time(f"a {kind} attempt after the quota check")))
+    # Recheck after an external quota query as well: late audits must precede every exposure.
+    if ctx.recheck_inputs is not None:
+        ctx.recheck_inputs()
+        timeout = int(min(limit, require_time(f"a {kind} attempt after input revalidation")))
     started = ctx.now()
     raw_dir = ctx.raw_root / player / f"{qid}_{attempt_id}"
     raw_dir.mkdir(parents=True)
     workdir = ctx.make_dir()
+    admitted, start_written = False, False
     try:
-        req = AdapterRequest(player=player, profile="format_repair" if repair else "tier1", prompt=prompt, schema=sch,
+        req = AdapterRequest(player=player, profile="format_repair" if repair else f"tier{ctx.tier}", prompt=prompt, schema=sch,
                              workdir=workdir, raw_dir=raw_dir, model=model_cfg["model"], effort=model_cfg["effort"],
                              timeout_s=timeout)
+        # Reserve only after quota checks and filesystem setup; persist an outcome even if a later
+        # check prevents starting. Unknown process death remains distinguishable by the start log.
+        if ctx.before_attempt is not None:
+            ctx.before_attempt(kind, attempt_id)
+            admitted = True
+        if ctx.recheck_inputs is not None:
+            ctx.recheck_inputs()
+        timeout = int(min(limit, require_time("the admitted CLI start")))
+        req = replace(req, timeout_s=timeout)
+        started = ctx.now()
         # fsync the start before the external call. A missing outcome after restart is ambiguous,
         # so that question stays unresolved instead of obtaining a fresh attempt budget.
         append_record(starts_log(ctx.forecasts_log), {
             "type": "forecast_attempt_started", "attempt_id": attempt_id, "run_id": ctx.run_id,
             "player": player, "question_id": qid, "question_snapshot_id": snap.get("snapshot_id"),
-            "tier": 1, "attempt_kind": kind, "prev_attempt_id": (prev or {}).get("attempt_id"),
+            "tier": ctx.tier, "attempt_kind": kind, "prev_attempt_id": (prev or {}).get("attempt_id"),
+            "reconciliation_id": inputs.get("record_id"), "input_attempt_ids": inputs.get("input_attempt_ids"),
+            "input_order": inputs.get("input_order"),
+            "admission_decision_id": inputs.get("admission_decision_id"),
             "started_at_utc": to_iso(started), "pipeline_version": PIPELINE_VERSION})
+        start_written = True
         try:
             result = ctx.adapter.run(req, catalog=ctx.preflight.catalog) if player == "gpt" else ctx.adapter.run(req)
         except Exception as exc:  # noqa: BLE001 - preserve ordinary adapter/parser failures; not process interrupts
@@ -513,7 +566,11 @@ def run_attempt(ctx: Context, snap: dict[str, Any], *, kind: str, prompt: str, s
                                               **quota_after.to_dict()})
                 ctx.adapter.apply_quota_model_check(result, quota.judge(quota_before, quota_after))
     finally:
-        ctx.remove_dir(workdir)
+        try:
+            if admitted and ctx.admission_outcome is not None:
+                ctx.admission_outcome(attempt_id, start_written)
+        finally:
+            ctx.remove_dir(workdir)
     finished = ctx.now()
 
     obj, source = V.extract_output(result.structured, result.final_text)
@@ -540,28 +597,32 @@ def run_attempt(ctx: Context, snap: dict[str, Any], *, kind: str, prompt: str, s
     next_basis = None
     if outcome.status in V.REPAIRABLE and not repair and result.model_check != "mismatch" \
             and "leak_confirmed" not in (aud_flags := _peek_flags(result, obj)):
-        next_basis = V.repair_basis(raw_text, snap)
+        next_basis = V.repair_basis(raw_text, snap, tier=ctx.tier)
         if next_basis is None and error_type is None:
-            error_type, error = "invalid_output", "no unique probability in the raw output; not repaired (§7.5)"
+            error_type, error = "invalid_output", "no unique repair basis in the raw output; not repaired (§7.5)"
 
     aud = audit.audit_attempt(attempt_id=attempt_id, player=player, question_id=qid, result=result,
                               structured=obj if isinstance(obj, dict) else None,
                               raw_files=sorted(p for p in raw_dir.rglob("*") if p.is_file()), prompt=prompt,
-                              inherited=(prev or {}).get("audit_flags") or (), prev_attempt_id=(prev or {}).get("attempt_id"))
+                              inherited=set((prev or {}).get("audit_flags") or ()) | set(inputs.get("audit_flags") or ()),
+                              prev_attempt_id=(prev or {}).get("attempt_id"))
     append_record(ctx.audits_log, aud)
     usage = {"raw": result.usage_raw, **result.usage}
     rec = {
         "type": "forecast_attempt", "record_id": new_id("fc"), "run_id": ctx.run_id, "mode": "local",
         "pipeline_version": PIPELINE_VERSION,
-        "attempt_id": attempt_id, "prev_attempt_id": (prev or {}).get("attempt_id"), "tier": 1, "attempt_kind": kind,
+        "attempt_id": attempt_id, "prev_attempt_id": (prev or {}).get("attempt_id"), "tier": ctx.tier, "attempt_kind": kind,
         "tournament_id": snap.get("tournament_id"), "post_id": snap.get("post_id"), "question_id": qid,
         "question_type": snap["question_type"], "question_snapshot_id": snap.get("snapshot_id"),
-        "input_attempt_ids": None, "input_order": None,
+        "input_attempt_ids": inputs.get("input_attempt_ids"), "input_order": inputs.get("input_order"),
+        "reconciliation_id": inputs.get("record_id"), "input_audit_event_ids": inputs.get("audit_event_ids"),
+        "admission_decision_id": inputs.get("admission_decision_id"),
         "audit_flags": aud["audit_flags"], "audit_event_id": aud["audit_event_id"],
         "player": player, "requested_model_id": model_cfg["model"], "requested_effort": model_cfg["effort"],
         "reported_model_id": result.reported_model_id, "model_check": result.model_check,
         "inherited_model_mismatch": inherited_mismatch,
-        "cli_version": result.cli_version, "prompt_version": REPAIR_PROMPT_VERSION if repair else PROMPT_VERSION,
+        "cli_version": result.cli_version, "prompt_version": ("repair_v2" if ctx.tier == 2 else REPAIR_PROMPT_VERSION) if repair else
+            (inputs.get("prompt_version") if ctx.tier == 2 else PROMPT_VERSION),
         "prompt_sha256": hashlib.sha256(prompt.encode("utf-8")).hexdigest(),
         "schema_version": V.SCHEMA_VERSION, "schema_sha256": V.schema_sha256(sch),
         "run_config_version": ctx.cfg.get("version"),
@@ -584,6 +645,15 @@ def run_attempt(ctx: Context, snap: dict[str, Any], *, kind: str, prompt: str, s
             if error_type == "quota_exhausted" else None,
         "preflight_waivers": ctx.preflight.waivers,
     }
+    if ctx.tier == 2:
+        reference = inputs.get("tier1_reference")
+        changed = None
+        if reference is not None and outcome.status == V.VALID:
+            old = reference["option_probabilities"] if snap["question_type"] == "multiple_choice" else {"Yes": reference["probability"]}
+            new = outcome.option_probabilities if snap["question_type"] == "multiple_choice" else {"Yes": outcome.probability}
+            changed = any(not math.isclose(old[o], new[o], rel_tol=0, abs_tol=1e-12) for o in old)
+        rec.update(changed_from_tier1=changed, comparison_attempt_id=(reference or {}).get("attempt_id"),
+                   comparison_method="normalized_probability_equality_v1")
     rec, nonfinite = json_safe(rec)
     rec["nonfinite_fields"] = nonfinite
     append_record(ctx.forecasts_log, rec)
@@ -651,7 +721,7 @@ def forecast_question(ctx: Context, snap: dict[str, Any]) -> dict[str, Any]:
     one, and the single rerun is never granted again (§7.5).
     """
     qid = snap["question_id"]
-    past = history(ctx.forecasts_log, ctx.player, qid)
+    past = history(ctx.forecasts_log, ctx.player, qid, tier=ctx.tier)
     chosen = next((r for r in past if adoptable(r)), None)
     if chosen:
         return {"question_id": qid, "attempts": [], "selected_attempt_id": chosen["attempt_id"],
@@ -669,8 +739,8 @@ def forecast_question(ctx: Context, snap: dict[str, Any]) -> dict[str, Any]:
                 "outcome": "attempts_exhausted", "reason": f"initial failed with {bases[0]['error_type'] or bases[0]['validation_status']}"}
     kinds = ["rerun"] if bases else ["initial", "rerun"]
     prev = past[-1] if past else None
-    sch = V.question_schema(snap, tier=1)
-    prompt = forecast_prompt(snap, ctx.now().date().isoformat())
+    sch = V.question_schema(snap, tier=ctx.tier)
+    prompt = ctx.reconciliation["prompt"] if ctx.tier == 2 else forecast_prompt(snap, ctx.now().date().isoformat())
     chain: list[dict[str, Any]] = []
     reason = None
     try:
@@ -679,7 +749,7 @@ def forecast_question(ctx: Context, snap: dict[str, Any]) -> dict[str, Any]:
             chain.append(base)
             if not adoptable(base) and base["_basis"] is not None:
                 last = run_attempt(ctx, snap, kind="format_repair", sch=sch, prev=base, basis=base["_basis"],
-                                   prompt=repair_prompt(snap, base["_raw_text"], base["_basis"]))
+                                   prompt=repair_prompt(snap, base["_raw_text"], base["_basis"], tier=ctx.tier))
                 chain.append(last)
             if adoptable(last) or kind == "rerun" or not _may_rerun(past + chain, bases[0] if bases else base):
                 break
@@ -740,6 +810,8 @@ def run(player: str, question_ids: list[int], *, allow_unapproved_baseline: bool
         pf = ctx_overrides.pop("preflight", None) or preflight(
             player, cfg=cfg, allow_unapproved_baseline=allow_unapproved_baseline, adapter=adapter)
         ctx = Context(player=player, adapter=adapter, cfg=cfg, run_id=run_id, preflight=pf, **ctx_overrides)
+        if ctx.tier != 1:
+            raise PreflightError("forecast.run is tier 1 only; use the gated reconciliation API for tier 2")
         stop = line_stopped(ctx.line_status_log, player, ctx.forecasts_log)
         if stop:
             pf.problems.append(f"line stopped since {stop['at']}: {stop['reason']} (resume with forecast.py resume)")
