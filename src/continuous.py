@@ -1,4 +1,4 @@
-"""Append-only snapshot queue and bounded campaign registration for cycle_v1."""
+"""Append-only snapshot queue and bounded campaign registration for continuous_v3."""
 from __future__ import annotations
 
 import copy
@@ -16,14 +16,14 @@ from flab.timeutil import parse_iso, to_iso, utc_now
 from m2_campaign import discover_tournaments
 from poll_questions import TournamentIndex, latest_snapshots, poll
 
-VERSION = "continuous_v2"
+VERSION = "continuous_v3"
 STRUCTURAL = ("question_type", "options", "scheduled_close_time", "post_id", "tournament_id")
 
 
 def register(root: Path, policy: dict, *, now=utc_now):
     """Freeze an explicit budget window and venue selection before polling any outputs."""
-    if policy.get("version") != VERSION or not isinstance(policy.get("campaign_id"), str) or not policy["campaign_id"]:
-        raise ValueError("continuous_v1 campaign identity required")
+    if policy.get("version") not in ("continuous_v2", VERSION) or not isinstance(policy.get("campaign_id"), str) or not policy["campaign_id"]:
+        raise ValueError("continuous_v2 or continuous_v3 campaign identity required")
     start, end = parse_iso(policy["budget_window_start"]), parse_iso(policy["budget_window_end"])
     if not start <= now() < end or end - start > timedelta(days=7):
         raise ValueError("continuous budget window must be active and at most seven days")
@@ -157,6 +157,11 @@ class Queue:
             stored = {r["snapshot_id"]: r for r in read_complete(self.root / "questions.jsonl")}
             attempts = read_complete(self.root / "forecasts.jsonl")
             committed = committed_questions(self.root)
+            submissions = read_complete(self.root / "submissions.jsonl")
+            started_or_abandoned = {r.get("intent_id") for r in submissions
+                                    if r.get("status") in ("request_started", "abandoned")}
+            pending = [r for r in submissions if r.get("status") == "intent"
+                       and r.get("intent_id") not in started_or_abandoned]
             cfg = load_run_config()
             result, self.fallbacks = {}, {}
             for qid, snap in current.items():
@@ -175,22 +180,42 @@ class Queue:
                     self.new.add(qid)
                 if changed:
                     self.revised.add(qid)
-                if qid in committed:
-                    action, bound = "already_submitted", None
-                elif changed or (previous and previous["action"] == "already_submitted"):
+
+                def revision_action(old):
                     deadline = F.decision_deadline(snap, cfg)
                     estimate = max(B.duration_estimate(attempts, p, 1, cfg) for p in PLAYERS)
                     can_rerun = snap.get("supported") and deadline is not None and (deadline - self.now()).total_seconds() > estimate
                     structural = old is None or any(old.get(k) != snap.get(k) for k in STRUCTURAL)
                     if can_rerun:
-                        action, bound = "requeued", snap
-                    elif (structural or (old is not None and old["snapshot_id"] in self.invalidated)
+                        return "requeued"
+                    if (structural or (old is not None and old["snapshot_id"] in self.invalidated)
                           or (previous and previous["action"] == "blocked_revision")):
-                        action, bound = "blocked_revision", None
-                    else:
-                        action, bound = "text_fallback", old
+                        return "blocked_revision"
+                    return "text_fallback"
+
+                if qid in committed:
+                    # Keep the intent frozen until submit records abandoned, but let
+                    # revisions invalidate inputs whose requests have never started.
+                    for intent in pending:
+                        frozen = stored.get(intent.get("question_snapshot_id"))
+                        if (intent.get("question_id") != qid or frozen is None
+                                or frozen["snapshot_id"] == snap["snapshot_id"]
+                                or frozen["snapshot_id"] in self.invalidated):
+                            continue
+                        reason = revision_action(frozen)
+                        if reason != "text_fallback":
+                            append_record(self.root / "question_queue.jsonl", {"type": "snapshot_invalidated",
+                                "question_id": qid, "old_snapshot_id": frozen["snapshot_id"],
+                                "new_snapshot_id": snap["snapshot_id"], "reason": reason,
+                                "at": to_iso(self.now()), "version": VERSION})
+                            self.invalidated.add(frozen["snapshot_id"])
+                    action, bound = "already_submitted", None
+                elif changed or (previous and previous["action"] == "already_submitted"):
+                    action = revision_action(old)
+                    bound = snap if action == "requeued" else old if action == "text_fallback" else None
                     if (action in ("requeued", "blocked_revision") and old is not None
-                            and old["snapshot_id"] != snap["snapshot_id"]):
+                            and old["snapshot_id"] != snap["snapshot_id"]
+                            and old["snapshot_id"] not in self.invalidated):
                         append_record(self.root / "question_queue.jsonl", {"type": "snapshot_invalidated",
                             "question_id": qid, "old_snapshot_id": old["snapshot_id"],
                             "new_snapshot_id": snap["snapshot_id"], "reason": action, "at": to_iso(self.now()), "version": VERSION})

@@ -1,6 +1,6 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.12（v1.0 凍結後的修訂，見 §16；M2 自動載入測試工具、M3 離線開發）
+> 版本：v1.13（v1.0 凍結後的修訂，見 §16；M2 自動載入測試工具、M3 離線開發）
 > 初稿：Claude
 > 本回合整合者：Claude（v1.10 起；v1.5～v1.9 由 Codex 整合）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
@@ -1607,6 +1607,9 @@ view_image                  stable true
 
 ## 16. 變更紀錄
 
+- **v1.13**（2026-11-01）：M3-W6 整合測試（真正的 `cycle.run_cycle` 接上真正的 `submit.Submitter`）發現並修正兩項契約錯誤，送出端升為 `submit_v3`，佇列升為 `continuous_v3`。GPT 實作、Claude 審查（D69）。
+  - `submit_v3`：對 `cycle.publish()` 發布的結果（帶 `cycle_version`），以快照範圍重建留言再核對，修正重跑後的合法新結果被誤判為採用來源不符而拒絕。稽核、機率與 hash 的檢查不變。
+  - `continuous_v3`：意圖已建立但預測請求尚未開始時遇到修訂，也依重跑／結構判斷作廢舊快照，交由 `submit.py` 記為 `abandoned`，下一輪再以新快照重排；修正來得及重跑時仍送出舊答案的問題（D52）。來不及重跑的純文字修訂維持 D53 的回退。仍接受 `continuous_v2` 的既有政策。
 - **v1.12**（2026-11-01）：落地 M3-W2 的 `src/cycle.py`（`cycle_v2`）、`src/continuous.py`（`continuous_v2`）與 `launchd/` 範本；共用排程升為 `scheduler_v3`，執行引擎升為 `forecast_pipeline_v6`，協調流程升為 `reconciliation_pipeline_v3`。GPT 實作、Claude 兩輪審查（D69）。
   - 一個週期：非等待的 `cycle.lock` → 停用開關 → 登記並凍結預算窗口與場地（最多七天，上限不得高於 quota policy）→ 輪詢 → 佇列 → 逐線 preflight（不通過只停該線）→ 排程 → 刷新後 finalize → 發布 `submission_eligible = true` 的整合結果與留言 → `submit.py run`。每個週期追加一筆 `cycles.jsonl`。
   - 准入窗口 510 秒，只限制接新工作與每次嘗試前的重查；執行中的嘗試保有各層正常 timeout 與該題決策截止點。supervisor 的硬上限由設定計算（現行約 3880 秒），期間 launchd 的後續啟動記為 `overlap_skipped`。持續模式下，週期截止若落在主嘗試與格式修復之間，下一輪只接續該次修復，不增加 initial／rerun 次數。

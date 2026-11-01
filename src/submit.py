@@ -27,7 +27,7 @@ from flab.workdir import PROJECT_ROOT
 from poll_questions import TournamentIndex, is_synced_copy, snapshot_from_post
 from validate import submit_deadline
 
-VERSION = "submit_v2"
+VERSION = "submit_v3"
 FORECAST_PATH = "/api/questions/forecast/"
 COMMENT_PATH = "/api/comments/create/"
 # Conservative provisional platform limits; both bounds and option-label mapping await V15.
@@ -226,7 +226,10 @@ class Submitter:
         if not isinstance(text, str) or sha256_hex(text) != comment.get("text_sha256"):
             raise PrecheckError("comment hash mismatch")
         # Reuse comment_v1's full audit graph and exact adopted-input checks.
-        rebuilt = C.build(snap, aggregate, [*read_complete(self.root / "forecasts.jsonl"),
+        # cycle.publish uses snapshot-scoped selection; fetched snapshots themselves
+        # do not carry that runtime flag. Keep the full history for audit propagation.
+        comment_snapshot = {**snap, "forecast_scope": "snapshot"} if aggregate.get("cycle_version") else snap
+        rebuilt = C.build(comment_snapshot, aggregate, [*read_complete(self.root / "forecasts.jsonl"),
                           *read_complete(self.root / "aggregates.jsonl")],
                           read_complete(self.root / "audits.jsonl"), now=self.now())
         if text != rebuilt["text"] or comment.get("input_attempt_ids") != rebuilt["input_attempt_ids"]:
