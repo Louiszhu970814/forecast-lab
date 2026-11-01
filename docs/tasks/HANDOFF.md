@@ -1,5 +1,11 @@
 # 給下一個對話的接手紀錄
 
+## 14:00Z 更新（Claude）
+
+- D79：Cup 已從試驗場地拿掉；主站題目還要排除同時屬於 Cup 的題目（M3-W9）。
+- D80：gemini 碰到每週 64 次上限，第 1 層 15/15 合格、5 題未執行；有效率的分母不含未執行的題目（`m2_report_v3`）。M2 第 2 層進行中（claude、gpt）。
+- D78：Louis 已核准 `trial`，但要等 M2 跑完才切換。
+
 ## 整合完成（Claude，2026-11-01T13:40Z）
 
 GPT 記錄的 MiniBench、Market Pulse 與 Cup 決定已整合為 PLAN v1.24（D76、D77），M3 工作表的 W5 也同步更新。距離 MiniBench 正式參賽還缺的驗收，逐項列在 [MINIBENCH-READINESS.md](MINIBENCH-READINESS.md)，狀態有變化時在那份文件追加。目前仍是 `local`，沒有啟用任何送出。
