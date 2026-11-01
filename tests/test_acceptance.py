@@ -925,8 +925,8 @@ def test_server_records_every_connection_method_and_path(host: str) -> None:
 def test_gemini_acceptance_respects_personal_reserve_before_cli(tmp_path, monkeypatch, fraction):
     from types import SimpleNamespace
     monkeypatch.setattr(acc, "ACCEPTANCE_LOG", tmp_path / "acceptance.jsonl")
-    quota = SimpleNamespace(remaining_fraction=lambda _: fraction, remaining_credits=0, stale=False,
-                           concurrent_agy_detected=False, to_dict=lambda: {"redacted_test": True})
+    from test_forecast import _qsnap
+    quota = _qsnap(fraction)
     monkeypatch.setattr(acc.quota, "snapshot", lambda **kw: quota)
     monkeypatch.setattr(acc.quota, "credits_ok", lambda _: True)
     adapter = SimpleNamespace(run=lambda req: pytest.fail("quota-denied acceptance must not call model"))
@@ -944,8 +944,8 @@ def test_gemini_acceptance_gate_follows_quota_policy():
 def test_flash_acceptance_does_not_spend_or_require_an_argon_reserve(tmp_path, monkeypatch):
     from types import SimpleNamespace
     monkeypatch.setattr(acc, "ACCEPTANCE_LOG", tmp_path / "acceptance.jsonl")
-    quota = SimpleNamespace(remaining_fraction=lambda _: .1, remaining_credits=0, stale=False,
-                           concurrent_agy_detected=False, to_dict=lambda: {"remaining_credits": 0})
+    from test_forecast import _qsnap
+    quota = _qsnap(.1)
     monkeypatch.setattr(acc.quota, "snapshot", lambda **kw: quota)
     monkeypatch.setattr(acc.quota, "credits_ok", lambda _: True)
     result = _result()

@@ -34,7 +34,7 @@ def fx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.setattr(workdir, "PROJECT_ROOT", tmp_path / "project")
     monkeypatch.setattr(auto, "PROJECT_ROOT", tmp_path / "project")
     monkeypatch.setattr(quota, "snapshot", lambda **kw: quota.QuotaSnapshot(
-        buckets={quota.ARGON_BUCKET_ID: quota.BucketQuota(
+        buckets={**quota.parse_snapshot(Path(__file__).parent / "fixtures/gemini/slash_usage.json").buckets, quota.ARGON_BUCKET_ID: quota.BucketQuota(
             id=quota.ARGON_BUCKET_ID, remaining_fraction=.9,
             reset_time=to_iso(utc_now() + timedelta(days=3)))}, remaining_credits=0))
     return SimpleNamespace(home=home, base=base, data=data,
@@ -521,7 +521,7 @@ def test_calls_journaled_before_real_executor_and_counted_by_budget(fx, monkeypa
 @pytest.mark.parametrize("problem", ["credits", "stale", "concurrent", "low", "missing", "nan"])
 def test_gemini_gate_pauses_without_counting_or_calling_model(fx, monkeypatch, problem):
     snapshot = quota.QuotaSnapshot(
-        buckets={} if problem == "missing" else {quota.ARGON_BUCKET_ID: quota.BucketQuota(
+        buckets={} if problem == "missing" else {**quota.parse_snapshot(Path(__file__).parent / "fixtures/gemini/slash_usage.json").buckets, quota.ARGON_BUCKET_ID: quota.BucketQuota(
             id=quota.ARGON_BUCKET_ID, remaining_fraction=.19 if problem == "low" else
             float("nan") if problem == "nan" else .9)},
         remaining_credits=1 if problem == "credits" else 0,
@@ -533,7 +533,9 @@ def test_gemini_gate_pauses_without_counting_or_calling_model(fx, monkeypatch, p
     paused = rows[0]
     assert paused["run_id"] == rec["run_id"] and paused["player"] == "gemini"
     assert paused["tier"] == 1 and paused["profile"] == "tier1" and paused["source"] == "autoload"
-    assert "quota_snapshot" in paused and "20%" in paused["reason"]
+    assert "quota_snapshot" in paused
+    assert paused["reason"] == ({"low": "quota_exhausted", "missing": "quota_layout_unknown",
+                                  "nan": "quota_layout_unknown"}.get(problem, "quota_snapshot_untrusted"))
     if problem == "nan":
         assert paused["quota_snapshot"]["buckets"][quota.ARGON_BUCKET_ID]["remaining_fraction"] is None
     assert not rec["passed"] and rec["restore_ok"]

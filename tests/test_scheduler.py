@@ -69,7 +69,7 @@ def environment(tmp_path, monkeypatch):
             q = _qsnap(.9 - counter["quota"] * .001)
             from dataclasses import replace
             from quota import BucketQuota, ARGON_BUCKET_ID
-            return replace(q, taken_at=to_iso(NOW), buckets={ARGON_BUCKET_ID:
+            return replace(q, taken_at=to_iso(NOW), buckets={**q.buckets, ARGON_BUCKET_ID:
                 BucketQuota(ARGON_BUCKET_ID, .9 - counter["quota"] * .001, reset_time=to_iso(NOW + timedelta(days=3)))})
         def extra(player):
             return {"quota_snapshot": quota}

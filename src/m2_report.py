@@ -17,6 +17,7 @@ import baseline
 import comment as C
 import budget as B
 import forecast as F
+import quota
 from flab.config import PLAYERS, load_run_config, load_tournaments
 from flab.ids import new_id
 from flab.jsonl import append_record
@@ -24,7 +25,7 @@ from flab.ledger import transaction, read_complete
 from flab.timeutil import parse_iso, to_iso, utc_now
 from poll_questions import latest_snapshots
 
-VERSION = "m2_report_v1"
+VERSION = "m2_report_v2"
 
 
 def readiness(acceptance_log=baseline.ACCEPTANCE_LOG, *, versions=None):
@@ -81,6 +82,9 @@ def build(root: Path, campaign: dict, *, gates: dict, now=None):
     source = [r for r in attempts if r.get("question_id") in ids]
     costs, lines = {}, {}
     observer = B.Budget(root, campaign, {}, "report")
+    trusted = {r["attempt_id"]: d for r in source if r.get("player") == "gemini"
+               and r.get("model_check") == "verified" and (d := observer._drop(r, quota_rows)) is not None}
+    layouts = {r.get("attempt_id"): quota.argon_buckets(r).layout for r in quota_rows if r.get("when") == "before"}
     for player in PLAYERS:
         own = [r for r in source if r.get("player") == player]
         lines[player] = {"selected_tier1_questions": len(selected[player]), "denominator": len(ids),
@@ -97,18 +101,37 @@ def build(root: Path, campaign: dict, *, gates: dict, now=None):
             for qid, rows in by_question.items():
                 native = [B.tokens(r) for r in rows]
                 elapsed = [(parse_iso(r["finished_at_utc"]) - parse_iso(r["started_at_utc"])).total_seconds() for r in rows]
-                drops = [observer._drop(r, quota_rows) if r.get("model_check") == "verified" else None for r in rows]
+                trusted_rows = [r for r in rows if r["attempt_id"] in trusted]
+                drops = [trusted[r["attempt_id"]] for r in trusted_rows]
+                by_layout = {layout: sum(trusted[r["attempt_id"]] for r in trusted_rows if layouts[r["attempt_id"]] == layout)
+                             for layout in {layouts[r["attempt_id"]] for r in trusted_rows}}
+                if player == "gemini":
+                    native = [B.tokens(r) for r in trusted_rows]
+                    elapsed = [(parse_iso(r["finished_at_utc"]) - parse_iso(r["started_at_utc"])).total_seconds() for r in trusted_rows]
                 measurements.append({"question_id": qid, "attempts": len(rows),
-                    "seconds": sum(elapsed), "tokens": sum(native) if all(n is not None for n in native) else None,
-                    "argon_fraction": sum(drops) if player == "gemini" and all(d is not None for d in drops) else None,
+                    "seconds": sum(elapsed) if elapsed else None, "tokens": sum(native) if native and all(n is not None for n in native) else None,
+                    "argon_fraction": sum(drops) if player == "gemini" and len(by_layout) == 1 else None,
+                    "quota_fraction_by_layout": by_layout,
+                    "quota_layout": next(iter(by_layout)) if len(by_layout) == 1 else None,
+                    "trusted_attempts": len(trusted_rows) if player == "gemini" else None,
+                    "undetermined_attempts": len(rows) - len(trusted_rows) if player == "gemini" else None,
                     "tier1_success": qid in selected[player]})
+            tier_layouts = {layout for r in measurements for layout in r["quota_fraction_by_layout"]}
+            # The legacy aggregate field cannot add fractions with different denominators.
+            if len(tier_layouts) > 1:
+                for measurement in measurements:
+                    measurement["argon_fraction"] = None
             costs[f"{player}.tier{tier}"] = {"attempts": len(tier_rows), "questions": measurements,
                 "attempt_kinds": dict(Counter(r.get("attempt_kind") for r in tier_rows)),
                 "groups": {label: {field: _stats([r[field] for r in measurements if r[field] is not None
                     and (label == "all" or r["tier1_success"] == (label == "tier1_success"))])
                     for field in ("seconds", "tokens", "argon_fraction")} for label in ("all", "tier1_success", "tier1_failure")},
+                "trusted_attempts": sum(r["attempt_id"] in trusted for r in tier_rows) if player == "gemini" else None,
+                "undetermined_attempts": sum(r["attempt_id"] not in trusted for r in tier_rows) if player == "gemini" else None,
+                "quota_fraction_by_layout": {layout: _stats([r["quota_fraction_by_layout"][layout] for r in measurements
+                    if layout in r["quota_fraction_by_layout"]]) for layout in tier_layouts},
                 "missing_token_attempts": sum(B.tokens(r) is None for r in tier_rows),
-                "quota_measurement": "before_after_argon" if player == "gemini" else "CLI has no numeric quota readout; attempt count only"}
+                "quota_measurement": "trusted_before_after_by_layout" if player == "gemini" else "CLI has no numeric quota readout; attempt count only"}
     finals = [a for a in aggregates if a.get("scheduler_campaign_id") == campaign["campaign_id"]
               and a.get("completion_status") == "complete_local"]
     commented = {r["aggregate_id"] for r in comments if r.get("type") == "comment"}
@@ -131,8 +154,7 @@ def build(root: Path, campaign: dict, *, gates: dict, now=None):
             a.get("escalation", {}).get("candidate") and a["question_id"] in ids for a in aggregates),
         "all_lines_and_layers_measured": all(r["attempts"] > 0 for r in costs.values()),
         "known_tokens_all_attempts": bool(source) and all(B.tokens(r) is not None for r in source),
-        "trusted_gemini_costs": any(r["player"] == "gemini" for r in source) and all(
-            r.get("model_check") == "verified" and observer._drop(r, quota_rows) is not None for r in source if r["player"] == "gemini"),
+        "trusted_gemini_costs": bool(trusted),
         "all_cli_quota_exhaustion_observed": all(r["quota_exhaustion_observed"] for r in lines.values()),
         "single_pipeline_version": bool(source) and len({r.get("pipeline_version") for r in source}) == 1,
         "no_unknown_started_attempts": not unresolved,
@@ -143,6 +165,8 @@ def build(root: Path, campaign: dict, *, gates: dict, now=None):
             r.get("ok") for r in gates.get("production_acceptance", {}).values())}
     return {"type": "m2_report", "report_id": new_id("m2report"), "version": VERSION, "generated_at": to_iso(now),
         "campaign_id": campaign["campaign_id"], "m2_complete": all(checks.values()), "checks": checks,
+        "trusted_gemini_attempts": len(trusted),
+        "undetermined_gemini_attempts": sum(r.get("player") == "gemini" and r["attempt_id"] not in trusted for r in source),
         "pending": [k for k, ok in checks.items() if not ok], "lines": lines, "costs": costs,
         "unresolved_attempt_ids": unresolved, "readiness": gates,
         "version_segments": dict(Counter(str((r.get("pipeline_version"), r.get("run_config_version"),

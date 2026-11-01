@@ -398,7 +398,7 @@ def test_audit_arriving_during_prequota_query_prevents_exposure(ctx):
 
 
 def test_quota_estimates_do_not_mix_tiers(tmp_path):
-    from test_forecast import POLICY
+    from test_forecast import POLICY, _qsnap
     import quota
     forecasts, quotas = tmp_path / "forecasts", tmp_path / "quotas"
     for tier, drop in [(1, .01), (2, .04)]:
@@ -406,9 +406,9 @@ def test_quota_estimates_do_not_mix_tiers(tmp_path):
         append_record(forecasts, {"type": "forecast_attempt", "attempt_id": aid, "tier": tier, "model_check": "verified"})
         for when, remaining in [("before", .9), ("after", .9 - drop)]:
             append_record(quotas, {"type": "quota_snapshot", "attempt_id": aid, "when": when,
-                "buckets": {quota.ARGON_BUCKET_ID: {"remaining_fraction": remaining}}})
-    assert F.argon_estimate(quotas, POLICY, forecasts, tier=1) == pytest.approx((.01, 1))
-    assert F.argon_estimate(quotas, POLICY, forecasts, tier=2) == pytest.approx((.04, 1))
+                "buckets": _qsnap(remaining).to_dict()["buckets"]})
+    assert F.argon_estimate(quotas, POLICY, forecasts, tier=1, current=_qsnap(.9)) == pytest.approx((.01, 1))
+    assert F.argon_estimate(quotas, POLICY, forecasts, tier=2, current=_qsnap(.9)) == pytest.approx((.04, 1))
 
 
 def test_gpt_path_uses_catalog_with_tier2_profile(ctx):

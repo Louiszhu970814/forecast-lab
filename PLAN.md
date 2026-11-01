@@ -1,6 +1,6 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.20（v1.0 凍結後的修訂，見 §16；M2 自動載入測試與基準核准、M3 離線開發、機器人帳號建立）
+> 版本：v1.21（v1.0 凍結後的修訂，見 §16；M2 自動載入測試與基準核准、M3 離線開發、機器人帳號建立）
 > 初稿：Claude
 > 本回合整合者：Claude（v1.10 起；v1.5～v1.9 由 Codex 整合）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
@@ -846,6 +846,9 @@ token 欄位的對應（D29）：
   - 每次執行前後，以 `agy -p "/usage" --output-format json` 查詢額度（這個查詢不消耗額度），記錄兩組額度桶的剩餘比例：
     - Argon 週額度桶（`gemini-argon-wtu-weekly`）；
     - Flash／Pro 額度桶（`gemini-weekly`、`gemini-5h`）。
+    - Google AI Ultra（2026-11-01 起，D75）沒有 Argon 專屬的桶：Argon 與 Flash／Pro 共用 `Gemini Models` 組的 `gemini-weekly` 與 `gemini-5h`。保留線改套用在 `gemini-weekly`；另外要求 5 小時桶「剩餘 − 預估 ≥ 0」，不足時等到該桶重置（`quota_5h_wait`），不算停線。結構由 `quota.argon_buckets()` 判斷（`legacy_argon`／`ultra_shared`／`unknown`），其他模組不得直接引用桶 ID；`unknown` 一律不啟動。
+    - Ultra 下用量差值無法區分模型：只有 `--log-file` 的模型解析為 verified，且 Gemini 組有一致的減少，才判為 `verified`；log 顯示不符就判為 `mismatch`；其餘為 `undetermined`。
+    - 每次查詢 `/usage` 前後，都以 `ps` 偵測本程序樹以外的 agy：另一個無互動的 `agy -p` 在執行時不啟動；互動式 `agy` 或 Antigravity 桌面 app 開著時照常執行，但該次成本記為 `undetermined`，不作為估算樣本（D75）。
 
     讀取 JSON 中的浮點數欄位 `buckets[].remaining_fraction`，不解析 `response` 文字中的整數百分比；單題消耗常小於 1%，整數百分比不會變動（D52）。
   - 執行前若 Argon 剩餘低於「保留線 + 本次預估消耗」（§9），就不啟動，記為 `quota_exhausted`。
@@ -1625,11 +1628,15 @@ view_image                  stable true
 | D72 | 2026-11-01 | M2 量測的第一個 claude 嘗試因管線白名單漏列 `StructuredOutput` 被判為 `tool_scope_violation` 而停線（v1.18 已修正）；Louis 判定為誤判，不重新驗收，直接恢復 claude 線（`line_resume`，by Louis）。正式驗收 `acc_1793529463945_ced0ca65`（第 1 層）、`acc_1793529642642_fba87085`（第 2 層）仍然有效 | 本輪決定。該次嘗試只用了 WebSearch 4 次與 StructuredOutput 2 次 |
 | D73 | 2026-11-01 | Louis 要求以 Telegram 作為手機控制台，並可從手機交辦開發任務；GPT 實作 `telegram_ops_v2`、`telegram_dev_v1`，Claude 審查通過後整合（§5.2）。開發模式由 Louis 透過已配對的私人帳號遠端操作，在專案外的隔離副本以 Codex 開發，結果一律經 Claude 審查才整合 | 本輪指示；審查紀錄見 `docs/tasks/TELEGRAM-DEV.md`。開發執行與 GPT 預測線共用訂閱，不計入預測預算 |
 | D74 | 2026-11-01 | Louis 指出 CLI 的 Argon 額度與手機 app 分開計算，CLI 用盡不影響他本人使用；開發階段可以用完 Argon。保留線改為 0%（gemini `weekly_cap` 1.0）延到 M2 題集 `m2_1793529615987_7867f9f1` 結束後生效，因為題集已凍結額度政策雜湊，且 gpt 已有該題集的輸出。重置前剩餘的 Argon 改用於 Gemini 的跨文件稽核（開發用途，不計入預測預算） | 本輪指示 |
+| D75 | 2026-11-01 | Louis 將 Google 帳號升級為 AI Ultra。agy 的額度改為 Argon 與 Flash／Pro 共用 `Gemini Models` 組的週額度與 5 小時額度（§7.7）。保留線改套用在 `gemini-weekly`，並新增 5 小時額度檢查。偵測到其他 agy 使用時：另一個無互動的 `agy -p` 在執行就暫停；互動式 agy 或 Antigravity 桌面 app 開著時照常執行，只把成本標為不確定，M2 的 Gemini 成本只用可信的嘗試估算 | 本輪指示與選擇；M2-W9 實作 |
 
 ---
 
 ## 16. 變更紀錄
 
+- **v1.21**（2026-11-01）：M2-W9，支援 Google AI Ultra 的 agy 額度結構（D75，§7.7）。GPT 實作、Claude 審查。`budget_v1` → `budget_v2`，`scheduler_v4` → `scheduler_v5`，`reconciliation_pipeline_v3` → `reconciliation_pipeline_v4`，`m2_report_v1` → `m2_report_v2`。
+  - 並行 agy 偵測由「永遠是 False 的參數」改為實際掃描程序；准入、預算、驗收與 autoload 四個入口共用 `quota.py` 的判斷，autoload 門檻改為「保留線 + 5%」。
+  - `forecast_pipeline_v6` 不升版：沒有改 prompt、模型參數、篩題或整合，升版會讓進行中的 M2 題集無法通過單一版本檢查（與 v1.18 相同處理）。
 - **v1.20**（2026-11-01）：修正全域基準把 claude CLI 自動刷新的外掛市集索引當成內容。M2 實測中，claude 2.1.316 在預測執行時改寫了 `~/.claude/plugins/known_marketplaces.json`（只有 `lastUpdated`）與 `plugin-directory-cache-v2.json`，基準因此判定 claude 線 `stop`。
   - `claude.plugins` 排除這兩個頂層檔案（`exclude` 改為也適用於檔案，只比對完整相對路徑）。新增 `claude.marketplace_index`：市集條目扣掉 `lastUpdated` 為內容，`lastUpdated` 為資訊類；新增 `claude.plugin_directory_cache`（資訊類）。空檔、無法解析或格式異常的索引、子目錄中的同名檔，以及指向排除路徑的符號連結，仍然停線。
   - Claude 實作，GPT 唯讀獨立審查：一項 blocking（空檔被當成 `{}`）已修正並補測試。盤點方式改變，須由 Louis 重新核准基準。不改預測行為。

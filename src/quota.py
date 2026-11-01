@@ -7,8 +7,11 @@ from __future__ import annotations
 
 import json
 import math
+import os
+import shlex
+import subprocess
 import tempfile
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
@@ -66,6 +69,10 @@ _METADATA_KEYS: frozenset[str] = frozenset(
         "buckets",
         "remaining_credits",
         "concurrent_agy_detected",
+        "concurrent_agy_kinds",
+        "concurrent_agy_counts",
+        "concurrent_agy_reason",
+        "quota_layout",
         "stale",
         "delayed",
         "command",
@@ -144,6 +151,9 @@ class QuotaSnapshot:
     taken_at: str = field(default_factory=lambda: to_iso(utc_now()))
     concurrent_agy_detected: bool = False
     stale: bool = False
+    concurrent_agy_kinds: tuple[str, ...] = ()
+    concurrent_agy_counts: dict[str, int] = field(default_factory=dict)
+    concurrent_agy_reason: str | None = None
 
     def __getitem__(self, key: str) -> Any:
         if key in self.buckets and not hasattr(self, key):
@@ -177,6 +187,10 @@ class QuotaSnapshot:
             "remaining_credits": self.remaining_credits,
             "concurrent_agy_detected": self.concurrent_agy_detected,
             "stale": self.stale,
+            "concurrent_agy_kinds": list(self.concurrent_agy_kinds),
+            "concurrent_agy_counts": dict(self.concurrent_agy_counts),
+            "concurrent_agy_reason": self.concurrent_agy_reason,
+            "quota_layout": argon_buckets(self).layout,
         }
 
 
@@ -219,7 +233,7 @@ def parse_usage_json(raw: str | bytes | Mapping[str, Any] | Path) -> dict[str, B
                 continue
             grp_name = str(grp.get("name")) if grp.get("name") is not None else None
             raw_buckets = grp.get("buckets")
-            if not isinstance(raw_buckets, list):
+            if not isinstance(raw_buckets, list) or not raw_buckets:
                 invalid_idx += 1
                 bad_id = f"__invalid_buckets_{invalid_idx}__"
                 buckets_out[bad_id] = BucketQuota(id=bad_id, remaining_fraction=float("nan"))
@@ -236,6 +250,8 @@ def parse_usage_json(raw: str | bytes | Mapping[str, Any] | Path) -> dict[str, B
                     bad_id = f"__invalid_bucket_{invalid_idx}__"
                     buckets_out[bad_id] = BucketQuota(id=bad_id, remaining_fraction=float("nan"))
                     continue
+                if b_id in buckets_out:
+                    buckets_out["__duplicate_bucket__"] = BucketQuota("__duplicate_bucket__", float("nan"))
                 rem = _coerce_fraction_for_bucket(b.get("remaining_fraction"))
                 buckets_out[b_id] = BucketQuota(
                     id=b_id,
@@ -329,8 +345,12 @@ def parse_snapshot(
     return QuotaSnapshot(
         buckets=buckets,
         remaining_credits=remaining_credits,
-        concurrent_agy_detected=snap_concurrent,
+        concurrent_agy_detected=snap_concurrent or "headless" in (data.get("concurrent_agy_kinds") or ())
+            or bool((data.get("concurrent_agy_counts") or {}).get("headless")),
         stale=snap_stale,
+        concurrent_agy_kinds=tuple(data.get("concurrent_agy_kinds") or ()),
+        concurrent_agy_counts=dict(data.get("concurrent_agy_counts") or {}),
+        concurrent_agy_reason=data.get("concurrent_agy_reason"),
         **kwargs,
     )
 
@@ -366,15 +386,21 @@ def snapshot(
     _run_cmd: Callable[[list[str]], str | Mapping[str, Any]] | None = None,
 ) -> QuotaSnapshot:
     """Query ``agy -p "/usage" --output-format json`` and ``agy -p "/credits" --output-format json``."""
+    activity_before = detect_agy_activity()
+
+    def finish(usage_out, credits_out):
+        activity_after = detect_agy_activity()
+        counts = {k: max(activity_before[0].get(k, 0), activity_after[0].get(k, 0))
+                  for k in activity_before[0].keys() | activity_after[0].keys()}
+        snap = parse_snapshot(usage_out, credits_out, concurrent_agy_detected=concurrent_agy_detected
+                              or bool(counts.get("headless")), stale=stale)
+        return replace(snap, concurrent_agy_kinds=tuple(sorted(counts)), concurrent_agy_counts=counts,
+                       concurrent_agy_reason=activity_before[1] or activity_after[1])
+
     if _run_cmd is not None:
         usage_out = _run_cmd(list(USAGE_ARGV))
         credits_out = _run_cmd(list(CREDITS_ARGV))
-        return parse_snapshot(
-            usage_out,
-            credits_out,
-            concurrent_agy_detected=concurrent_agy_detected,
-            stale=stale,
-        )
+        return finish(usage_out, credits_out)
 
     if cwd is not None:
         work_cwd = Path(cwd)
@@ -387,12 +413,7 @@ def snapshot(
             usage_out = _run_slash_json(list(USAGE_ARGV), cwd=work_cwd, timeout_s=timeout_s)
             credits_out = _run_slash_json(list(CREDITS_ARGV), cwd=work_cwd, timeout_s=timeout_s)
 
-    return parse_snapshot(
-        usage_out,
-        credits_out,
-        concurrent_agy_detected=concurrent_agy_detected,
-        stale=stale,
-    )
+    return finish(usage_out, credits_out)
 
 
 def credits_ok(snap: QuotaSnapshot | Mapping[str, Any] | None) -> bool:
@@ -477,8 +498,8 @@ def judge(
         concurrent_activity
         or stale
         or delayed
-        or snap_before.concurrent_agy_detected
-        or snap_after.concurrent_agy_detected
+        or has_concurrent_activity(snap_before)
+        or has_concurrent_activity(snap_after)
         or snap_before.stale
         or snap_after.stale
     ):
@@ -550,3 +571,193 @@ def judge(
     if target_group in decreased_groups:
         return "verified"
     return "mismatch"
+
+
+@dataclass(frozen=True)
+class ArgonBuckets:
+    """Only this module knows which quota units govern Argon on each plan."""
+
+    layout: str = "unknown"
+    weekly: BucketQuota | None = None
+    five_hour: BucketQuota | None = None
+
+
+UNKNOWN_LAYOUT_REASON = "quota_layout_unknown"
+
+
+def argon_buckets(snapshot: QuotaSnapshot | Mapping | None) -> ArgonBuckets:
+    snap = _coerce_snapshot(snapshot)
+    if snap is None or not snap.buckets:
+        return ArgonBuckets()
+    expected_names = {"argon": "Gemini 4 Argon", "gemini": "Gemini Models", "3p": "Claude and GPT models"}
+    for key, bucket in snap.buckets.items():
+        group = KNOWN_BUCKET_TO_GROUP.get(key)
+        if (group is None or bucket.id != key or not _is_valid_fraction(bucket.remaining_fraction)
+                or (bucket.group_name is not None and bucket.group_name != expected_names[group])):
+            return ArgonBuckets()
+    if not {GEMINI_WEEKLY_BUCKET_ID, GEMINI_5H_BUCKET_ID} <= snap.buckets.keys():
+        return ArgonBuckets()
+    third_party = {THIRD_PARTY_WEEKLY_BUCKET_ID, THIRD_PARTY_5H_BUCKET_ID}
+    if snap.buckets.keys() & third_party and not third_party <= snap.buckets.keys():
+        return ArgonBuckets()
+    if ARGON_BUCKET_ID in snap.buckets:
+        return ArgonBuckets("legacy_argon", snap.buckets[ARGON_BUCKET_ID])
+    if {GEMINI_WEEKLY_BUCKET_ID, GEMINI_5H_BUCKET_ID} <= snap.buckets.keys():
+        return ArgonBuckets("ultra_shared", snap.buckets[GEMINI_WEEKLY_BUCKET_ID], snap.buckets[GEMINI_5H_BUCKET_ID])
+    return ArgonBuckets()
+
+
+def has_concurrent_activity(snapshot) -> bool:
+    return snapshot is not None and bool(snapshot.get("concurrent_agy_detected")
+        or snapshot.get("concurrent_agy_kinds") or snapshot.get("concurrent_agy_counts")
+        or snapshot.get("concurrent_agy_reason"))
+
+
+def quota_drop(before, after, *, period: str = "weekly", current=None) -> float | None:
+    """A cost in one quota unit, within one reset window; never mix plan fractions."""
+    if period not in ("weekly", "five_hour"):
+        raise ValueError("unknown quota period")
+    if before is None or after is None:
+        return None
+    if any(s.get("stale") or has_concurrent_activity(s) for s in (before, after)):
+        return None
+    a, b = argon_buckets(before), argon_buckets(after)
+    if a.layout == "unknown" or a.layout != b.layout:
+        return None
+    if current is not None and a.layout != argon_buckets(current).layout:
+        return None
+    x, y = getattr(a, period), getattr(b, period)
+    if x is None or y is None or x.id != y.id or x.reset_time != y.reset_time or _parse_iso_safe(x.reset_time) is None:
+        return None
+    # Old synthetic records may omit observation timestamps; when present they must be ordered.
+    t0, t1 = before.get("taken_at"), after.get("taken_at")
+    if t0 is not None or t1 is not None:
+        if _parse_iso_safe(t0) is None or _parse_iso_safe(t1) is None or parse_iso(t1) < parse_iso(t0):
+            return None
+    return x.remaining_fraction - y.remaining_fraction if x.remaining_fraction >= y.remaining_fraction else None
+
+
+def attempt_drop(attempt, snapshots, *, period="weekly", current=None):
+    if attempt.get("quota_cost_status") == "undetermined":
+        return None
+    pair = {r.get("when"): r for r in snapshots if r.get("attempt_id") == attempt.get("attempt_id")}
+    return quota_drop(pair.get("before"), pair.get("after"), period=period, current=current)
+
+
+def estimate(attempts, snapshots, *, current, fallback, tier=1, period="weekly") -> tuple[float, int]:
+    drops = [d for r in attempts if r.get("model_check") == "verified" and r.get("tier", 1) == tier
+             and r.get("player", "gemini") == "gemini"
+             and (d := attempt_drop(r, snapshots, period=period, current=current)) is not None and d > 0]
+    drops = sorted(drops[-50:])
+    return (drops[min(len(drops) - 1, int(.9 * len(drops)))], len(drops)) if drops else (fallback, 0)
+
+
+def five_hour_gate(snapshot, estimate: float) -> tuple[str | None, dict]:
+    bucket = argon_buckets(snapshot).five_hour
+    if bucket is None:
+        return None, {}
+    info = {"quota_5h_remaining": bucket.remaining_fraction, "quota_5h_estimate": estimate,
+            "quota_5h_reset_at": bucket.reset_time, "quota_retry_at_utc": None}
+    if _parse_iso_safe(bucket.reset_time) is None:
+        return UNKNOWN_LAYOUT_REASON, info
+    if bucket.remaining_fraction - estimate < 0:
+        info["quota_retry_at_utc"] = bucket.reset_time
+        return "quota_5h_wait", info
+    return None, info
+
+
+def shared_group_consumed(before, after) -> bool:
+    """Consistent shared Gemini movement is evidence of group use, never of model identity."""
+    if argon_buckets(before).layout != "ultra_shared" or argon_buckets(after).layout != "ultra_shared":
+        return False
+    if any((d := quota_drop(before, after, period=p)) is None or d <= QUOTA_EPSILON
+           for p in ("weekly", "five_hour")):
+        return False
+    a, b = _coerce_snapshot(before), _coerce_snapshot(after)
+    if a.buckets.keys() != b.buckets.keys():
+        return False
+    for key in a.buckets:
+        x, y = a.buckets[key], b.buckets[key]
+        if x.reset_time != y.reset_time or x.remaining_fraction < y.remaining_fraction - QUOTA_EPSILON:
+            return False
+        if KNOWN_BUCKET_TO_GROUP[key] != "gemini" and abs(x.remaining_fraction - y.remaining_fraction) > QUOTA_EPSILON:
+            return False
+    return True
+
+
+def detect_agy_activity(*, ps_output: str | None = None, current_pid: int | None = None) -> tuple[dict[str, int], str | None]:
+    """Classify external processes without retaining commands (which may contain prompts)."""
+    try:
+        if ps_output is None:
+            ps_output = subprocess.run(["/bin/ps", "-axo", "pid,ppid,command"], check=True,
+                                       capture_output=True, text=True, timeout=5).stdout
+        processes = {}
+        for line in ps_output.splitlines():
+            parts = line.strip().split(None, 2)
+            if not parts or parts[0] == "PID":
+                continue
+            if len(parts) != 3:
+                raise ValueError("invalid process row")
+            processes[int(parts[0])] = (int(parts[1]), parts[2])
+        if not processes:
+            raise ValueError("empty process table")
+        excluded = {os.getpid() if current_pid is None else current_pid}
+        while children := {pid for pid, (ppid, _) in processes.items() if ppid in excluded} - excluded:
+            excluded.update(children)
+        counts: dict[str, int] = {}
+        for pid, (_, command) in processes.items():
+            if pid in excluded:
+                continue
+            # ps does not preserve shell quoting. Only inspect the executable/script and flags,
+            # never search prompts for application names.
+            try:
+                argv = shlex.split(command)
+            except ValueError:
+                argv = command.split()
+            if not argv:
+                continue
+            executable = argv[0]
+            if Path(executable).name in ("node", "nodejs", "bun") and len(argv) > 1:
+                executable = argv[1]
+                argv = argv[1:]
+            name = Path(executable).name
+            kind = None
+            if name in ("agy", "agy.js"):
+                kind = "headless" if any(a == "-p" or a.startswith("-p=") or a == "--prompt" or a.startswith("--prompt=") for a in argv[1:]) else "interactive"
+            elif "Antigravity.app/" in executable or name == "language_server" or name.startswith("language_server_"):
+                kind = "ide"
+            if kind:
+                counts[kind] = counts.get(kind, 0) + 1
+        return counts, None
+    except (OSError, subprocess.SubprocessError, ValueError):
+        return {"headless": 1}, "ps_failed"
+
+
+def record_snapshot(snapshot) -> dict:
+    """JSONL-safe unknown numeric values, preserving the evidence of malformed snapshots."""
+    return json.loads(json.dumps(snapshot.to_dict()), parse_constant=lambda _: None)
+
+
+def manual_admission(snapshot, policy: dict, *, model: str, history_root: Path, tier: int = 1) -> tuple[str | None, dict]:
+    """Shared gate for acceptance/autoload; cheap legacy Flash does not spend Argon."""
+    from flab.ledger import read_complete
+
+    buckets = argon_buckets(snapshot)
+    info = {"quota_layout": buckets.layout}
+    if buckets.layout == "unknown":
+        return UNKNOWN_LAYOUT_REASON, info
+    if not credits_ok(snapshot) or snapshot.get("stale") or snapshot.get("concurrent_agy_detected"):
+        return "quota_snapshot_untrusted", info
+    cfg = policy["players"]["gemini"]
+    reserve, estimate_weekly = 1 - float(cfg["weekly_cap"]), float(cfg["tier2_per_question_cap"])
+    info.update(quota_weekly_bucket=buckets.weekly.id, argon_remaining=buckets.weekly.remaining_fraction,
+                reserve=reserve, estimate=estimate_weekly)
+    if (model.startswith("gemini-4-argon-") or buckets.layout == "ultra_shared") and buckets.weekly.remaining_fraction - estimate_weekly < reserve - QUOTA_EPSILON:
+        return "quota_exhausted", info
+    estimate_5h, count = estimate(read_complete(history_root / "forecasts.jsonl"), read_complete(history_root / "quota.jsonl"),
+        current=snapshot, fallback=estimate_weekly, tier=tier, period="five_hour")
+    reason, short_info = five_hour_gate(snapshot, estimate_5h)
+    info.update(short_info)
+    if buckets.five_hour:
+        info["quota_5h_estimate_samples"] = count
+    return reason, info

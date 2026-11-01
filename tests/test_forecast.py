@@ -366,7 +366,8 @@ def test_forecast_prompt_fills_every_placeholder() -> None:
 # ---------------------------------------------------------------- gemini quota (§7.7)
 
 def _qsnap(argon: float, credits: float | int | None = 0) -> quota.QuotaSnapshot:
-    return quota.QuotaSnapshot(buckets={quota.ARGON_BUCKET_ID: quota.BucketQuota(quota.ARGON_BUCKET_ID, argon)},
+    return quota.QuotaSnapshot(buckets={quota.ARGON_BUCKET_ID: quota.BucketQuota(quota.ARGON_BUCKET_ID, argon, "2026-11-06T00:00:00Z"),
+        **{key: quota.BucketQuota(key, 1, "2026-11-06T00:00:00Z") for key in (quota.GEMINI_WEEKLY_BUCKET_ID, quota.GEMINI_5H_BUCKET_ID)}},
                                remaining_credits=credits)
 
 
@@ -420,10 +421,10 @@ def test_argon_estimate_uses_observed_drops(tmp_path: Path) -> None:
     for i, (b, a) in enumerate([(0.9, 0.89), (0.89, 0.87), (0.87, 0.86)]):
         for when, v in (("before", b), ("after", a)):
             append_record(log, {"type": "quota_snapshot", "attempt_id": f"a{i}", "when": when,
-                                "buckets": {quota.ARGON_BUCKET_ID: {"remaining_fraction": v}}})
+                                "buckets": _qsnap(v).to_dict()["buckets"]})
     for i in range(3):
         append_record(tmp_path / "f.jsonl", {"type": "forecast_attempt", "attempt_id": f"a{i}", "model_check": "verified"})
-    est, n = F.argon_estimate(log, POLICY, tmp_path / "f.jsonl")
+    est, n = F.argon_estimate(log, POLICY, tmp_path / "f.jsonl", current=_qsnap(.9))
     assert abs(est - 0.02) < 1e-9 and n == 3
 
 

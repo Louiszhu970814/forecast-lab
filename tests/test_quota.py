@@ -28,7 +28,8 @@ def _full_buckets_dict(
     }
 
 
-def test_snapshot_parses_usage_and_credits_fixtures() -> None:
+def test_snapshot_parses_usage_and_credits_fixtures(monkeypatch) -> None:
+    monkeypatch.setattr(quota, "detect_agy_activity", lambda: ({}, None))
     usage_text = (FIXTURES_DIR / "slash_usage.json").read_text(encoding="utf-8")
     credits_text = (FIXTURES_DIR / "slash_credits.json").read_text(encoding="utf-8")
 

@@ -18,7 +18,7 @@ from flab.jsonl import append_record
 from flab.ledger import transaction, read_complete
 from flab.timeutil import parse_iso, to_iso, utc_now
 
-VERSION = "budget_v1"
+VERSION = "budget_v2"
 
 
 def quantile(values: list[float], q=.9) -> float | None:
@@ -75,21 +75,8 @@ class Budget:
         return (read_complete(self.root / "forecasts.jsonl"), read_complete(self.root / "forecast_attempt_starts.jsonl"),
                 read_complete(self.root / "quota.jsonl"), read_complete(self.log))
 
-    def _drop(self, attempt: dict, snapshots: list[dict]) -> float | None:
-        pair = {r.get("when"): r for r in snapshots if r.get("attempt_id") == attempt.get("attempt_id")}
-        if not {"before", "after"} <= pair.keys():
-            return None
-        before, after = pair["before"], pair["after"]
-        if any(r.get("stale") or r.get("concurrent_agy_detected") for r in (before, after)):
-            return None
-        a = (before.get("buckets") or {}).get(quota.ARGON_BUCKET_ID, {})
-        b = (after.get("buckets") or {}).get(quota.ARGON_BUCKET_ID, {})
-        if not a.get("reset_time") or a.get("reset_time") != b.get("reset_time"):
-            return None
-        x, y = a.get("remaining_fraction"), b.get("remaining_fraction")
-        if any(not isinstance(v, (float, int)) or isinstance(v, bool) or not math.isfinite(v) or not 0 <= v <= 1 for v in (x, y)):
-            return None
-        return x - y if x >= y else None
+    def _drop(self, attempt: dict, snapshots: list[dict], *, current=None, period="weekly") -> float | None:
+        return quota.attempt_drop(attempt, snapshots, current=current, period=period)
 
     def recover(self):
         """Called while holding scheduler.lock: old no-start reservations never reached the CLI.
@@ -167,11 +154,14 @@ class Budget:
                 if limit_tokens is not None and (any(v is None for v in own) or sum(own) + estimate_tokens > limit_tokens):
                     reason = "question_tier2_token_capacity"
             argon_estimate, argon_remaining, reset = None, None, None
+            quota_info = {}
             if player == "gemini":
                 before = next((r for r in reversed(snapshots) if r.get("attempt_id") == aid and r.get("when") == "before"), None)
-                bucket = ((before or {}).get("buckets") or {}).get(quota.ARGON_BUCKET_ID, {})
+                buckets = quota.argon_buckets(before)
+                bucket = buckets.weekly or {}
+                quota_info = {"quota_layout": buckets.layout, "quota_weekly_bucket": bucket.get("id")}
                 argon_remaining, reset = bucket.get("remaining_fraction"), bucket.get("reset_time")
-                valid = before and before.get("remaining_credits") == 0 and not before.get("stale") and not before.get("concurrent_agy_detected")
+                valid = buckets.layout != "unknown" and before and quota.credits_ok(before) and not before.get("stale") and not before.get("concurrent_agy_detected")
                 try:
                     valid = valid and 0 <= (self.now() - parse_iso(before["taken_at"])).total_seconds() <= 90 \
                         and self.now() < parse_iso(reset)
@@ -179,16 +169,16 @@ class Budget:
                     valid = False
                 if not valid or not isinstance(argon_remaining, (float, int)) or isinstance(argon_remaining, bool) \
                         or not math.isfinite(argon_remaining) or not 0 <= argon_remaining <= 1:
-                    reason = "untrusted_argon_snapshot_or_reset"
+                    reason = quota.UNKNOWN_LAYOUT_REASON if buckets.layout == "unknown" else "untrusted_argon_snapshot_or_reset"
                     valid = False
                     if not isinstance(argon_remaining, (float, int)) or isinstance(argon_remaining, bool) or not math.isfinite(argon_remaining):
                         argon_remaining = None
                 samples = [drop for r in forecasts if r.get("player") == player and r.get("tier") == tier
-                           and r.get("model_check") == "verified" and (drop := self._drop(r, snapshots)) is not None and drop > 0]
+                           and r.get("model_check") == "verified" and (drop := self._drop(r, snapshots, current=before)) is not None and drop > 0]
                 argon_estimate = quantile(samples[-50:]) or self.policy["players"][player]["tier2_per_question_cap"]
                 first_samples = [drop for r in source if r.get("model_check") == "verified"
-                                 and (drop := self._drop(r, snapshots)) is not None and drop > 0]
-                first_estimate = quantile(first_samples[-50:]) or .05
+                                 and (drop := self._drop(r, snapshots, current=before)) is not None and drop > 0]
+                first_estimate = quantile(first_samples[-50:]) or self.policy["players"][player]["tier2_per_question_cap"]
                 if valid and argon_remaining - argon_estimate - protected * first_estimate < 1 - self.policy["players"][player]["weekly_cap"]:
                     reason = "argon_personal_or_tier1_reserve"
                 if tier == 2:
@@ -196,9 +186,10 @@ class Budget:
                     for r in scoped:
                         # Only the current Argon reset window belongs to this weekly breaker.
                         pair = next((s for s in snapshots if s.get("attempt_id") == r["attempt_id"] and s.get("when") == "before"), {})
-                        old_reset = (pair.get("buckets") or {}).get(quota.ARGON_BUCKET_ID, {}).get("reset_time")
-                        if old_reset == reset:
-                            costs.setdefault(r["question_id"], []).append(self._drop(r, snapshots))
+                        old_buckets = quota.argon_buckets(pair)
+                        old_reset = old_buckets.weekly.reset_time if old_buckets.weekly else None
+                        if old_buckets.layout == buckets.layout and old_reset == reset:
+                            costs.setdefault(r["question_id"], []).append(self._drop(r, snapshots, current=before))
                     qcap = self.policy["players"][player]["tier2_per_question_cap"]
                     if any(any(v is None for v in vals) or sum(vals) > qcap for vals in costs.values()):
                         breach_reason = "weekly_tier2_argon_breaker"
@@ -207,19 +198,33 @@ class Budget:
                         reason = "question_tier2_argon_capacity"
             if tier == 2:
                 paused = next((r for r in reversed(events) if r["type"] == "budget_upgrade_stop"
-                               and r["player"] == player and self.now() < parse_iso(r["until"])), None)
+                               and r["player"] == player and self.now() < parse_iso(r["until"])
+                               and (r["reason"] != "weekly_tier2_argon_breaker" or
+                                    (r.get("quota_layout", "legacy_argon") == buckets.layout and r["until"] == reset))), None)
                 if paused:
                     reason = paused["reason"]
                 elif breach_reason:
                     reason = breach_reason
                     append_record(self.log, {"type": "budget_upgrade_stop", "player": player,
                         "reason": reason, "until": reset if player == "gemini" and valid else to_iso(end),
-                        "at": to_iso(self.now()), "version": VERSION})
+                        "at": to_iso(self.now()), "version": VERSION, **quota_info})
+            if player == "gemini" and valid:
+                fallback = self.policy["players"][player]["tier2_per_question_cap"]
+                estimate_5h, samples_5h = quota.estimate(forecasts, snapshots, current=before,
+                    fallback=fallback, tier=tier, period="five_hour")
+                wait_reason, info = quota.five_hour_gate(before, estimate_5h)
+                quota_info.update(info)
+                if buckets.five_hour:
+                    quota_info["quota_5h_estimate_samples"] = samples_5h
+                if reason is None and wait_reason:
+                    reason = wait_reason
+            if player == "gemini" and buckets.layout == "unknown":
+                reason = quota.UNKNOWN_LAYOUT_REASON
             decision = {"allowed": reason is None, "decision_id": new_id("budget"), "reason": reason,
                         "version": VERSION, "player": player, "tier": tier, "question_id": qid, "attempt_id": aid,
                         "weekly_attempts_used": used, "weekly_attempt_cap": cap, "protected_attempts": protected,
                         "token_baseline": base_tokens, "token_limit": limit_tokens, "token_estimate": estimate_tokens,
-                        "argon_estimate": argon_estimate, "argon_remaining": argon_remaining, "argon_reset_at": reset}
+                        "argon_estimate": argon_estimate, "argon_remaining": argon_remaining, "argon_reset_at": reset, **quota_info}
             append_record(self.log, {"type": "budget_reserved" if reason is None else "budget_denied",
                                     **decision, "run_id": self.run_id, "at": to_iso(self.now()),
                                     "campaign_id": self.campaign["campaign_id"]})

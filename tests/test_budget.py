@@ -7,7 +7,7 @@ import quota
 from flab.config import load_quota_policy, load_run_config
 from flab.jsonl import append_record, read_records
 from flab.timeutil import to_iso
-from test_forecast import NOW
+from test_forecast import NOW, _qsnap
 
 
 @pytest.fixture
@@ -33,7 +33,7 @@ def attempt(ledger, aid="old", tier=1, player="claude", qid=7, total=30):
 
 def snapshot(ledger, aid="new", when="before", remaining=.9, reset=None, **kw):
     r = {"type": "quota_snapshot", "attempt_id": aid, "when": when, "taken_at": to_iso(NOW), "remaining_credits": 0,
-         "buckets": {quota.ARGON_BUCKET_ID: {"remaining_fraction": remaining, "reset_time": reset or to_iso(NOW + timedelta(days=3))}}, **kw}
+         "buckets": {**_qsnap(.9).to_dict()["buckets"], quota.ARGON_BUCKET_ID: {"remaining_fraction": remaining, "reset_time": reset or to_iso(NOW + timedelta(days=3))}}, **kw}
     append_record(ledger.root / "quota.jsonl", r)
 
 

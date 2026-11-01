@@ -11,7 +11,6 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 import importlib
 import json
-import math
 import os
 from pathlib import Path
 import re
@@ -308,9 +307,6 @@ def _append(log: Path, record: dict[str, Any]) -> None:
 
 # Louis lowered the autoload-only Argon gate from 45% to 20% (PLAN D70). Manual
 # acceptance and the forecast pipeline keep their own reserves.
-ARGON_MIN_FRACTION = .20
-
-
 def _start_call(req: AdapterRequest, run_id: str, log: Path) -> None:
     """Gate and journal before entering the executor, including failed/interrupted calls."""
     call_id = new_id("acccall")
@@ -318,17 +314,14 @@ def _start_call(req: AdapterRequest, run_id: str, log: Path) -> None:
         # Same reserve and credits gate as manual acceptance, before any model call.
         import quota
         before = quota.snapshot(timeout_s=30)
-        # The quota parser uses NaN for malformed balances; JSONL forbids NaN.
-        # Preserve these as unknown (null) so a refused call still has a pause record.
-        snapshot_record = json.loads(json.dumps(before.to_dict()), parse_constant=lambda _: None)
-        fraction = before.remaining_fraction(quota.ARGON_BUCKET_ID)
-        if not quota.credits_ok(before) or before.stale or before.concurrent_agy_detected or (
-                req.model.startswith("gemini-4-argon-") and (not isinstance(fraction, (int, float))
-                or not math.isfinite(fraction) or not ARGON_MIN_FRACTION <= fraction <= 1)):
-            reason = "Gemini requires credits=0 and a trustworthy Argon balance of at least 20%"
+        from flab.config import load_quota_policy
+        reason, admission = quota.manual_admission(before, load_quota_policy(), model=req.model,
+                                                   history_root=log.parent)
+        snapshot_record = quota.record_snapshot(before)
+        if reason:
             _append(log, {"type": "acceptance_paused", "run_id": run_id, "player": req.player,
                           "tier": 1, "profile": req.profile, "source": "autoload",
-                          "at": to_iso(utc_now()), "reason": reason, "quota_snapshot": snapshot_record})
+                          "at": to_iso(utc_now()), "reason": reason, "quota_snapshot": snapshot_record, **admission})
             raise ValueError(reason)
         _append(log, {"type": "acceptance_quota_snapshot", "attempt_id": call_id,
                       "when": "before", "source": "autoload", **snapshot_record})

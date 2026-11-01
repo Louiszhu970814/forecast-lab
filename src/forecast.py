@@ -287,9 +287,10 @@ class LineStop(RuntimeError):
     """Stop this line. With ``notify`` the stop is recorded in data/line_status.jsonl and lasts until
     Louis records a resume (``forecast.py resume``); otherwise it ends this run only (§7.5, §7.7)."""
 
-    def __init__(self, reason: str, *, notify: bool = False) -> None:
+    def __init__(self, reason: str, *, notify: bool = False, quota_retry_at_utc: str | None = None) -> None:
         super().__init__(reason)
         self.notify = notify
+        self.quota_retry_at_utc = quota_retry_at_utc
 
 
 def line_stopped(log: Path, player: str, forecasts_log: Path | None = None) -> dict[str, Any] | None:
@@ -445,52 +446,55 @@ def _fraction(v: Any) -> float | None:
     return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and 0 <= v <= 1 else None
 
 
-def argon_estimate(quota_log: Path, policy: dict[str, Any], forecasts_log: Path, *, tier: int = 1) -> tuple[float, int]:
-    """(expected Argon use of one attempt at this tier, number of samples).
-
-    Samples are before/after drops of attempts whose model check is ``verified``, from snapshots that
-    are neither stale nor taken during other agy use, with finite fractions and a real decrease; the
-    estimate is their 90th percentile. Without such samples the per-question tier-2 cap is used, so an
-    unknown consumption is never taken as zero (§7.7, §9).
-    """
+def argon_estimate(quota_log: Path, policy: dict[str, Any], forecasts_log: Path, *, tier: int = 1,
+                   current=None, period: str = "weekly") -> tuple[float, int]:
+    """Estimate from trusted, same-layout pairs in the requested bucket's own units."""
+    attempts = read_records(forecasts_log) if forecasts_log.exists() else []
+    snapshots = read_records(quota_log) if quota_log.exists() else []
+    # Without a target layout no history can be safely selected (e.g. a plan upgrade).
     fallback = float(policy["players"]["gemini"]["tier2_per_question_cap"])
-    verified = set()
-    if forecasts_log.exists():
-        verified = {r.get("attempt_id") for r in read_records(forecasts_log)
-                    if r.get("type") == "forecast_attempt" and r.get("model_check") == "verified"
-                    and r.get("tier", 1) == tier}
-    pairs: dict[str, dict[str, float]] = {}
-    if quota_log.exists():
-        for r in read_records(quota_log):
-            if r.get("type") != "quota_snapshot" or r.get("stale") or r.get("concurrent_agy_detected"):
-                continue
-            frac = _fraction(((r.get("buckets") or {}).get(quota.ARGON_BUCKET_ID) or {}).get("remaining_fraction"))
-            if frac is not None and r.get("attempt_id") in verified:
-                pairs.setdefault(r["attempt_id"], {})[r.get("when")] = frac
-    drops = sorted(d for p in pairs.values() if {"before", "after"} <= set(p) and (d := p["before"] - p["after"]) > 0)
-    if not drops:
+    if current is None:
         return fallback, 0
-    return drops[min(len(drops) - 1, int(0.9 * len(drops)))], len(drops)
+    return quota.estimate(attempts, snapshots, current=current, fallback=fallback, tier=tier, period=period)
+
+
+def quota_model_check(before, after, result) -> str:
+    layouts = (quota.argon_buckets(before).layout, quota.argon_buckets(after).layout)
+    if "ultra_shared" in layouts:
+        log_check = (result.usage_raw or {}).get("log_model_check")
+        if log_check == "mismatch":
+            return "mismatch"
+        return "verified" if log_check == "verified" and quota.shared_group_consumed(before, after) else "undetermined"
+    if layouts != ("legacy_argon", "legacy_argon"):
+        return "undetermined"
+    return quota.judge(before, after)
 
 
 def gemini_admission(ctx: Context, before: Any) -> tuple[str | None, dict[str, Any]]:
     """(reason not to start or None, the numbers used): credits must be 0, the snapshot trustworthy,
     and Argon must stay above the reserve line after the estimated use."""
+    buckets = quota.argon_buckets(before)
+    if buckets.layout == "unknown":
+        return quota.UNKNOWN_LAYOUT_REASON, {"quota_layout": buckets.layout}
     if not quota.credits_ok(before):
         return "agy AI credits are not confirmed as 0 (§7.7, D54)", {}
     if getattr(before, "stale", False) or getattr(before, "concurrent_agy_detected", False):
         return "quota_exhausted: the /usage snapshot is stale or other agy use was detected", {}
-    remaining = _fraction(before.remaining_fraction(quota.ARGON_BUCKET_ID)) if hasattr(before, "remaining_fraction") else None
-    if remaining is None:
-        return "quota_exhausted: Argon remaining fraction is not a number in [0, 1]", {}
+    remaining = buckets.weekly.remaining_fraction
     policy = ctx.quota_policy or load_quota_policy()
     reserve = 1 - float(policy["players"]["gemini"]["weekly_cap"])
-    estimate, samples = argon_estimate(ctx.quota_log, policy, ctx.forecasts_log, tier=ctx.tier)
-    used = {"argon_remaining": remaining, "estimate": estimate, "estimate_samples": samples, "reserve": reserve}
+    estimate, samples = argon_estimate(ctx.quota_log, policy, ctx.forecasts_log, tier=ctx.tier, current=before)
+    used = {"quota_layout": buckets.layout, "quota_weekly_bucket": buckets.weekly.id, "argon_remaining": remaining, "estimate": estimate, "estimate_samples": samples, "reserve": reserve}
     if remaining - estimate < reserve:
         return (f"quota_exhausted: Argon {remaining:.4f} - estimate {estimate:.4f} is below the reserve line "
                 f"{reserve:.2f}"), used
-    return None, used
+    estimate_5h, samples_5h = argon_estimate(ctx.quota_log, policy, ctx.forecasts_log,
+                                           tier=ctx.tier, current=before, period="five_hour")
+    reason, info = quota.five_hour_gate(before, estimate_5h)
+    used.update(info)
+    if buckets.five_hour:
+        used["quota_5h_estimate_samples"] = samples_5h
+    return reason, used
 
 
 def run_attempt(ctx: Context, snap: dict[str, Any], *, kind: str, prompt: str, sch: dict[str, Any],
@@ -536,10 +540,13 @@ def run_attempt(ctx: Context, snap: dict[str, Any], *, kind: str, prompt: str, s
             raise LineStop(f"agy /usage before the run failed: {type(exc).__name__}: {exc}") from exc
         with transaction(ctx.quota_log.parent):
             append_record(ctx.quota_log, {"type": "quota_snapshot", "attempt_id": attempt_id, "when": "before",
-                                          **quota_before.to_dict()})
+                                          **quota.record_snapshot(quota_before)})
         reason, admission = gemini_admission(ctx, quota_before)
         if reason:
-            raise LineStop(reason)
+            with transaction(ctx.quota_log.parent):
+                append_record(ctx.quota_log, {"type": "quota_admission_denied", "attempt_id": attempt_id,
+                    "player": player, "tier": ctx.tier, "at": to_iso(ctx.now()), "reason": reason, **admission})
+            raise LineStop(reason, quota_retry_at_utc=admission.get("quota_retry_at_utc"))
     # recomputed after the quota query, and leaving time for the one after the run (§3.5)
     timeout = int(min(limit, require_time(f"a {kind} attempt after the quota check")))
     # Recheck after an external quota query as well: late audits must precede every exposure.
@@ -595,8 +602,8 @@ def run_attempt(ctx: Context, snap: dict[str, Any], *, kind: str, prompt: str, s
             else:
                 with transaction(ctx.quota_log.parent):
                     append_record(ctx.quota_log, {"type": "quota_snapshot", "attempt_id": attempt_id, "when": "after",
-                                                  **quota_after.to_dict()})
-                ctx.adapter.apply_quota_model_check(result, quota.judge(quota_before, quota_after))
+                                                  **quota.record_snapshot(quota_after)})
+                ctx.adapter.apply_quota_model_check(result, quota_model_check(quota_before, quota_after, result))
     finally:
         try:
             if admitted and ctx.admission_outcome is not None:
@@ -666,6 +673,9 @@ def run_attempt(ctx: Context, snap: dict[str, Any], *, kind: str, prompt: str, s
         **_structured_fields(obj),
         "usage": usage, "quota_before": getattr(quota_before, "snapshot_id", None),
         "quota_after": getattr(quota_after, "snapshot_id", None),
+        **({"quota_layout": quota.argon_buckets(quota_before).layout,
+            "quota_cost_status": "trusted" if quota.quota_drop(quota_before, quota_after) is not None else "undetermined"}
+           if gemini else {}),
         "tool_call_counts": result.tool_call_counts, "subagent_count": result.subagent_count,
         "tool_violations": violations,
         "url_events": [{"url": e.url, "host": e.host, "state": e.state, "source": e.source} for e in result.url_events],
@@ -889,7 +899,8 @@ def run(player: str, question_ids: list[int], *, allow_unapproved_baseline: bool
                 try:
                     summary["questions"].append(forecast_question(ctx, snap))
                 except LineStop as exc:
-                    summary["questions"].append({"question_id": qid, "outcome": "line_stopped", "reason": str(exc)})
+                    summary["questions"].append({"question_id": qid, "outcome": "quota_5h_wait" if exc.quota_retry_at_utc else "line_stopped",
+                                                  "reason": str(exc), "quota_retry_at_utc": exc.quota_retry_at_utc})
                     summary["line_stopped"] = str(exc)
                     if exc.notify:
                         append_record(ctx.line_status_log, {"type": "line_stop", "player": player, "run_id": run_id,

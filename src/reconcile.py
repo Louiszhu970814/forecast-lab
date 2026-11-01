@@ -27,7 +27,7 @@ from flab.jsonl import append_record, read_records
 from flab.ledger import transaction, read_complete
 from flab.timeutil import parse_iso, to_iso
 
-VERSION = "reconciliation_pipeline_v3"
+VERSION = "reconciliation_pipeline_v4"
 PROMPT_VERSION = "reconcile_v1"
 SUMMARY_FIELDS = ("probability", "option_probabilities", "reasoning_summary", "key_factors",
                   "base_rate", "sources", "market_refs")
@@ -267,6 +267,8 @@ def run(ctx: F.Context, snapshot: dict[str, Any], *,
                                       "forecast_history": copy.deepcopy(current_records)})
                     if not isinstance(decision, dict) or decision.get("allowed") is not True \
                             or not isinstance(decision.get("decision_id"), str) or not decision["decision_id"].strip():
+                        if isinstance(decision, dict) and decision.get("reason") == "quota_5h_wait":
+                            raise F.LineStop("quota_5h_wait", quota_retry_at_utc=decision["quota_retry_at_utc"])
                         raise F.QuestionDone("budget admission denied")
                     active["admission_decision_id"] = decision["decision_id"]
                     summary["admissions"].append(decision)
@@ -288,7 +290,8 @@ def run(ctx: F.Context, snapshot: dict[str, Any], *,
         except F.QuestionDone as exc:
             summary.update(outcome="stopped_waiting", reason=str(exc))
         except F.LineStop as exc:
-            summary.update(outcome="line_stopped", reason=str(exc), notify_louis=exc.notify)
+            summary.update(outcome="quota_5h_wait" if exc.quota_retry_at_utc else "line_stopped",
+                           reason=str(exc), notify_louis=exc.notify, quota_retry_at_utc=exc.quota_retry_at_utc)
             if exc.notify:
                 append_record(ctx.line_status_log, {"type": "line_stop", "player": ctx.player,
                     "run_id": ctx.run_id, "at": to_iso(ctx.now()), "reason": str(exc)})

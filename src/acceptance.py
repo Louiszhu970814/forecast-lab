@@ -24,7 +24,6 @@ import hashlib
 import http.client
 import importlib
 import json
-import math
 import os
 import re
 import secrets
@@ -706,17 +705,14 @@ def _run(adapter: Any, player: str, profile: str, prompt: str, workdir: Path, ra
     call_id = new_id("acccall")
     if player == "gemini":
         before = quota.snapshot(timeout_s=30)
-        fraction = before.remaining_fraction(quota.ARGON_BUCKET_ID)
-        gate = argon_acceptance_gate()
-        if not quota.credits_ok(before) or before.stale or before.concurrent_agy_detected \
-                or (model_cfg["model"].startswith("gemini-4-argon-") and (
-                    not isinstance(fraction, (int, float)) or not math.isfinite(fraction) or not gate <= fraction <= 1)):
-            reason = (f"Gemini acceptance requires credits=0 and a trustworthy Argon balance of at least {gate:.0%} "
-                      f"({gate - ARGON_CALL_ESTIMATE:.0%} reserve + {ARGON_CALL_ESTIMATE:.0%} estimate)")
+        reason, admission = quota.manual_admission(before, load_quota_policy(), model=model_cfg["model"],
+                                                   history_root=ACCEPTANCE_LOG.parent, tier=tier)
+        if reason:
             _append({"type": "acceptance_paused", "run_id": run_id, "player": player, "tier": tier,
-                     "profile": profile, "at": to_iso(utc_now()), "reason": reason, "quota_snapshot": before.to_dict()})
+                     "profile": profile, "at": to_iso(utc_now()), "reason": reason,
+                     "quota_snapshot": quota.record_snapshot(before), **admission})
             raise AcceptancePaused(reason)
-        _append({"type": "acceptance_quota_snapshot", "attempt_id": call_id, "when": "before", **before.to_dict()})
+        _append({"type": "acceptance_quota_snapshot", "attempt_id": call_id, "when": "before", **quota.record_snapshot(before)})
     if run_id is not None:
         _append({"type": "acceptance_call_started", "attempt_id": call_id,
             "run_id": run_id, "player": player, "tier": tier, "profile": profile,
@@ -731,7 +727,7 @@ def _run(adapter: Any, player: str, profile: str, prompt: str, workdir: Path, ra
             "exit_code": result.run.exit_code if result.run else None, "raw_dir": str(raw_dir)})
     if player == "gemini":
         after = quota.snapshot(timeout_s=30)
-        _append({"type": "acceptance_quota_snapshot", "attempt_id": call_id, "when": "after", **after.to_dict()})
+        _append({"type": "acceptance_quota_snapshot", "attempt_id": call_id, "when": "after", **quota.record_snapshot(after)})
     return result, window
 
 

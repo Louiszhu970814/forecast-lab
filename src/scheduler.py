@@ -32,7 +32,7 @@ from flab.ledger import transaction, read_complete
 from flab.timeutil import parse_iso, to_iso, utc_now
 from poll_questions import latest_snapshots
 
-VERSION = "scheduler_v4"
+VERSION = "scheduler_v5"
 TERMINAL = {"selected", "already_selected", "prior_answer_excluded", "output_excluded", "attempts_exhausted",
             "schema_failed", "semantic_failed", "parse_failed", "invalid_output", "not_candidate", "not_admitted", "budget_skipped"}
 
@@ -160,6 +160,8 @@ class Scheduler:
         attempts, aggregates, events, view = self.state()
         with transaction(self.root):
             rows = read_complete(self.jobs_log)
+        waiting = {r["player"] for r in rows if r.get("outcome") == "quota_5h_wait"
+                   and r.get("quota_retry_at_utc") and self.now() < parse_iso(r["quota_retry_at_utc"])}
         enabled = load_players_enabled()
         sealed = {a["question_id"] for a in aggregates if a.get("scheduler_campaign_id") == self.campaign["campaign_id"]
                   and a.get("completion_status") == "complete_local"
@@ -177,7 +179,7 @@ class Scheduler:
             unfinished_first |= not tier1_done
             candidate = E.evaluate(snap, attempts, audit_events=view, now=self.now()) if tier1_done else None
             for p in PLAYERS:
-                if not enabled[p] or p in paused or p in active:
+                if not enabled[p] or p in paused or p in active or p in waiting:
                     continue
                 tier = 1 if not self._terminal(qid, p, 1, attempts, rows) else 2
                 if tier == 2 and (not candidate or not candidate["escalation"]["candidate"]
@@ -227,6 +229,8 @@ class Scheduler:
                 decision = admit({"player": job.player, "tier": 1, "question_id": job.question_id,
                                   "attempt_kind": kind, "attempt_id": attempt_id})
                 if not decision["allowed"]:
+                    if decision.get("reason") == "quota_5h_wait":
+                        raise F.LineStop("quota_5h_wait", quota_retry_at_utc=decision["quota_retry_at_utc"])
                     raise F.QuestionDone("budget_skipped: " + decision["reason"])
                 shared["admission_decision_id"] = decision["decision_id"]
             ctx = F.Context(player=job.player, adapter=adapter, cfg=self.cfg, run_id=self.run_id, preflight=pf,
@@ -264,7 +268,8 @@ class Scheduler:
             except F.QuestionDone as exc:
                 result.update(outcome="stopped_waiting", reason=str(exc))
             except F.LineStop as exc:
-                result.update(outcome="line_stopped", reason=str(exc), notify_louis=exc.notify)
+                result.update(outcome="quota_5h_wait" if exc.quota_retry_at_utc else "line_stopped",
+                              reason=str(exc), notify_louis=exc.notify, quota_retry_at_utc=exc.quota_retry_at_utc)
                 if exc.notify:
                     with transaction(self.root):
                         append_record(ctx.line_status_log, {"type": "line_stop", "player": job.player,
