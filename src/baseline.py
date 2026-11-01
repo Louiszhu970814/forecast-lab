@@ -61,6 +61,10 @@ CLAUDE_MARKETPLACE_INDEX = "known_marketplaces.json"
 CLAUDE_PLUGIN_DIRECTORY_CACHE = "plugin-directory-cache-v2.json"
 # Per-marketplace keys that change on every refresh; the rest of each entry is content.
 CLAUDE_MARKETPLACE_REFRESH_KEYS = ("lastUpdated",)
+# Atomic-write temporaries of the two index files above, left behind when a refresh is interrupted
+# (observed 2026-11-01T12:50Z: plugin-directory-cache-v2.json.tmp.7a422f2e). Top level only.
+# Matched with fullmatch: "$" alone would also accept a trailing newline (GPT review).
+CLAUDE_PLUGIN_INDEX_TEMP = re.compile(r"(known_marketplaces|plugin-directory-cache-v2)\.json\.tmp\.[0-9A-Za-z]{1,32}")
 
 
 @dataclass(frozen=True)
@@ -72,6 +76,7 @@ class Source:
     category: str = CONTENT
     content_keys: tuple[str, ...] = ()
     exclude: tuple[str, ...] = ()  # sub-directories or files inventoried by another source
+    exclude_top_files: re.Pattern[str] | None = None  # regular top-level files never loaded by the CLI
     general_category: str = GENERAL  # how a change of the general part is classified
 
 
@@ -86,7 +91,8 @@ def default_sources(env: dict[str, str] | None = None) -> list[Source]:
                content_keys=CLAUDE_SETTINGS_CONTENT_KEYS),
         Source("claude.skills", "claude", "~/.claude/skills", "dir"),
         Source("claude.plugins", "claude", "~/.claude/plugins", "dir",
-               exclude=("store", CLAUDE_MARKETPLACE_INDEX, CLAUDE_PLUGIN_DIRECTORY_CACHE)),
+               exclude=("store", CLAUDE_MARKETPLACE_INDEX, CLAUDE_PLUGIN_DIRECTORY_CACHE),
+               exclude_top_files=CLAUDE_PLUGIN_INDEX_TEMP),
         # Which marketplaces are known is content; only their refresh time is informational.
         Source("claude.marketplace_index", "claude", f"~/.claude/plugins/{CLAUDE_MARKETPLACE_INDEX}",
                "marketplace_index", general_category=INFORMATIONAL),
@@ -180,7 +186,7 @@ def _unsafe_target(target: Path, root_real: Path, exclude: tuple[str, ...]) -> b
         or any(x in exclude for x in parts)
 
 
-def _hash_dir(root: Path, exclude: tuple[str, ...] = ()) -> dict[str, Any]:
+def _hash_dir(root: Path, exclude: tuple[str, ...] = (), exclude_top_files: re.Pattern[str] | None = None) -> dict[str, Any]:
     """Hash of sorted (relative path, kind, digest) entries.
 
     Private folders and credential files are not read (see PRIVATE_DIR, CREDENTIAL_FILE): their
@@ -211,6 +217,9 @@ def _hash_dir(root: Path, exclude: tuple[str, ...] = ()) -> dict[str, Any]:
             p = Path(dirpath) / name
             rel = str(p.relative_to(root))
             if rel in exclude:
+                continue
+            if (exclude_top_files is not None and Path(dirpath) == root and exclude_top_files.fullmatch(name)
+                    and not p.is_symlink() and p.is_file()):
                 continue
             if p.is_symlink():
                 target = p.resolve()
@@ -306,7 +315,7 @@ def inspect_source(src: Source, home: Path) -> dict[str, Any]:
             if not path.is_dir():
                 rec["error"] = "expected directory"
                 return rec
-            rec.update(_hash_dir(path, src.exclude))
+            rec.update(_hash_dir(path, src.exclude, src.exclude_top_files))
             if rec["unsafe_symlinks"]:
                 rec["error"] = "symlink points outside the source, into a private folder or credential file, or to a directory"
             elif rec.get("walk_errors"):

@@ -157,6 +157,37 @@ def test_marketplace_index_edge_cases_stay_conservative(tmp_path: Path) -> None:
     assert _decisions(b, _snap(home, tmp_path))["claude"] == "stop"
 
 
+def test_interrupted_index_refresh_temporaries_are_ignored_only_at_top_level(tmp_path: Path) -> None:
+    home = _make_home(tmp_path)
+    plugins = home / ".claude" / "plugins"
+    (plugins / "marketplaces" / "official").mkdir(parents=True)
+    a = _snap(home, tmp_path)
+    (plugins / "plugin-directory-cache-v2.json.tmp.7a422f2e").write_text("{}")
+    (plugins / "known_marketplaces.json.tmp.abc123").write_text("{}")
+    assert _decisions(a, _snap(home, tmp_path))["claude"] == "ok"
+    # Anything else stops the line: deeper copies, other names, and symlinks that look like temporaries.
+    assert _decisions(a, _snap(home, tmp_path))["claude"] == "ok"
+    (plugins / ("plugin-directory-cache-v2.json.tmp." + "a" * 32)).write_text("{}")
+    assert _decisions(a, _snap(home, tmp_path))["claude"] == "ok"
+    for bad in (plugins / "marketplaces" / "official" / "plugin-directory-cache-v2.json.tmp.1",
+                plugins / "plugin-directory-cache-v2.json.tmp.bad.js", plugins / "hooks.json.tmp.1",
+                plugins / "plugin-directory-cache-v2.json.tmp.", plugins / ("plugin-directory-cache-v2.json.tmp." + "a" * 33),
+                plugins / "plugin-directory-cache-v2.json.tmp.a\n", plugins / "plugin-directory-cache-v2.json.tmp.é"):
+        bad.write_text("{}")
+        assert _decisions(a, _snap(home, tmp_path))["claude"] == "stop", bad.name
+        bad.unlink()
+    link = plugins / "plugin-directory-cache-v2.json.tmp.ln"
+    link.symlink_to(plugins / "marketplaces" / "official")
+    assert _decisions(a, _snap(home, tmp_path))["claude"] == "stop"
+    link.unlink()
+    link.symlink_to(plugins / "plugin-directory-cache-v2.json.tmp.7a422f2e")  # symlink to a regular file
+    assert _decisions(a, _snap(home, tmp_path))["claude"] == "stop"
+    link.unlink()
+    (plugins / "plugin-directory-cache-v2.json.tmp.dir").mkdir()  # same-named directory is walked
+    (plugins / "plugin-directory-cache-v2.json.tmp.dir" / "x.js").write_text("x")
+    assert _decisions(a, _snap(home, tmp_path))["claude"] == "stop"
+
+
 def test_plugin_state_only_observed_run_keys_are_informational(tmp_path: Path) -> None:
     # claude 2.1.316 rewrites usage-rows-queued in ~/.claude/plugins/store on every run (M1 acceptance).
     home = _make_home(tmp_path)

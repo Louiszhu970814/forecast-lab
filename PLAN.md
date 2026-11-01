@@ -1,6 +1,6 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.21（v1.0 凍結後的修訂，見 §16；M2 自動載入測試與基準核准、M3 離線開發、機器人帳號建立）
+> 版本：v1.22（v1.0 凍結後的修訂，見 §16；M2 自動載入測試與基準核准、M3 離線開發、機器人帳號建立）
 > 初稿：Claude
 > 本回合整合者：Claude（v1.10 起；v1.5～v1.9 由 Codex 整合）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
@@ -1634,6 +1634,7 @@ view_image                  stable true
 
 ## 16. 變更紀錄
 
+- **v1.22**（2026-11-01）：全域基準在 `~/.claude/plugins` 頂層，忽略中斷的刷新留下的索引暫存檔（`known_marketplaces.json.tmp.*`、`plugin-directory-cache-v2.json.tmp.*`；只限一般檔案，以 `fullmatch` 比對）。實測 2026-11-01T12:50Z 留下了 `plugin-directory-cache-v2.json.tmp.7a422f2e`，claude 線因此停線。Claude 實作，GPT 唯讀審查：一項 blocking（`$` 會接受結尾換行）已修正並補邊界測試。須由 Louis 重新核准基準。
 - **v1.21**（2026-11-01）：M2-W9，支援 Google AI Ultra 的 agy 額度結構（D75，§7.7）。GPT 實作、Claude 審查。`budget_v1` → `budget_v2`，`scheduler_v4` → `scheduler_v5`，`reconciliation_pipeline_v3` → `reconciliation_pipeline_v4`，`m2_report_v1` → `m2_report_v2`。
   - 並行 agy 偵測由「永遠是 False 的參數」改為實際掃描程序；准入、預算、驗收與 autoload 四個入口共用 `quota.py` 的判斷，autoload 門檻改為「保留線 + 5%」。
   - `forecast_pipeline_v6` 不升版：沒有改 prompt、模型參數、篩題或整合，升版會讓進行中的 M2 題集無法通過單一版本檢查（與 v1.18 相同處理）。
