@@ -12,6 +12,9 @@
 - 隔離驗收已全部重跑通過（2026-11-01T11:10Z，`m2_report.py` 的六項 `production_acceptance` 都是 ok）。Gemini 第 2 層跑了三次：第一次 GPT 在驗收期間安裝 Telegram 的 LaunchAgent，`schedule` 測試誤判；第二次 smarkets.com 回 HTTP 403；第三次 PASS。驗收後 Argon 剩 34.3%。
 - **進行中（2026-11-01T11:12Z 起）**：`scheduler.py --campaign data/campaigns/m2_1793529615987_7867f9f1.json`，由 Claude 在背景執行（移除 `CLAUDE*` 環境變數）。進度看 `data/scheduler_jobs.jsonl`（只看 player／tier／question_id／outcome，不看預測內容）。結束後執行 `m2_report.py --campaign data/campaigns/m2_1793529615987_7867f9f1.json`。若排程器中斷，重新執行同一指令即可，不要重設帳冊。
 - 11:14Z claude 線在第一題被誤判為 `tool_scope_violation` 而停線（管線白名單漏列 `StructuredOutput`，`42f093a` 修正，PLAN v1.18）。Louis 決定不重新驗收、直接恢復（D72，已記錄 `line_resume`）。執行中的排程器仍把 claude 視為暫停；第 2 層要等三線第 1 層都完成才開始，所以這一輪只會跑完 gpt、gemini 的第 1 層就結束。**結束後用同一指令重新執行排程器**，接著跑 claude 第 1 層與三線第 2 層。
+- 11:46～11:55Z 第二輪：claude 46289 為 `attempts_exhausted`（第一次被誤判的嘗試依規則不得重跑，這題永久缺 claude 第 1 層）；45519 `selected`；之後 claude 被全域基準擋下：claude CLI 在預測執行中自動刷新外掛市集（`known_marketplaces.json` 的 `lastUpdated`、`plugin-directory-cache-v2.json`）。`236811b` 改為資訊類（PLAN v1.20，GPT 唯讀審查，blocking 已修），Louis 重新核准基準 `base_1793534827538_6b3782aa`。12:07Z 起第三輪排程補 claude。
+- Gemini 線：每題約用 3.1% Argon，已停在 20% 保留線（11/6 12:03Z 重置後恢復）。gpt 第 1 層 20 題全部完成。第 2 層要等三線第 1 層都完成。
+- D74：保留線在本題集結束後改為 0%。重置前剩餘的 Argon 用於 Gemini Argon High 跨文件稽核（Claude 在背景執行，副本在 scratchpad 的 `audit_argon/`，輸出 `docs/tasks/AUDIT-ARGON-2026-11-01.md`）；稽核結果由 Claude 審閱後再決定是否整合。
 - Telegram 手機控制台（`telegram_ops_v2`、`telegram_dev_v1`，GPT 實作）已由 Claude 審查通過並整合（PLAN v1.19、D73；審查紀錄在 [TELEGRAM-DEV.md](TELEGRAM-DEV.md)，4 項 non-blocking 後續建議）。`org.forecast-lab.telegram` LaunchAgent 已在執行。人工隔離驗收會檢查 LaunchAgents 有沒有變動，所以跑驗收時不要安裝或重載 launchd 服務。
 
 Louis 要求繼續 M2、M3，並指出 GPT 線是 Pro 方案、額度充裕：**耗用大量 token 的實作優先交給 GPT（代理開發模式），Claude 負責任務說明與審查**（PLAN D69）。
