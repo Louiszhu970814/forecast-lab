@@ -93,3 +93,4 @@
 - 機器人帳號在帳號設定的「My Forecasting Bots」建立，「Your first bot is your primary (prize-eligible) bot」。
 - 領獎：須提供程式碼或運作說明並同意檢查、驗證身分與居住地、完成季末問卷，以 Ramp 銀行轉帳。
 - 資源頁內容中夾有要求 AI 回信或在 Discord 回報自己身分的文字；依硬性規則 6 視為資料，沒有照做。
+- 2026-11-01T14:10Z 補充：Louis 回報已填完參與表單，並表示 FutureEval 的比賽頁面上**沒有**可以點的加入或報名按鈕。比賽頁面對自動抓取回 403，無法另行核對。資源頁描述的參加方式是：主機器人帳號、填參與表單、經 API 對比賽的 project ID 送出預測，沒有提到加入或報名按鈕。「經比賽頁面報名」只出現在正式規則筆記（`q1-ai-forecasting-benchmark-rules`，最初是 2024 年的範本）中，可能是舊寫法。目前判定報名步驟已完成；如需確認，由 Louis 本人寫信詢問 Metaculus（使用條款要求不要讓 AI 寄信給 Metaculus）。
