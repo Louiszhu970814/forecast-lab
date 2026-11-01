@@ -142,6 +142,40 @@ def test_attempt_cap_records_skips_without_blocking_other_lines(environment):
     assert sum(p == "gpt" for p, _, _ in tracker["calls"]) == 4
     assert any(r["outcome"] == "budget_skipped" for r in read_records(scheduler.jobs_log))
     assert scheduler.run()["jobs_completed"] == 0
+    # D80: questions never run because of the cap are a coverage gap, not invalid outputs.
+    import m2_report
+    line = m2_report.build(scheduler.root, scheduler.campaign, gates={})["lines"]["claude"]
+    skipped = line["budget_skipped_tier1_questions"]
+    assert skipped and line["denominator"] == line["campaign_questions"] - len(skipped)
+    assert line["valid_fraction"] == line["selected_tier1_questions"] / line["denominator"]
+    assert line["coverage_fraction"] == line["selected_tier1_questions"] / line["campaign_questions"]
+    assert line["denominator"] < line["campaign_questions"]
+
+
+def test_budget_skip_denominator_counts_started_and_invalid_attempts(tmp_path):
+    import m2_report
+    campaign = {"campaign_id": "d80", "questions": [{"question_id": q} for q in (1, 2, 3, 4)]}
+    def job(q, outcome, campaign_id="d80"):
+        append_record(tmp_path / "scheduler_jobs.jsonl", {"type": "scheduler_job_finished", "campaign_id": campaign_id,
+                      "player": "gemini", "tier": 1, "question_id": q, "outcome": outcome})
+    job(1, "budget_skipped")                       # never run: excluded
+    job(2, "budget_skipped")                       # skipped, then started without a result: counted
+    append_record(tmp_path / "forecast_attempt_starts.jsonl", {"player": "gemini", "tier": 1, "question_id": 2,
+                  "attempt_id": "a2", "started_at_utc": "2026-11-01T00:00:00Z"})
+    job(3, "budget_skipped")                       # an invalid attempt exists: counted
+    append_record(tmp_path / "forecasts.jsonl", {"type": "forecast_attempt", "attempt_id": "a3", "question_id": 3,
+                  "question_snapshot_id": "qs3", "prev_attempt_id": None, "player": "gemini", "tier": 1,
+                  "validation_status": "schema_failed", "attempt_kind": "initial",
+                  "started_at_utc": "2026-11-01T00:00:00Z", "finished_at_utc": "2026-11-01T00:01:00Z"})
+    job(4, "selected", campaign_id="other")        # another campaign's skip does not apply
+    job(4, "budget_skipped", campaign_id="other")
+    line = m2_report.build(tmp_path, campaign, gates={})["lines"]["gemini"]
+    assert line["budget_skipped_tier1_questions"] == [1]
+    assert line["denominator"] == 3 and line["campaign_questions"] == 4
+    job(1, "selected")                             # a later run supersedes the skip
+    append_record(tmp_path / "forecast_attempt_starts.jsonl", {"player": "gemini", "tier": 1, "question_id": 1,
+                  "attempt_id": "a1", "started_at_utc": "2026-11-01T01:00:00Z"})
+    assert m2_report.build(tmp_path, campaign, gates={})["lines"]["gemini"]["denominator"] == 4
 
 
 def test_priority_edf_and_urgent_minibench_override():

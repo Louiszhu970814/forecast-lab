@@ -25,7 +25,7 @@ from flab.ledger import transaction, read_complete
 from flab.timeutil import parse_iso, to_iso, utc_now
 from poll_questions import latest_snapshots
 
-VERSION = "m2_report_v2"
+VERSION = "m2_report_v3"
 
 
 def readiness(acceptance_log=baseline.ACCEPTANCE_LOG, *, versions=None):
@@ -85,10 +85,25 @@ def build(root: Path, campaign: dict, *, gates: dict, now=None):
     trusted = {r["attempt_id"]: d for r in source if r.get("player") == "gemini"
                and r.get("model_check") == "verified" and (d := observer._drop(r, quota_rows)) is not None}
     layouts = {r.get("attempt_id"): quota.argon_buckets(r).layout for r in quota_rows if r.get("when") == "before"}
+    # D80: tier-1 validity counts only questions this line actually attempted. A question whose
+    # latest tier-1 job was budget_skipped and that has no tier-1 attempt was never run, so it is
+    # reported as a coverage gap, not as an invalid output.
+    latest_job = {}
+    for r in jobs:
+        if r.get("type") == "scheduler_job_finished" and r.get("campaign_id") == campaign["campaign_id"] and r.get("tier") == 1:
+            latest_job[(r.get("player"), r.get("question_id"))] = r.get("outcome")
     for player in PLAYERS:
         own = [r for r in source if r.get("player") == player]
-        lines[player] = {"selected_tier1_questions": len(selected[player]), "denominator": len(ids),
-            "valid_fraction": len(selected[player]) / len(ids),
+        # A started attempt counts even without a result (GPT review): it was run, not skipped.
+        # Attempts are matched by question ID across campaigns, like the rest of this report.
+        attempted = {r["question_id"] for r in [*own, *(s for s in starts if s.get("player") == player)]
+                     if r.get("tier", 1) == 1}
+        skipped = sorted(q for q in ids if q not in attempted and latest_job.get((player, q)) == "budget_skipped")
+        denominator = len(ids) - len(skipped)
+        lines[player] = {"selected_tier1_questions": len(selected[player]), "denominator": denominator,
+            "valid_fraction": len(selected[player]) / denominator if denominator else 0.0,
+            "budget_skipped_tier1_questions": skipped, "campaign_questions": len(ids),
+            "coverage_fraction": len(selected[player]) / len(ids),
             "errors": dict(Counter(r.get("error_type") for r in own if r.get("error_type"))),
             "quota_exhaustion_observed": player in gates.get("acceptance_quota_error_players", []) or any(r.get("player") == player and r.get("error_type") == "quota_exhausted"
                                                for r in attempts)}
