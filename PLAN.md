@@ -1,6 +1,6 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.24（v1.0 凍結後的修訂，見 §16；M2 量測、M3 離線開發、MiniBench 改為驗收通過即參賽）
+> 版本：v1.25（v1.0 凍結後的修訂，見 §16；M2 量測、M3 離線開發、MiniBench 改為驗收通過即參賽）
 > 初稿：Claude
 > 本回合整合者：Claude（v1.10 起；v1.5～v1.9 由 Codex 整合）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
@@ -1646,11 +1646,13 @@ view_image                  stable true
 | D75 | 2026-11-01 | Louis 將 Google 帳號升級為 AI Ultra。agy 的額度改為 Argon 與 Flash／Pro 共用 `Gemini Models` 組的週額度與 5 小時額度（§7.7）。保留線改套用在 `gemini-weekly`，並新增 5 小時額度檢查。偵測到其他 agy 使用時：另一個無互動的 `agy -p` 在執行就暫停；互動式 agy 或 Antigravity 桌面 app 開著時照常執行，只把成本標為不確定，M2 的 Gemini 成本只用可信的嘗試估算 | 本輪指示與選擇；M2-W9 實作 |
 | D76 | 2026-11-01 | Louis 希望參加 Market Pulse 26Q4（project 33131），以機器人身分參賽；Louis 確認新的機器人帳號沒有在該賽提交過預測。Louis 也接受 Metaculus Cup（33108）採 AI 協助研究、本人判斷並手動提交的人類賽方式（§8）。Market Pulse 要先支援數值題與題組、完成該賽的規則核對與專屬送出契約，才能加入白名單；Cup 的 `advise.py` 與私人 Telegram 參考報告尚未實作 | 本輪指示（GPT 記錄，`docs/tasks/EXPAND-TOURNAMENTS.md`、`docs/tournament_checks/market-pulse-26q4.md`、`metaculus-cup-fall-2026.md`）。Louis 以人類身分參加 Cup 期間，機器人是否仍可把 Cup 當試驗場地送出，須先核對通用規則的單次參賽限制 |
 | D77 | 2026-11-01 | Louis 確認 MiniBench 每輪獨立計分後，取消 M3「在試驗場地連續 14 天」的固定日數門檻：§10 M3 的必要驗收通過、Louis 在 §15 核准後，就進入 MiniBench，第一輪同時取得實戰回饋並爭取獎金。其他必要驗收全部保留，不另設 48／72 小時等待期。主賽的 M4／M5 前置條件與 D49 不變 | 本輪指示（GPT 記錄於 §14.2、`docs/tournament_checks/futureeval.md` 補記）。官方規則每題只送一次、禁止人為介入，仍然適用 |
+| D78 | 2026-11-01 | Louis 核准切換到 `trial`，使用機器人帳號 311763（`approved_bot_id`）。因為固定 M2 題集的排程器只能在 `local` 執行，切換延到 M2 題集 `m2_1793529615987_7867f9f1` 量測結束後才進行；真實 Transport 完成並通過審查之前，`trial` 也不會實際寫入任何資料。launchd 週期等前置條件都完成後才安裝，安裝時由 Louis 當場核准權限提示 | 本輪指示。`trial` 只送到試驗場地（硬性規則 2）；Cup 是否保留為試驗場地待 Louis 決定（D76） |
 
 ---
 
 ## 16. 變更紀錄
 
+- **v1.25**（2026-11-01）：記錄 Louis 核准 `trial`（D78），切換延到 M2 量測結束後；補記 FutureEval 的必填參與表單與比賽頁面報名（`docs/tournament_checks/futureeval.md`）。不改程式或預測行為。
 - **v1.24**（2026-11-01）：整合 Louis 的參賽決定（D76、D77）。§10 M3 的第二項由「試驗場地連續 14 天」改為「以 `trial` 由 launchd 無人介入地完成端到端流程，不設固定天數」；新增第七項（MiniBench 系列白名單與每輪 ID 核對、規則核對經 Louis 核准）；第五項補上每週上限與跨週運作。§3.6 新增 MiniBench 的進入條件與系列白名單；§10 M4 註明第一輪即正式參賽與觀察期。不改程式或預測行為。
 - **v1.23**（2026-11-01）：M3-W8，修正 Gemini 稽核（`docs/tasks/AUDIT-ARGON-2026-11-01.md`）中經 Claude 核對屬實的 trial 前契約錯誤。GPT 實作、Claude 審查。`submit_v4` → `submit_v5`，`scheduler_v5` → `scheduler_v6`，`cycle_v3` → `cycle_v4`，`continuous_v3` → `continuous_v4`，`coverage_sim_v2` → `coverage_sim_v3`；`forecast_pipeline_v6` 不變。
   - 送出端的 trial 場地改用官方 API 動態發現（與輪詢共用 `continuous.current_tournaments()`），排除主賽與所有 ongoing／upcoming MiniBench 輪次；發現失敗不退回靜態設定，`live` 仍只用靜態白名單。原本在真實設定下，所有 trial 送出都會被拒絕。

@@ -26,8 +26,9 @@
 | 項目 | 狀態 | 證據或缺口 |
 |---|---|---|
 | 一、機器人帳號 | ✅ | Metaculus ID 311763，`is_bot`、`is_primary_bot`、`api_forecasting_access=enabled`（D70） |
-| 一、參賽表單 | ❌👤 | API 的 `registered_campaigns` 是空的；請 Louis 填寫 FutureEval／MiniBench 的報名 |
-| 一、核准切換到 `trial` | ❌👤 | `config/submit_mode.json` 仍是 `local`、沒有 `approved_bot_id` |
+| 一、參與表單（必填 3 題） | ❌👤 | https://forms.gle/aQdYMq9Pisrf1v7d8 的第一部分（`futureeval.md` 2026-11-01 補記） |
+| 一、在比賽頁面報名 | ❌👤 | 正式規則要求經比賽頁面報名並接受條款；請在 FutureEval 頁面找報名按鈕，並確認 MiniBench 是否需要另外報名。目前 API 的 `registered_campaigns` 是空的 |
+| 一、核准切換到 `trial` | 🟡 | Louis 已核准（D78，2026-11-01T13:50Z）；等 M2 量測結束後才切換，因為固定題集的排程器只能在 `local` 執行 |
 | 二、`trial` 端到端（launchd 無人介入地完成抓題、預測、送出、留言、讀回） | ❌ | 需要真實 Transport（見 V15）、持續模式的題集設定，以及安裝 launchd 週期（需 Louis 核准） |
 | 三、送出測試（錯題、錯帳號、跨賽、修訂、同步題、已關閉、平台已有預測、回執遺失、讀回失敗、重啟、只補留言、停用開關） | 🟡 | 離線狀態機與假 Transport 測試已涵蓋（M3-W1、W6、W7、W8）；真實 API 上的驗證要等 V15 |
 | 四、覆蓋率模擬（看結果前固定期間與分母，已支援題型 ≥ 90%） | 🟡 | 模擬器 `coverage_sim_v3` 已完成；尚未用真實的開題時間與 M2 實測耗時登記並執行 |

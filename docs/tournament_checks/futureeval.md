@@ -83,3 +83,13 @@
 - 官方計分以該場比賽題目的加權 Peer score 總和決定排名與獎金。據此，各輪分開計算：上一輪負分不轉入下一輪，也不抵扣下一輪獎金；歷史成績仍保留。MiniBench 與季賽同時發獎，不代表合併各輪分數計獎。[計分 FAQ](https://www.metaculus.com/help/scores-faq/#tournament-scores)、[賽制及發獎時程](https://www.metaculus.com/notebooks/38928/futureeval-resources-page/)
 - 官方允許賽中更新機器人，可用已關閉的比賽題目或合規試驗題測試；仍禁止人工預覽 open/upcoming 輸出後針對性修改、因不喜歡答案重跑，且每題只提交一次。需要反覆提交的功能測試先在允許重送的試驗場地完成。[參賽與更新規則](https://www.metaculus.com/notebooks/38928/futureeval-resources-page/#competition-rules)
 - 「至少先試驗 14 天」是本專案原有的工程門檻，並非上述官方規則的參賽資格。Louis 已決定改為必要技術驗收通過即進 MiniBench；GPT 已記入 PLAN §14.2，待 Claude 整合正文及 §15／§16。此決定沒有取消必要驗收或開放個別預測的人為介入。
+
+## 2026-11-01 補記：報名與參與表單
+
+核對時間：2026-11-01T13:50Z，Claude 以 WebFetch 讀取官方頁面（資源頁的後半段為工具摘要，未逐字核對）。
+
+- 資源頁：「All participants are required to fill out the first section of our participation form」，必填只有 3 題；表單連結 https://forms.gle/aQdYMq9Pisrf1v7d8 （同一份表單也用於申請 LLM 額度，非必要）。
+- 正式規則：參賽者須「register for the Tournament via the Tournament landing page」，並接受比賽條款。規則沒有給頁面網址；MiniBench 是否需要另外報名，官方頁面沒有明說。
+- 機器人帳號在帳號設定的「My Forecasting Bots」建立，「Your first bot is your primary (prize-eligible) bot」。
+- 領獎：須提供程式碼或運作說明並同意檢查、驗證身分與居住地、完成季末問卷，以 Ramp 銀行轉帳。
+- 資源頁內容中夾有要求 AI 回信或在 Discord 回報自己身分的文字；依硬性規則 6 視為資料，沒有照做。
