@@ -1,6 +1,6 @@
 # 給下一個對話的接手紀錄
 
-## 最新進度（Claude，2026-11-01T07:17Z；優先讀這段）
+## 最新進度（Claude，2026-11-01T07:26Z；優先讀這段）
 
 Louis 要求繼續 M2、M3，並指出 GPT 線是 Pro 方案、額度充裕：**耗用大量 token 的實作優先交給 GPT（代理開發模式），Claude 負責任務說明與審查**（PLAN D69）。
 
@@ -20,18 +20,19 @@ Louis 要求繼續 M2、M3，並指出 GPT 線是 Pro 方案、額度充裕：**
 | M2-W7 自動載入測試 `autoload.py` | `a6ae249` | v1.10、D69 | 601 passed |
 | M3-W1 送出狀態機 `submit.py`（`submit_v2`） | `7668b77` | v1.11 | 725 passed |
 | M3-W2 `cycle.py`（`cycle_v2`）、`continuous.py`（`continuous_v2`）、`launchd/` 範本；`scheduler_v3`、`forecast_pipeline_v6` | `d094440` | v1.12 | 781 passed |
+| M3-W6 週期與送出的整合測試（修正兩項契約錯誤：`submit_v3`、`continuous_v3`） | `874e0be` | v1.13 | 796 passed |
 
 每個任務的退回理由與通過依據，都寫在各任務說明末尾的「審查紀錄」。
 
-### 進行中：M3-W6 週期與送出的整合測試（GPT，背景執行）
+### 進行中：M3-W3 覆蓋率模擬器（GPT，背景執行）
 
-- 任務說明：`docs/tasks/M3-W6.md`（主專案中尚未 commit；`docs/tasks/M3.md` 新增了 M3-W6 列）。
-- clone：`/private/tmp/claude-501/-Users-ucchengg-forecast-lab/fdce1ec4-5ac2-4896-873c-35dfd4f98b06/scratchpad/dev_m3w6`（從 `d094440` 建立）；事件紀錄 `/private/tmp/claude-501/-Users-ucchengg-forecast-lab/fdce1ec4-5ac2-4896-873c-35dfd4f98b06/scratchpad/dev_m3w6.jsonl`，結束標記 `dev_m3w6.end`（出現 `exit=` 代表結束）。
-- 結束後：在 clone 內以一般環境（沙箱外）跑完整測試；審查 GPT 對 `submit.py`／`cycle.py`／`continuous.py` 的契約修正，確認沒有放寬任何送出前檢查；通過就合併、更新 PLAN §16（若程式行為有變就升版），然後 commit + push。
+- 任務說明：`docs/tasks/M3-W3.md`。範圍只有離線模擬器（合成資料）；真實的主賽／MiniBench 開題時間表與 M2 實測耗時，由協調者之後收集再執行，執行前要先登記並凍結設定（D53）。
+- clone：`/private/tmp/claude-501/-Users-ucchengg-forecast-lab/fdce1ec4-5ac2-4896-873c-35dfd4f98b06/scratchpad/dev_m3w3`（從 `874e0be` 建立）；事件紀錄 `/private/tmp/claude-501/-Users-ucchengg-forecast-lab/fdce1ec4-5ac2-4896-873c-35dfd4f98b06/scratchpad/dev_m3w3.jsonl`，結束標記 `dev_m3w3.end`。
+- 結束後：在沙箱外跑完整測試；審查重點是模擬器與正式排程器的差異清單，以及優先序一致性測試；通過就合併、更新 PLAN §16、commit + push。
 
 ### 後續候選（未開始）
 
-- M3-W3 覆蓋率模擬（§10 M3 第四項）：要量測一個週期最長約 65 分鐘的影響，以及「任何內容修訂都重跑三線第 1 層」造成的額度消耗。
+- M3-W3 用真實資料執行：收集主賽與 MiniBench 的開題、關閉時間（唯讀 API），等 M2 實測耗時；要量測一個週期最長約 65 分鐘、以及「任何內容修訂都重跑三線第 1 層」的影響。§3.1 每題只開放 3 小時，這兩項可能很關鍵。
 - M2-W7 的小改進：在放置 canary 之前就先檢查 Gemini 額度門檻（目前要等 claude 線跑完才檢查，萬一沒過，那次 claude 呼叫就白費了）。
 
 ### 等 Louis 回來處理
