@@ -153,7 +153,8 @@ def record_snapshots(snaps: Iterable[dict[str, Any]], *, log: Path = QUESTIONS_L
 
 def poll(client: MetaculusClient, venue: str, *, metadata_only: bool = False,
          questions_log: Path = QUESTIONS_LOG, poll_log: Path = POLL_LOG,
-         exclude: TournamentIndex | None = None, tournaments: dict[str, Any] | None = None) -> dict[str, Any]:
+         exclude: TournamentIndex | None = None, tournaments: dict[str, Any] | None = None,
+         seen_question_ids: set[int] | None = None) -> dict[str, Any]:
     tournament_id = resolve_venue(venue, tournaments)
     polled_at = to_iso(utc_now())
     # Tournament metadata also covers upcoming questions so trial venues can exclude their copies (D53).
@@ -169,6 +170,8 @@ def poll(client: MetaculusClient, venue: str, *, metadata_only: bool = False,
                        "question_type": snap["question_type"], "status": snap["status"],
                        "title_key": title_key(snap.get("title")), **{k: snap.get(k) for k in TIME_FIELDS}})
         reason = is_synced_copy(snap, exclude) if exclude else None
+        if seen_question_ids is not None and snap["question_id"] in seen_question_ids:
+            reason = reason or "already polled through another allowed venue"
         if reason:
             skipped.append({"post_id": snap["post_id"], "question_id": snap["question_id"], "reason": reason})
             continue

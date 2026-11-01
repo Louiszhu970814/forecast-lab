@@ -156,7 +156,8 @@ def select_inputs(snapshot: dict[str, Any], attempts: list[dict[str, Any]], *, s
     """First valid per player/tier; final uses eligible tier 2, otherwise eligible tier 1.
 
     A first valid answer later rejected for contamination or a revised snapshot does not free up
-    its slot for another answer. The caller must pass the full relevant append-ordered history.
+    its slot for another answer. Continuous queues explicitly set forecast_scope=snapshot after
+    a revision decision. The caller must still pass the full history for dependency/audit propagation.
     """
     if stage not in ("tier1", "final"):
         raise ValueError("stage must be tier1 or final")
@@ -165,6 +166,8 @@ def select_inputs(snapshot: dict[str, Any], attempts: list[dict[str, Any]], *, s
     first: dict[tuple[str, int], dict[str, Any]] = {}
     for rec in attempts:
         if rec.get("type") != "forecast_attempt" or rec.get("question_id") != snapshot["question_id"]:
+            continue
+        if snapshot.get("forecast_scope") == "snapshot" and rec.get("question_snapshot_id") != snapshot["snapshot_id"]:
             continue
         if rec.get("player") not in PLAYERS or type(rec.get("tier")) is not int or rec["tier"] not in (1, 2):
             raise ValueError("unknown player or tier in question history")

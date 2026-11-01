@@ -27,7 +27,7 @@ from flab.jsonl import append_record, read_records
 from flab.ledger import transaction, read_complete
 from flab.timeutil import parse_iso, to_iso
 
-VERSION = "reconciliation_pipeline_v2"
+VERSION = "reconciliation_pipeline_v3"
 PROMPT_VERSION = "reconcile_v1"
 SUMMARY_FIELDS = ("probability", "option_probabilities", "reasoning_summary", "key_factors",
                   "base_rate", "sources", "market_refs")
@@ -152,7 +152,7 @@ def run(ctx: F.Context, snapshot: dict[str, Any], *,
     bundles_log, runs_log, aggregates_log = (root / name for name in
         ("reconciliation_inputs.jsonl", "reconciliation_runs.jsonl", "aggregates.jsonl"))
     with F.Lock(root / f"forecast.{ctx.player}.lock"):
-        if load_submit_mode().get("mode") != "local" or not ctx.preflight.ok \
+        if (load_submit_mode().get("mode") != "local" and not ctx.continuous) or not ctx.preflight.ok \
                 or ctx.preflight.tier != 2 or ctx.preflight.player != ctx.player:
             raise F.PreflightError("local mode and a passing tier-2 preflight are required")
         if ctx.cfg["players"][ctx.player]["tier2"].get("subagents_enabled") is not False:
@@ -188,6 +188,8 @@ def run(ctx: F.Context, snapshot: dict[str, Any], *,
             records, events = load()
             attempts, view = state(records, events)
             past = F.history(ctx.forecasts_log, ctx.player, snapshot["question_id"], tier=2)
+            if ctx.continuous:
+                past = [r for r in past if r.get("question_snapshot_id") == snapshot["snapshot_id"]]
             # An excluded first valid answer never frees a slot for a different tier-2 answer.
             if any(r.get("validation_status") == V.VALID for r in past):
                 selected, _ = A.select_inputs(snapshot, attempts, stage="final", audit_events=view)
@@ -222,7 +224,8 @@ def run(ctx: F.Context, snapshot: dict[str, Any], *,
                 if deadline is None or (deadline - ctx.now()).total_seconds() <= estimate:
                     raise F.QuestionDone("insufficient time for conservative tier-2 completion estimate")
                 bundles = [r for r in _read(bundles_log) if r.get("player") == ctx.player
-                           and r.get("question_id") == snapshot["question_id"]]
+                           and r.get("question_id") == snapshot["question_id"]
+                           and (not ctx.continuous or r.get("question_snapshot_id") == snapshot["snapshot_id"])]
                 if len(bundles) > 1:
                     raise ValueError("multiple frozen input bundles for one line/question")
                 if past and not bundles:

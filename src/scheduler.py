@@ -1,7 +1,8 @@
-"""Bounded, local-only cross-question scheduler for registered M2 campaigns.
+"""Bounded cross-question scheduler for fixed M2 and continuous M3 campaigns.
 
 One scheduler instance, at most one CLI per line; no submission or launchd installation.
-Campaign selection/caps are frozen before outputs. A missing approval/cap never becomes a waiver.
+Fixed campaigns remain local-only; cycle.py owns continuous registration and publication.
+A missing approval/cap never becomes a waiver.
 """
 from __future__ import annotations
 
@@ -12,6 +13,7 @@ import json
 from concurrent.futures import ThreadPoolExecutor, wait, FIRST_COMPLETED
 from dataclasses import dataclass
 from datetime import datetime
+from contextlib import nullcontext
 from pathlib import Path
 from typing import Any, Callable
 
@@ -30,7 +32,7 @@ from flab.ledger import transaction, read_complete
 from flab.timeutil import parse_iso, to_iso, utc_now
 from poll_questions import latest_snapshots
 
-VERSION = "scheduler_v1"
+VERSION = "scheduler_v3"
 TERMINAL = {"selected", "already_selected", "prior_answer_excluded", "output_excluded", "attempts_exhausted",
             "schema_failed", "semantic_failed", "parse_failed", "invalid_output", "not_candidate", "not_admitted", "budget_skipped"}
 
@@ -113,13 +115,16 @@ class Scheduler:
                  preflight: Callable[[str, int, Any], F.Preflight] | None = None,
                  context_extra: Callable[[str], dict] | None = None,
                  now: Callable[[], datetime] = utc_now,
-                 acceptance_log: Path = baseline.ACCEPTANCE_LOG):
+                 acceptance_log: Path = baseline.ACCEPTANCE_LOG,
+                 continuous: bool = False, execution_deadline: datetime | None = None):
         if snapshots is None:
             from m2_campaign import SafeSnapshots
             from metaculus import MetaculusClient
             from flab.envfile import get_secret
             from flab.workdir import PROJECT_ROOT
             snapshots = SafeSnapshots(MetaculusClient(get_secret("METACULUS_TOKEN", PROJECT_ROOT / ".env")), root, campaign)
+        self.continuous, self.execution_deadline = continuous, execution_deadline
+        self.snapshot_ids = {}
         self.root, self.campaign, self.provider, self.now = root, campaign, snapshots, now
         self.cfg, self.policy = load_run_config(), load_quota_policy()
         self.loader, self.pf, self.extra = adapter_loader, preflight, context_extra or (lambda _: {})
@@ -137,6 +142,10 @@ class Scheduler:
             return attempts, aggregates, events, graph.attempt_audit_view(events)
 
     def _terminal(self, qid, player, tier, attempts, rows):
+        if self.continuous:
+            sid = self.snapshot_ids.get(qid)
+            attempts = [r for r in attempts if r.get("question_snapshot_id") == sid]
+            rows = [r for r in rows if r.get("question_snapshot_id") == sid]
         if any(r["question_id"] == qid and r["player"] == player and r["tier"] == tier
                and r.get("validation_status") == "valid" for r in attempts):
             return True
@@ -145,12 +154,14 @@ class Scheduler:
         return latest.get("outcome") in TERMINAL
 
     def jobs(self, snapshots: dict[int, dict], *, paused: set[str], active: set[str]) -> list[Job]:
+        self.snapshot_ids = {qid: s["snapshot_id"] for qid, s in snapshots.items()}
         attempts, aggregates, events, view = self.state()
         with transaction(self.root):
             rows = read_complete(self.jobs_log)
         enabled = load_players_enabled()
         sealed = {a["question_id"] for a in aggregates if a.get("scheduler_campaign_id") == self.campaign["campaign_id"]
-                  and a.get("completion_status") == "complete_local"}
+                  and a.get("completion_status") == "complete_local"
+                  and (not self.continuous or a.get("question_snapshot_id") == self.snapshot_ids.get(a["question_id"]))}
         first, second = [], []
         unfinished_first = False
         for entry in self.campaign["questions"]:
@@ -182,8 +193,11 @@ class Scheduler:
         return sum(not self._terminal(q["question_id"], player, 1, attempts, rows) for q in self.campaign["questions"])
 
     def execute(self, job: Job) -> dict:
-        adapter = self.loader(job.player)
-        pf = self.pf(job.player, job.tier, adapter) if self.pf else F.preflight(job.player, cfg=self.cfg, tier=job.tier, adapter=adapter)
+        try:
+            adapter = self.loader(job.player)
+            pf = self.pf(job.player, job.tier, adapter) if self.pf else F.preflight(job.player, cfg=self.cfg, tier=job.tier, adapter=adapter, continuous=self.continuous)
+        except Exception as exc:
+            pf = F.Preflight(job.player, tier=job.tier, problems=["preflight error: " + type(exc).__name__])
         result = {"type": "scheduler_job_finished", "run_id": self.run_id, "version": VERSION,
                   "campaign_id": self.campaign["campaign_id"], "question_id": job.question_id,
                   "question_snapshot_id": job.snapshot["snapshot_id"], "player": job.player, "tier": job.tier,
@@ -197,6 +211,8 @@ class Scheduler:
                 return self.budget.reserve(request, pending_tier1=self._protected(job.player),
                     expected_new=self.campaign["expected_new_questions"], repair_reserve=self.campaign["repair_reserve"])
             def recheck():
+                if self.execution_deadline is not None and self.now() >= self.execution_deadline:
+                    raise F.QuestionDone("cycle time limit")
                 if hash_obj(load_run_config()) != self.campaign["run_config_sha256"] or hash_obj(load_quota_policy()) != self.campaign["quota_policy_sha256"]:
                     raise F.LineStop("campaign configuration changed during execution")
                 latest = self.provider().get(job.question_id)
@@ -215,13 +231,13 @@ class Scheduler:
                 tier=job.tier, now=self.now, forecasts_log=self.root / "forecasts.jsonl", audits_log=self.root / "audits.jsonl",
                 line_status_log=self.root / "line_status.jsonl", quota_log=self.root / "quota.jsonl", raw_root=self.root / "raw",
                 reconciliation=shared, before_attempt=before, recheck_inputs=recheck,
-                admission_outcome=self.budget.outcome, **self.extra(job.player))
+                admission_outcome=self.budget.outcome, continuous=self.continuous, **self.extra(job.player))
             try:
                 if job.tier == 2:
                     output = R.run(ctx, job.snapshot, admit=admit, estimated_completion_s=job.estimate_s)
                     # A denied upgrade is a recorded decision for this campaign, not a reason to
                     # consume repeated prompt permutations while waiting for more budget.
-                    if output.get("outcome") == "stopped_waiting":
+                    if output.get("outcome") == "stopped_waiting" and output.get("reason") != "cycle time limit":
                         output = {**output, "outcome": "not_admitted"}
                 else:
                     with F.Lock(self.root / f"forecast.{job.player}.lock"):
@@ -240,7 +256,8 @@ class Scheduler:
                     result["outcome"] = "budget_skipped"
                 if output.get("outcome") in ("timeout", "cli_error", "tool_denied", "incomplete"):
                     past = F.history(ctx.forecasts_log, job.player, job.question_id, job.tier)
-                    if any(r.get("attempt_kind") == "rerun" for r in past):
+                    if any(r.get("attempt_kind") == "rerun" and (not self.continuous or
+                           r.get("question_snapshot_id") == job.snapshot["snapshot_id"]) for r in past):
                         result.update(outcome="attempts_exhausted", last_error=output["outcome"])
             except F.QuestionDone as exc:
                 result.update(outcome="stopped_waiting", reason=str(exc))
@@ -260,7 +277,8 @@ class Scheduler:
             append_record(self.jobs_log, result)
         return result
 
-    def finalize(self, snapshots):
+    def finalize(self, snapshots, *, force=()):
+        self.snapshot_ids = {qid: s["snapshot_id"] for qid, s in snapshots.items()}
         with transaction(self.root):
             attempts, aggregates, events, view = self.state()
             jobs = read_complete(self.jobs_log)
@@ -268,7 +286,8 @@ class Scheduler:
             for entry in self.campaign["questions"]:
                 qid = entry["question_id"]
                 existing = next((a for a in aggregates if a.get("scheduler_campaign_id") == self.campaign["campaign_id"]
-                                 and a["question_id"] == qid and a.get("completion_status") == "complete_local"), None)
+                                 and a["question_id"] == qid and a.get("completion_status") == "complete_local"
+                                 and (not self.continuous or a.get("question_snapshot_id") == self.snapshot_ids.get(qid))), None)
                 if existing is not None:
                     # Crash after aggregate append must not permanently lose its comment.
                     snap = snapshots.get(qid)
@@ -279,7 +298,7 @@ class Scheduler:
                 if snap is None:
                     continue
                 deadline = F.decision_deadline(snap, self.cfg)
-                expired = deadline is not None and self.now() >= deadline
+                expired = qid in force or (deadline is not None and self.now() >= deadline)
                 first_done = all(not enabled[p] or self._terminal(qid, p, 1, attempts, jobs) for p in PLAYERS)
                 candidate = E.evaluate(snap, attempts, audit_events=view, now=self.now())
                 second_done = not candidate["escalation"]["candidate"] or all(
@@ -310,43 +329,57 @@ class Scheduler:
                        "error": str(exc), "at": to_iso(self.now())}
         append_record(self.root / "comments.jsonl", comment)
 
-    def run(self, *, max_jobs=180) -> dict:
-        if load_submit_mode().get("mode") != "local":
+    def run(self, *, max_jobs=180, lock_held=False, paused_players=()) -> dict:
+        if not self.continuous and load_submit_mode().get("mode") != "local":
             raise F.PreflightError("M2 scheduler only runs in local mode")
         if type(max_jobs) is not int or max_jobs <= 0:
             raise ValueError("max_jobs must be a positive integer")
-        with F.Lock(self.root / "scheduler.lock"):
-            register(self.root, self.campaign, now=self.now())
+        with nullcontext() if lock_held else F.Lock(self.root / "scheduler.lock"):
+            if not self.continuous:
+                register(self.root, self.campaign, now=self.now())
             self.budget.recover()
-            paused, active, results = set(), {}, []
+            paused, active, results = set(paused_players), {}, []
             started = to_iso(self.now())
             with ThreadPoolExecutor(max_workers=3) as pool:
                 while True:
                     snapshots = self.provider()
-                    if len(results) + len(active) < max_jobs:
+                    if (self.execution_deadline is None or self.now() < self.execution_deadline) and len(results) + len(active) < max_jobs:
                         jobs = self.jobs(snapshots, paused=paused, active={j.player for j in active.values()})
                         for job in jobs:
                             if job.player in {j.player for j in active.values()} or len(results) + len(active) >= max_jobs:
                                 continue
+                            if self.execution_deadline is not None and self.now() >= self.execution_deadline:
+                                break
                             active[pool.submit(self.execute, job)] = job
                     if not active:
                         break
                     completed, _ = wait(active, return_when=FIRST_COMPLETED)
                     for future in completed:
                         job = active.pop(future)
-                        result = future.result()
+                        try:
+                            result = future.result()
+                        except Exception as exc:
+                            if not self.continuous:
+                                raise
+                            result = {"type": "scheduler_job_finished", "version": VERSION, "run_id": self.run_id,
+                                "campaign_id": self.campaign["campaign_id"], "player": job.player, "tier": job.tier,
+                                "question_id": job.question_id, "question_snapshot_id": job.snapshot["snapshot_id"],
+                                "outcome": "line_error", "reason": type(exc).__name__, "finished_at": to_iso(self.now())}
+                            with transaction(self.root):
+                                append_record(self.jobs_log, result)
                         results.append(result)
                         if result.get("outcome") not in TERMINAL:
                             paused.add(job.player)
                         # A production provider refreshes the live exclusion index after each item.
                         from m2_campaign import SafeSnapshots
-                        if isinstance(self.provider, SafeSnapshots):
+                        if isinstance(self.provider, SafeSnapshots) or getattr(self.provider, "refresh_after_job", False):
                             self.provider(force=True)
                         else:
                             self.provider()
                     self.finalize(self.provider())
             self.finalize(self.provider())
-            summary = {"type": "scheduler_run", "run_id": self.run_id, "version": VERSION, "mode": "local",
+            summary = {"type": "scheduler_run", "run_id": self.run_id, "version": VERSION, "mode": load_submit_mode()["mode"] if self.continuous else "local",
+                       "continuous": self.continuous,
                        "campaign_id": self.campaign["campaign_id"], "started_at": started, "finished_at": to_iso(self.now()),
                        "jobs_completed": len(results), "paused_players": sorted(paused), "max_jobs": max_jobs}
             append_record(self.root / "scheduler_runs.jsonl", summary)

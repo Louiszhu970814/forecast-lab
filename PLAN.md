@@ -1,6 +1,6 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.11（v1.0 凍結後的修訂，見 §16；M2 自動載入測試工具、M3 離線開發）
+> 版本：v1.12（v1.0 凍結後的修訂，見 §16；M2 自動載入測試工具、M3 離線開發）
 > 初稿：Claude
 > 本回合整合者：Claude（v1.10 起；v1.5～v1.9 由 Codex 整合）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
@@ -1607,6 +1607,11 @@ view_image                  stable true
 
 ## 16. 變更紀錄
 
+- **v1.12**（2026-11-01）：落地 M3-W2 的 `src/cycle.py`（`cycle_v2`）、`src/continuous.py`（`continuous_v2`）與 `launchd/` 範本；共用排程升為 `scheduler_v3`，執行引擎升為 `forecast_pipeline_v6`，協調流程升為 `reconciliation_pipeline_v3`。GPT 實作、Claude 兩輪審查（D69）。
+  - 一個週期：非等待的 `cycle.lock` → 停用開關 → 登記並凍結預算窗口與場地（最多七天，上限不得高於 quota policy）→ 輪詢 → 佇列 → 逐線 preflight（不通過只停該線）→ 排程 → 刷新後 finalize → 發布 `submission_eligible = true` 的整合結果與留言 → `submit.py run`。每個週期追加一筆 `cycles.jsonl`。
+  - 准入窗口 510 秒，只限制接新工作與每次嘗試前的重查；執行中的嘗試保有各層正常 timeout 與該題決策截止點。supervisor 的硬上限由設定計算（現行約 3880 秒），期間 launchd 的後續啟動記為 `overlap_skipped`。持續模式下，週期截止若落在主嘗試與格式修復之間，下一輪只接續該次修復，不增加 initial／rerun 次數。
+  - 題目修訂（§3.2、D52、D53）：截止時間允許時，作廢舊快照（`question_queue.jsonl` 的 `snapshot_invalidated`）並以新快照重新排入第 1 層；來不及時，題型、選項、截止時間或對應改變就不送出，只有文字修訂則綁定舊快照送出並標記 `revision_fallback`。已有未放棄意圖的題目只記錄修訂。§7.5 的「首個可採用答案、一次重跑」規則在持續模式下以快照為單位計算。
+  - 固定 M2 題集的行為不變。持續模式在 `trial`／`live` 下允許預測，但 local／trial 只預測試驗場地，主賽與 MiniBench 只抓中繼資料；live 只預測送出白名單的場地。launchd 只提供範本與說明，不安裝；不改 prompt、模型參數、整合公式、預算上限或保留線。
 - **v1.11**（2026-11-01）：落地 M3-W1 的 `src/submit.py`（`submit_v2`，§3.6 送出契約與狀態機的離線實作），GPT 實作、Claude 兩輪審查（D69）。
   - `local` 只寫 `dry_run`，不觸及傳輸層；`trial`／`live` 的每次寫入前，都在所有遠端讀取之後重新檢查送出模式、`STOP_SUBMIT`、核准的機器人 ID 與場地清單。送出目標只取自抓題快照，留言以 `comment_v1` 重建核對。
   - 狀態：`intent` → `request_started` → `forecast_ok` → `comment_ok`；另有 `unknown`（讀回無法確認，停止該筆後續寫入）、`confirmed_failed`（有明確未受理證據才重試，預測與留言各最多 3 次，用盡為 `forecast_failed`／`comment_failed` 並標記通知 Louis）、`rejected_precheck`（暫時性，相同原因不重複寫入）與 `abandoned`（從未開始請求、因永久性原因放棄，含快照已作廢）。

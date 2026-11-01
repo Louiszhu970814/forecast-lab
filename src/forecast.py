@@ -49,7 +49,7 @@ LOCK_PATH = DATA / "forecast.lock"
 PROMPTS = PROJECT_ROOT / "prompts"
 PROMPT_VERSION = "forecast_v2"
 REPAIR_PROMPT_VERSION = "repair_v1"
-PIPELINE_VERSION = "forecast_pipeline_v4"
+PIPELINE_VERSION = "forecast_pipeline_v6"
 QUOTA_BACKOFF_S = 1800  # V5 reset-time formats are not yet measured; use the §7.5 fixed fallback.
 RERUN_ERRORS = ("quota_exhausted", "timeout", "tool_denied", "cli_error")
 EXCLUDED_FLAGS = ("leak_confirmed",)
@@ -235,7 +235,8 @@ def preflight(player: str, *, cfg: dict[str, Any], allow_unapproved_baseline: bo
               versions: Callable[[], dict[str, str | None]] = baseline.cli_versions,
               snapshot: Callable[[dict[str, str | None]], dict[str, Any]] | None = None,
               adapter: Any = None, fingerprint: dict[str, str] | None = None,
-              players_enabled: dict[str, Any] | None = None, submit_mode: dict[str, Any] | None = None) -> Preflight:
+              players_enabled: dict[str, Any] | None = None, submit_mode: dict[str, Any] | None = None,
+              continuous: bool = False) -> Preflight:
     if tier not in (1, 2):
         raise ValueError("tier must be 1 or 2")
     pf = Preflight(player, tier=tier)
@@ -245,7 +246,7 @@ def preflight(player: str, *, cfg: dict[str, Any], allow_unapproved_baseline: bo
     mode = (submit_mode if submit_mode is not None else load_submit_mode()).get("mode")
     if not enabled.get(player):
         pf.problems.append("line is disabled in players_enabled.json")
-    if mode != "local":
+    if mode != "local" and not (continuous and mode in ("trial", "live")):
         pf.problems.append(f"submit_mode is {mode!r}; this pipeline runs only in local mode (M1-W8)")
     if incomplete_acceptance(acceptance_log, player):
         pf.problems.append("latest isolation acceptance run is incomplete; an older pass cannot authorize forecasting")
@@ -369,6 +370,7 @@ class Context:
     before_attempt: Callable[[str, str], None] | None = None
     recheck_inputs: Callable[[], None] | None = None
     admission_outcome: Callable[[str, bool], None] | None = None
+    continuous: bool = False
 
 
 def _structured_fields(obj: Any) -> dict[str, Any]:
@@ -664,6 +666,7 @@ def run_attempt(ctx: Context, snap: dict[str, Any], *, kind: str, prompt: str, s
         "denied_actions": result.denied_actions, "raw_dir": str(raw_dir.relative_to(PROJECT_ROOT)) if raw_dir.is_relative_to(PROJECT_ROOT) else str(raw_dir),
         "own_audit_flags": aud["own_audit_flags"], "quota_admission": admission or None,
         "error_type": error_type, "error": error, "repair_basis": next_basis,
+        **({"repair_raw_text": raw_text} if ctx.continuous and next_basis is not None else {}),
         "quota_retry_at_utc": to_iso(finished + timedelta(seconds=QUOTA_BACKOFF_S))
             if error_type == "quota_exhausted" else None,
         "preflight_waivers": ctx.preflight.waivers,
@@ -743,23 +746,30 @@ def forecast_question(ctx: Context, snap: dict[str, Any]) -> dict[str, Any]:
     """initial -> (format_repair) -> (rerun -> (format_repair)), counted over the whole ledger.
 
     The first adoptable attempt ever recorded is the line's answer; later runs never pick another
-    one, and the single rerun is never granted again (§7.5).
+    one, and the single rerun is never granted again (§7.5). Continuous mode applies this
+    rule per snapshot after an automatic revision decision; unresolved starts still block the question.
     """
     qid = snap["question_id"]
-    past = history(ctx.forecasts_log, ctx.player, qid, tier=ctx.tier)
+    all_past = history(ctx.forecasts_log, ctx.player, qid, tier=ctx.tier)
+    past = [r for r in all_past if not ctx.continuous or r.get("question_snapshot_id") == snap["snapshot_id"]]
     chosen = next((r for r in past if adoptable(r)), None)
     if chosen:
         return {"question_id": qid, "attempts": [], "selected_attempt_id": chosen["attempt_id"],
                 "outcome": "already_selected"}
-    unresolved = unresolved_starts(ctx, qid, past)
+    unresolved = unresolved_starts(ctx, qid, all_past)
     if unresolved:
         return {"question_id": qid, "attempts": [], "selected_attempt_id": None,
                 "outcome": "interrupted_attempt_unresolved", "unresolved_attempt_ids": unresolved,
                 "reason": "CLI start was recorded without an outcome; no automatic repeat or fresh attempt budget"}
     bases = [r for r in past if r["attempt_kind"] in ("initial", "rerun")]
-    if any(r["attempt_kind"] == "rerun" for r in bases):
+    # Admission may close between a base call and its format repair. Preserve that
+    # one pending repair across cycles without granting another base attempt.
+    pending_repair = (past[-1] if ctx.continuous and past and past[-1]["attempt_kind"] in ("initial", "rerun")
+                      and past[-1].get("repair_basis") is not None
+                      and isinstance(past[-1].get("repair_raw_text"), str) else None)
+    if pending_repair is None and any(r["attempt_kind"] == "rerun" for r in bases):
         return {"question_id": qid, "attempts": [], "selected_attempt_id": None, "outcome": "attempts_exhausted"}
-    if bases and not _may_rerun(past, bases[0]):
+    if pending_repair is None and bases and not _may_rerun(past, bases[0]):
         return {"question_id": qid, "attempts": [], "selected_attempt_id": None,
                 "outcome": "attempts_exhausted", "reason": f"initial failed with {bases[0]['error_type'] or bases[0]['validation_status']}"}
     kinds = ["rerun"] if bases else ["initial", "rerun"]
@@ -769,6 +779,16 @@ def forecast_question(ctx: Context, snap: dict[str, Any]) -> dict[str, Any]:
     chain: list[dict[str, Any]] = []
     reason = None
     try:
+        if pending_repair is not None:
+            raw = pending_repair["repair_raw_text"]
+            prev = {**pending_repair, "_raw_text": raw}
+            last = run_attempt(ctx, snap, kind="format_repair", sch=sch, prev=prev,
+                               basis=pending_repair["repair_basis"],
+                               prompt=repair_prompt(snap, raw, pending_repair["repair_basis"], tier=ctx.tier))
+            chain.append(last)
+            if adoptable(last) or pending_repair["attempt_kind"] == "rerun" or not _may_rerun(past + chain, bases[0]):
+                kinds = []
+            prev = last
         for kind in kinds:
             base = last = run_attempt(ctx, snap, kind=kind, prompt=prompt, sch=sch, prev=prev)
             chain.append(base)
