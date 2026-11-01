@@ -1,4 +1,4 @@
-"""One bounded continuous polling/forecast/submission cycle (cycle_v2).
+"""One bounded continuous polling/forecast/submission cycle (cycle_v3).
 
 Usage: .venv/bin/python src/cycle.py --campaign config/cycle_campaign.json
 The campaign is explicit and finite; no implicit quota increases or launchd installation.
@@ -20,6 +20,7 @@ from pathlib import Path
 import continuous as Q
 import forecast as F
 import scheduler as S
+from submit import BUSY_EXIT_CODE
 from flab.config import PLAYERS, load_players_enabled, load_submit_mode, load_run_config
 from flab.ids import new_id
 from flab.jsonl import append_record
@@ -27,7 +28,7 @@ from flab.ledger import read_complete, transaction
 from flab.timeutil import parse_iso, to_iso, utc_now
 from flab.workdir import PROJECT_ROOT
 
-VERSION = "cycle_v2"
+VERSION = "cycle_v3"
 INTERVAL_S = 600
 SAFETY_S = 30
 ADMISSION_WINDOW_S = INTERVAL_S - SAFETY_S - 60
@@ -102,7 +103,8 @@ def submit_cli(project: Path, timeout_s: float):
     # submit.py owns mode, identity, whitelist and STOP_SUBMIT rechecks for every API write.
     result = subprocess.run([str(project / ".venv" / "bin" / "python"), str(script), "run"],
                             cwd=project, timeout=timeout_s, check=False)
-    return {"status": "ok" if result.returncode == 0 else "error", "returncode": result.returncode}
+    return {"status": "busy" if result.returncode == BUSY_EXIT_CODE else
+            "ok" if result.returncode == 0 else "error", "returncode": result.returncode}
 
 
 def run_cycle(root: Path, campaign: dict, poller, *, project: Path = PROJECT_ROOT,
@@ -118,6 +120,7 @@ def run_cycle(root: Path, campaign: dict, poller, *, project: Path = PROJECT_ROO
            "steps": {s: {"status": "pending"} for s in ("lock", "switches", "policy", "poll", "queue", "preflight", "scheduler", "publish", "submit")},
            "players": {},
            "new_question_ids": [], "revised_question_ids": [], "errors": []}
+    rec["steps"]["on_finalized"] = {"status": "ok", "count": 0, "calls": []}
     lock = F.Lock(root / "cycle.lock")
     scheduler_lock = F.Lock(root / "scheduler.lock")
     acquired = scheduler_acquired = False
@@ -154,9 +157,34 @@ def run_cycle(root: Path, campaign: dict, poller, *, project: Path = PROJECT_ROO
         snapshots = queue(force=True)
         rec["steps"]["poll"] = {"status": "ok", "questions": len(snapshots)}
         rec["steps"]["queue"] = {"status": "ok", "fallbacks": sorted(queue.fallbacks)}
+        def on_finalized(question_ids):
+            previous_step = step
+            calls = rec["steps"]["on_finalized"]
+            call = {"question_ids": sorted(question_ids), "started_at": to_iso(now()), "status": "pending"}
+            calls["calls"].append(call)
+            calls["count"] += 1
+            checkpoint("on_finalized")
+            try:
+                if (project / "config" / "STOP_SUBMIT").exists():
+                    call.update(status="stopped", submit={"status": "stopped", "reason": "STOP_SUBMIT"})
+                else:
+                    current = queue()
+                    current.update(queue.fallbacks)
+                    call["publish"] = publish(root, scheduler, current, queue)
+                    checkpoint("on_finalized")
+                    call["submit"] = submit(project, SUBMIT_TIMEOUT_S)
+                    call["status"] = call["submit"]["status"]
+            except Exception as exc:
+                call.update(status="error", error_type=type(exc).__name__)
+                rec["errors"].append({"type": type(exc).__name__, "step": "on_finalized"})
+            finally:
+                call["finished_at"] = to_iso(now())
+                call["elapsed_s"] = (parse_iso(call["finished_at"]) - parse_iso(call["started_at"])).total_seconds()
+                checkpoint(previous_step)
+
         scheduler = S.Scheduler(root, runtime, snapshots=queue, now=now, adapter_loader=adapter_loader,
             preflight=preflight, context_extra=context_extra, continuous=True,
-            execution_deadline=deadline,
+            execution_deadline=deadline, on_finalized=on_finalized,
             acceptance_log=acceptance_log or F.baseline.ACCEPTANCE_LOG)
         checkpoint("preflight")
         paused = set()

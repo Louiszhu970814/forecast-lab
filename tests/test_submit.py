@@ -469,13 +469,13 @@ def test_invalid_probability_is_rejected(p):
         S.forecast_payload(snap, row)
 
 
-def test_scheduler_lock_excludes_submit_and_reconcile(environment):
+def test_submit_lock_excludes_submit_and_reconcile(environment):
     e = environment
     e["seed"]()
-    with F.Lock(e["root"] / "scheduler.lock"):
+    with F.Lock(e["root"] / "submit.lock"):
         for reconcile in (False, True):
-            with pytest.raises(F.PreflightError):
-                e["make"]().run(reconcile_only=reconcile)
+            assert e["make"]().run(reconcile_only=reconcile) == {"status": "busy", "events": 0, "statuses": {}}
+    assert not rows(e)
     assert not e["transport"].writes
 
 
@@ -641,15 +641,11 @@ def test_process_lock_blocks_a_second_process(environment):
     code = """
 import sys
 from pathlib import Path
-from forecast import PreflightError
 from submit import Submitter
-try:
-    Submitter(Path(sys.argv[1]), config_dir=Path(sys.argv[2])).run()
-except PreflightError:
-    sys.exit(0)
-sys.exit(1)
+result = Submitter(Path(sys.argv[1]), config_dir=Path(sys.argv[2])).run()
+sys.exit(0 if result == {"status": "busy", "events": 0, "statuses": {}} else 1)
 """
-    with F.Lock(e["root"] / "scheduler.lock"):
+    with F.Lock(e["root"] / "submit.lock"):
         result = subprocess.run([sys.executable, "-c", code, str(e["root"]), str(e["config"])],
                                 env={**os.environ, "PYTHONPATH": str(Path(S.__file__).parent)},
                                 capture_output=True, text=True, timeout=10)
@@ -1000,3 +996,88 @@ def test_v1_forecast_failure_history_already_at_limit_is_not_retried(environment
     assert rows(e)[-1]["status"] == "forecast_failed" and rows(e)[-1]["notify_louis"]
     assert not e["transport"].writes
     assert e["make"]().run()["events"] == 0
+
+
+def test_scheduler_lock_does_not_block_submission(environment):
+    e = environment
+    e["seed"]()
+    with F.Lock(e["root"] / "scheduler.lock"):
+        assert e["make"]().run()["statuses"]["comment_ok"] == 1
+
+
+@pytest.mark.parametrize("boundary", ["account", "get_post", "tournament_index", "write", "readback", "backoff"])
+def test_transport_and_backoff_do_not_hold_ledger_transaction(environment, monkeypatch, boundary):
+    import threading
+    from flab.ledger import transaction
+
+    e = environment
+    e["seed"]()
+    obj = e["make"]()
+    workers, checks = [], []
+
+    def concurrent_append():
+        done = threading.Event()
+        def write():
+            with transaction(e["root"]):
+                append_record(e["root"] / "scheduler_jobs.jsonl", {"type": "synthetic", "at": to_iso(NOW)})
+            done.set()
+        worker = threading.Thread(target=write)
+        workers.append(worker)
+        worker.start()
+        checks.append(done.wait(1))
+
+    if boundary == "readback":
+        e["transport"].effects["forecast"] = ["timeout_after"]
+        obj.run()
+    if boundary == "backoff":
+        e["transport"].effects["comment"] = ["rejected"]
+        original = obj.sleep
+        def sleep(seconds):
+            concurrent_append()
+            original(seconds)
+        obj.sleep = sleep
+    else:
+        original = getattr(e["transport"], boundary)
+        def call(*args, **kwargs):
+            concurrent_append()
+            return original(*args, **kwargs)
+        monkeypatch.setattr(e["transport"], boundary, call)
+    obj.run()
+    for worker in workers:
+        worker.join(2)
+        assert not worker.is_alive()
+    assert checks and all(checks)
+    assert rows(e)[-1]["status"] == "comment_ok"
+
+
+def test_second_submitter_is_busy_during_transport_without_writing(environment):
+    e = environment
+    e["seed"]()
+    observed = []
+    def hook(operation):
+        before = e["root"].joinpath("submissions.jsonl").read_bytes()
+        observed.append(e["make"]().run())
+        assert e["root"].joinpath("submissions.jsonl").read_bytes() == before
+    e["transport"].hook = hook
+    e["make"]().run()
+    assert observed == [{"status": "busy", "events": 0, "statuses": {}}] * 2
+
+
+def test_snapshot_invalidated_during_remote_precheck_is_not_sent(environment, monkeypatch):
+    from flab.ledger import transaction
+
+    e = environment
+    e["seed"]()
+    calls = []
+    original = e["transport"].get_post
+    def get_post(post_id):
+        calls.append(post_id)
+        if len(calls) == 2:
+            with transaction(e["root"]):
+                append_record(e["root"] / "question_queue.jsonl",
+                              {"type": "snapshot_invalidated", "old_snapshot_id": "s1"})
+        return original(post_id)
+    monkeypatch.setattr(e["transport"], "get_post", get_post)
+    e["make"]().run()
+    assert not e["transport"].writes
+    assert rows(e)[-1]["status"] == "abandoned"

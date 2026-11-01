@@ -2,7 +2,7 @@
 
 The default transport is deliberately offline until V15 verifies authenticated readback.
 Transport implementations must never retry writes themselves. A missing readback is unknown,
-not evidence that a request failed. Both commands use scheduler.lock and ledger transactions.
+not evidence that a request failed. Both commands use submit.lock and short ledger transactions.
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ from typing import Protocol
 
 import aggregate as A
 import comment as C
-from forecast import Lock
+from forecast import Lock, PreflightError
 from flab.config import load_submit_mode, load_tournaments, load_run_config
 from flab.ids import new_id, sha256_hex
 from flab.jsonl import append_record
@@ -27,7 +27,8 @@ from flab.workdir import PROJECT_ROOT
 from poll_questions import TournamentIndex, is_synced_copy, snapshot_from_post
 from validate import submit_deadline
 
-VERSION = "submit_v3"
+VERSION = "submit_v4"
+BUSY_EXIT_CODE = 75
 FORECAST_PATH = "/api/questions/forecast/"
 COMMENT_PATH = "/api/comments/create/"
 # Conservative provisional platform limits; both bounds and option-label mapping await V15.
@@ -141,29 +142,32 @@ class Submitter:
         self.log = self.root / "submissions.jsonl"
 
     def _rows(self):
-        return read_complete(self.log)
+        with transaction(self.root):
+            return read_complete(self.log)
 
     def _event(self, intent, status, **extra):
-        # Recheck on every run, but persist only changes in the rejection/unknown reason.
-        if status == "rejected_precheck":
-            last = next((r for r in reversed(self._rows()) if r["status"] == status
-                         and r.get("aggregate_id") == intent.get("aggregate_id")), None)
-            if last and last.get("reason") == extra.get("reason"):
-                return last
-        elif status == "unknown":
-            last = self._last_operation(intent, extra["operation"])
-            if last and last["status"] == status and last.get("request_id") == extra["request_id"] \
-                    and last.get("reason") == extra.get("reason"):
-                return last
-        row = {k: intent.get(k) for k in ("intent_id", "mode", "bot_id", "tournament_id", "post_id",
-               "question_id", "question_snapshot_id", "options", "aggregate_id", "comment_hash")}
-        if status in ("intent", "dry_run"):
-            row.update(copy.deepcopy(intent))
-        row.update(type="submission", record_id=new_id("submission"), version=VERSION,
-                   at=to_iso(self.now()), status=status, state=status,
-                   submission_id=intent.get("intent_id"), **extra)
-        append_record(self.log, row)
-        return row
+        with transaction(self.root):
+            rows = self._rows()  # Always reread under the transaction before appending.
+            # Recheck on every run, but persist only changes in the rejection/unknown reason.
+            if status == "rejected_precheck":
+                last = next((r for r in reversed(rows) if r["status"] == status
+                             and r.get("aggregate_id") == intent.get("aggregate_id")), None)
+                if last and last.get("reason") == extra.get("reason"):
+                    return last
+            elif status == "unknown":
+                last = self._last_operation(intent, extra["operation"])
+                if last and last["status"] == status and last.get("request_id") == extra["request_id"] \
+                        and last.get("reason") == extra.get("reason"):
+                    return last
+            row = {k: intent.get(k) for k in ("intent_id", "mode", "bot_id", "tournament_id", "post_id",
+                   "question_id", "question_snapshot_id", "options", "aggregate_id", "comment_hash")}
+            if status in ("intent", "dry_run"):
+                row.update(copy.deepcopy(intent))
+            row.update(type="submission", record_id=new_id("submission"), version=VERSION,
+                       at=to_iso(self.now()), status=status, state=status,
+                       submission_id=intent.get("intent_id"), **extra)
+            append_record(self.log, row)
+            return row
 
     def _policy(self):
         mode = load_submit_mode(self.config_dir)
@@ -199,73 +203,77 @@ class Submitter:
             raise PrecheckError("wrong authenticated bot account")
 
     def _check_snapshot(self, snapshot_id):
-        # Snapshot IDs are unique in questions.jsonl. Never infer validity from the
-        # replacement snapshot, or require it to exist before honoring invalidation.
-        if any(r.get("type") == "snapshot_invalidated" and r.get("old_snapshot_id") == snapshot_id
-               for r in read_complete(self.root / "question_queue.jsonl")):
-            raise PermanentPrecheckError("question snapshot invalidated")
+        with transaction(self.root):
+            # Snapshot IDs are unique in questions.jsonl. Never infer validity from the
+            # replacement snapshot, or require it to exist before honoring invalidation.
+            if any(r.get("type") == "snapshot_invalidated" and r.get("old_snapshot_id") == snapshot_id
+                   for r in read_complete(self.root / "question_queue.jsonl")):
+                raise PermanentPrecheckError("question snapshot invalidated")
 
     def _inputs(self, aggregate, comment, snapshots):
-        self._check_snapshot(aggregate.get("question_snapshot_id"))
-        if aggregate.get("submission_eligible") is not True:
-            raise PrecheckError("aggregate is not submission eligible")
-        if aggregate.get("stage") != "final" or aggregate.get("status") != "ready" \
-                or not aggregate.get("scheduler_campaign_id"):
-            raise PrecheckError("not a ready scheduler final aggregate")
-        snap = snapshots.get(aggregate.get("question_snapshot_id"))
-        if snap is None:
-            raise PrecheckError("snapshot not found in fetched question ledger")
-        if any(type(snap.get(k)) is not int or snap[k] <= 0 for k in ("post_id", "question_id", "tournament_id")):
-            raise PrecheckError("invalid fetched target IDs")
-        payload = forecast_payload(snap, aggregate)
-        if not comment or comment.get("version") != C.VERSION or comment.get("aggregate_id") != aggregate["record_id"] \
-                or comment.get("question_id") != snap["question_id"] \
-                or comment.get("question_snapshot_id") != snap["snapshot_id"]:
-            raise PrecheckError("comment identity mismatch or missing comment_v1")
-        text = comment.get("text")
-        if not isinstance(text, str) or sha256_hex(text) != comment.get("text_sha256"):
-            raise PrecheckError("comment hash mismatch")
-        # Reuse comment_v1's full audit graph and exact adopted-input checks.
-        # cycle.publish uses snapshot-scoped selection; fetched snapshots themselves
-        # do not carry that runtime flag. Keep the full history for audit propagation.
-        comment_snapshot = {**snap, "forecast_scope": "snapshot"} if aggregate.get("cycle_version") else snap
-        rebuilt = C.build(comment_snapshot, aggregate, [*read_complete(self.root / "forecasts.jsonl"),
-                          *read_complete(self.root / "aggregates.jsonl")],
-                          read_complete(self.root / "audits.jsonl"), now=self.now())
-        if text != rebuilt["text"] or comment.get("input_attempt_ids") != rebuilt["input_attempt_ids"]:
-            raise PrecheckError("comment differs from adopted local aggregate")
-        return snap, payload
+        with transaction(self.root):
+            self._check_snapshot(aggregate.get("question_snapshot_id"))
+            if aggregate.get("submission_eligible") is not True:
+                raise PrecheckError("aggregate is not submission eligible")
+            if aggregate.get("stage") != "final" or aggregate.get("status") != "ready" \
+                    or not aggregate.get("scheduler_campaign_id"):
+                raise PrecheckError("not a ready scheduler final aggregate")
+            snap = snapshots.get(aggregate.get("question_snapshot_id"))
+            if snap is None:
+                raise PrecheckError("snapshot not found in fetched question ledger")
+            if any(type(snap.get(k)) is not int or snap[k] <= 0 for k in ("post_id", "question_id", "tournament_id")):
+                raise PrecheckError("invalid fetched target IDs")
+            payload = forecast_payload(snap, aggregate)
+            if not comment or comment.get("version") != C.VERSION or comment.get("aggregate_id") != aggregate["record_id"] \
+                    or comment.get("question_id") != snap["question_id"] \
+                    or comment.get("question_snapshot_id") != snap["snapshot_id"]:
+                raise PrecheckError("comment identity mismatch or missing comment_v1")
+            text = comment.get("text")
+            if not isinstance(text, str) or sha256_hex(text) != comment.get("text_sha256"):
+                raise PrecheckError("comment hash mismatch")
+            # Reuse comment_v1's full audit graph and exact adopted-input checks.
+            # cycle.publish uses snapshot-scoped selection; fetched snapshots themselves
+            # do not carry that runtime flag. Keep the full history for audit propagation.
+            comment_snapshot = {**snap, "forecast_scope": "snapshot"} if aggregate.get("cycle_version") else snap
+            rebuilt = C.build(comment_snapshot, aggregate, [*read_complete(self.root / "forecasts.jsonl"),
+                              *read_complete(self.root / "aggregates.jsonl")],
+                              read_complete(self.root / "audits.jsonl"), now=self.now())
+            if text != rebuilt["text"] or comment.get("input_attempt_ids") != rebuilt["input_attempt_ids"]:
+                raise PrecheckError("comment differs from adopted local aggregate")
+            return snap, payload
 
     def _candidate(self, aggregate, comment, snapshots):
-        snap, payload = self._inputs(aggregate, comment, snapshots)
-        mode = load_submit_mode(self.config_dir)
-        return {"intent_id": new_id("intent"), "mode": mode["mode"], "bot_id": mode.get("approved_bot_id"),
-                "aggregate_id": aggregate["record_id"], "comment_id": comment["record_id"],
-                "question_snapshot_id": snap["snapshot_id"], "snapshot": copy.deepcopy(snap),
-                **{k: snap.get(k) for k in ("tournament_id", "post_id", "question_id", "options")},
-                "probability": aggregate.get("probability"), "option_probabilities": aggregate.get("option_probabilities"),
-                "forecast_payload": payload, "comment_text": comment["text"], "comment_hash": comment["text_sha256"],
-                "comment_payload": {"on_post": snap["post_id"], "text": comment["text"],
-                                    "is_private": True, "included_forecast": True},
-                "allow_resubmit": mode["mode"] == "trial" and self.allow_resubmit.get(snap["tournament_id"]) is True}
+        with transaction(self.root):
+            snap, payload = self._inputs(aggregate, comment, snapshots)
+            mode = load_submit_mode(self.config_dir)
+            return {"intent_id": new_id("intent"), "mode": mode["mode"], "bot_id": mode.get("approved_bot_id"),
+                    "aggregate_id": aggregate["record_id"], "comment_id": comment["record_id"],
+                    "question_snapshot_id": snap["snapshot_id"], "snapshot": copy.deepcopy(snap),
+                    **{k: snap.get(k) for k in ("tournament_id", "post_id", "question_id", "options")},
+                    "probability": aggregate.get("probability"), "option_probabilities": aggregate.get("option_probabilities"),
+                    "forecast_payload": payload, "comment_text": comment["text"], "comment_hash": comment["text_sha256"],
+                    "comment_payload": {"on_post": snap["post_id"], "text": comment["text"],
+                                        "is_private": True, "included_forecast": True},
+                    "allow_resubmit": mode["mode"] == "trial" and self.allow_resubmit.get(snap["tournament_id"]) is True}
 
     def _history(self, intent):
         return [r for r in self._rows() if r.get("intent_id") == intent["intent_id"]]
 
     def _duplicate(self, intent):
-        rows = self._rows()
-        others = [r for r in rows if r["status"] == "intent" and r["intent_id"] != intent["intent_id"]
-                  and (r.get("bot_id"), r.get("question_id")) == (intent["bot_id"], intent["question_id"])]
-        for other in others:
-            history = [r for r in rows if r.get("intent_id") == other["intent_id"]]
-            if any(r["status"] == "abandoned" for r in history) \
-                    and not any(r["status"] == "request_started" for r in history):
-                continue
-            completed = any(r.get("intent_id") == other["intent_id"] and r["status"] == "comment_ok" for r in rows)
-            repeat = intent["allow_resubmit"] and other["mode"] == "trial" \
-                and other["tournament_id"] == intent["tournament_id"] and completed
-            if not repeat:
-                raise PrecheckError("duplicate bot/question across venues or unresolved prior intent")
+        with transaction(self.root):
+            rows = self._rows()
+            others = [r for r in rows if r["status"] == "intent" and r["intent_id"] != intent["intent_id"]
+                      and (r.get("bot_id"), r.get("question_id")) == (intent["bot_id"], intent["question_id"])]
+            for other in others:
+                history = [r for r in rows if r.get("intent_id") == other["intent_id"]]
+                if any(r["status"] == "abandoned" for r in history) \
+                        and not any(r["status"] == "request_started" for r in history):
+                    continue
+                completed = any(r.get("intent_id") == other["intent_id"] and r["status"] == "comment_ok" for r in rows)
+                repeat = intent["allow_resubmit"] and other["mode"] == "trial" \
+                    and other["tournament_id"] == intent["tournament_id"] and completed
+                if not repeat:
+                    raise PrecheckError("duplicate bot/question across venues or unresolved prior intent")
 
     def _precheck(self, intent):
         cfg = self._gate(intent)
@@ -329,11 +337,12 @@ class Submitter:
         self._event(intent, "unknown", operation=operation, request_id=request_id, reason=reason)
 
     def _failed(self, intent, operation, request_id, evidence):
-        count = sum(r["status"] == "request_started" and r.get("operation") == operation for r in self._history(intent))
-        exhausted = count >= (COMMENT_ATTEMPTS if operation == "comment" else FORECAST_ATTEMPTS)
-        self._event(intent, operation + "_failed" if exhausted else "confirmed_failed", operation=operation,
-                    request_id=request_id, evidence=evidence, notify_louis=exhausted,
-                    next_retry_at=to_iso(self.now() + timedelta(seconds=2 ** max(0, count - 1))))
+        with transaction(self.root):
+            count = sum(r["status"] == "request_started" and r.get("operation") == operation for r in self._history(intent))
+            exhausted = count >= (COMMENT_ATTEMPTS if operation == "comment" else FORECAST_ATTEMPTS)
+            self._event(intent, operation + "_failed" if exhausted else "confirmed_failed", operation=operation,
+                        request_id=request_id, evidence=evidence, notify_louis=exhausted,
+                        next_retry_at=to_iso(self.now() + timedelta(seconds=2 ** max(0, count - 1))))
 
     def _last_operation(self, intent, operation):
         return next((r for r in reversed(self._history(intent)) if r.get("operation") == operation), None)
@@ -346,12 +355,6 @@ class Submitter:
             else:
                 self._identity(intent)
                 revised = False
-            # Last gate is after all remote reads (and backoff), immediately before the request.
-            self._gate(intent)
-            if operation == "forecast":
-                deadline = submit_deadline(intent["snapshot"], load_run_config(self.config_dir)["deadlines"])
-                if deadline is None or self.now() >= deadline:
-                    raise PermanentPrecheckError("local submission deadline elapsed during precheck")
         except Exception as exc:
             abandon = isinstance(exc, PermanentPrecheckError) and not any(
                 r["status"] == "request_started" for r in self._history(intent))
@@ -359,7 +362,24 @@ class Submitter:
                         reason=self._reason(exc), blocked_operation=operation)
             return False
         request_id = new_id("request")
-        self._event(intent, "request_started", operation=operation, request_id=request_id, text_revised=revised)
+        with transaction(self.root):
+            try:
+                if operation == "forecast":
+                    self._validate_frozen(intent)
+                    self._duplicate(intent)
+                # Recheck after remote reads, backoff and waiting for the local transaction.
+                self._gate(intent)
+                if operation == "forecast":
+                    deadline = submit_deadline(intent["snapshot"], load_run_config(self.config_dir)["deadlines"])
+                    if deadline is None or self.now() >= deadline:
+                        raise PermanentPrecheckError("local submission deadline elapsed during precheck")
+            except Exception as exc:
+                abandon = isinstance(exc, PermanentPrecheckError) and not any(
+                    r["status"] == "request_started" for r in self._history(intent))
+                self._event(intent, "abandoned" if abandon else "rejected_precheck",
+                            reason=self._reason(exc), blocked_operation=operation)
+                return False
+            self._event(intent, "request_started", operation=operation, request_id=request_id, text_revised=revised)
         try:
             path = FORECAST_PATH if operation == "forecast" else COMMENT_PATH
             response = self.transport.write(path, copy.deepcopy(intent[f"{operation}_payload"]), request_id=request_id)
@@ -378,19 +398,20 @@ class Submitter:
         return True
 
     def _validate_frozen(self, intent):
-        self._check_snapshot(intent["question_snapshot_id"])
-        try:
-            aggregates, comments, snapshots = self._load_inputs()
-            aggregate = aggregates[intent["aggregate_id"]]
-            comment = comments[intent["comment_id"]]
-            snap, payload = self._inputs(aggregate, comment, snapshots)
-        except (PrecheckError, C.CommentError) as exc:
-            raise PermanentPrecheckError(str(exc)) from exc
-        except KeyError as exc:
-            raise PermanentPrecheckError("frozen submission local records missing") from exc
-        if snap != intent["snapshot"] or payload != intent["forecast_payload"] \
-                or comment["text_sha256"] != intent["comment_hash"] or comment["text"] != intent["comment_text"]:
-            raise PermanentPrecheckError("frozen submission differs from local records")
+        with transaction(self.root):
+            self._check_snapshot(intent["question_snapshot_id"])
+            try:
+                aggregates, comments, snapshots = self._load_inputs()
+                aggregate = aggregates[intent["aggregate_id"]]
+                comment = comments[intent["comment_id"]]
+                snap, payload = self._inputs(aggregate, comment, snapshots)
+            except (PrecheckError, C.CommentError) as exc:
+                raise PermanentPrecheckError(str(exc)) from exc
+            except KeyError as exc:
+                raise PermanentPrecheckError("frozen submission local records missing") from exc
+            if snap != intent["snapshot"] or payload != intent["forecast_payload"] \
+                    or comment["text_sha256"] != intent["comment_hash"] or comment["text"] != intent["comment_text"]:
+                raise PermanentPrecheckError("frozen submission differs from local records")
 
     def _resume(self, intent, *, reconcile_only=False):
         if any(r["status"] in ("abandoned", "forecast_failed", "comment_failed") for r in self._history(intent)):
@@ -427,11 +448,12 @@ class Submitter:
                     return
 
     def _load_inputs(self):
-        aggregates = _unique(read_complete(self.root / "aggregates.jsonl"), "record_id")
-        comments = _unique([r for r in read_complete(self.root / "comments.jsonl") if r.get("type") == "comment"], "record_id")
-        snapshots = _unique([r for r in read_complete(self.root / "questions.jsonl")
-                             if r.get("type") == "question_snapshot"], "snapshot_id")
-        return aggregates, comments, snapshots
+        with transaction(self.root):
+            aggregates = _unique(read_complete(self.root / "aggregates.jsonl"), "record_id")
+            comments = _unique([r for r in read_complete(self.root / "comments.jsonl") if r.get("type") == "comment"], "record_id")
+            snapshots = _unique([r for r in read_complete(self.root / "questions.jsonl")
+                                 if r.get("type") == "question_snapshot"], "snapshot_id")
+            return aggregates, comments, snapshots
 
     @staticmethod
     def _reason(exc):
@@ -439,7 +461,12 @@ class Submitter:
         return str(exc) if isinstance(exc, (PrecheckError, C.CommentError)) else f"precheck unavailable: {type(exc).__name__}"
 
     def run(self, *, reconcile_only=False):
-        with Lock(self.root / "scheduler.lock"), transaction(self.root):
+        lock = Lock(self.root / "submit.lock")
+        try:
+            lock.__enter__()
+        except PreflightError:
+            return {"status": "busy", "events": 0, "statuses": {}}
+        try:
             rows = self._rows()
             intents = [r for r in rows if r["status"] == "intent"]
             for intent in intents:
@@ -473,6 +500,8 @@ class Submitter:
             new_rows = self._rows()[len(rows):]
             return {"events": len(new_rows), "statuses": {s: sum(r["status"] == s for r in new_rows)
                     for s in sorted({r["status"] for r in new_rows})}}
+        finally:
+            lock.__exit__(None, None, None)
 
 
 def main(argv=None):
@@ -481,7 +510,7 @@ def main(argv=None):
     args = parser.parse_args(argv)
     result = Submitter(PROJECT_ROOT / "data").run(reconcile_only=args.command == "reconcile")
     print(result)  # Counts only: do not expose open-question outputs.
-    return 0
+    return BUSY_EXIT_CODE if result.get("status") == "busy" else 0
 
 
 if __name__ == "__main__":

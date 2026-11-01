@@ -105,7 +105,7 @@ def integrated(environment, tmp_path, monkeypatch):
 
     def run(**kw):
         result = C.run_cycle(root, campaign, poller, project=project, now=lambda: clock[0],
-            adapter_loader=obj.loader, preflight=obj.pf, context_extra=extra,
+            adapter_loader=obj.loader, preflight=kw.pop("preflight", obj.pf), context_extra=extra,
             acceptance_log=root / "acceptance.jsonl", submit=kw.pop("submit", submit), **kw)
         assert result["status"] == "complete", result
         return result
@@ -204,7 +204,7 @@ def test_revision_after_publication_before_intent_submits_only_new_snapshot(inte
     revise(e)
     result = e.run()
     assert result["revised_question_ids"] == [100]
-    assert result["steps"]["publish"]["stale_aggregate_ids"] == [old["record_id"]]
+    assert result["steps"]["on_finalized"]["calls"][0]["publish"]["stale_aggregate_ids"] == [old["record_id"]]
     new = offers(e)[-1]
     assert new["question_snapshot_id"] != old["question_snapshot_id"]
     invalidated, = [r for r in rows(e, "question_queue") if r["type"] == "snapshot_invalidated"]
@@ -232,9 +232,10 @@ def test_revised_offer_rechecks_late_audit_with_full_history(integrated, audited
         new = offers(e)[-1]
         assert new["question_snapshot_id"] != old["question_snapshot_id"]
         audited = old if audited_snapshot == "old" else new
-        append_record(e.root / "audits.jsonl", {"type": "audit_update", "audit_event_id": "late",
-            "attempt_id": audited["input_attempt_ids"][0], "audited_at": to_iso(e.clock[0]),
-            "audit_flags": ["leak_confirmed"], "audit_reasons": ["synthetic"]})
+        if not any(r.get("audit_event_id") == "late" for r in rows(e, "audits")):
+            append_record(e.root / "audits.jsonl", {"type": "audit_update", "audit_event_id": "late",
+                "attempt_id": audited["input_attempt_ids"][0], "audited_at": to_iso(e.clock[0]),
+                "audit_flags": ["leak_confirmed"], "audit_reasons": ["synthetic"]})
         return e.submit(project, seconds)
 
     e.run(submit=submit)
@@ -252,7 +253,7 @@ def test_revised_offer_rechecks_late_audit_with_full_history(integrated, audited
 def test_revision_after_intent_before_request_abandons_then_requeues(integrated, change):
     e = integrated
     # First identity read allows intent; second fails before request_started.
-    e.transport.account_effects = ["ok", "error"]
+    e.transport.account_effects = ["ok", "error", "error"]
     e.run()
     old, = [r for r in rows(e) if r["status"] == "intent"]
     assert [r["status"] for r in history(e, old)] == ["intent", "rejected_precheck"]
@@ -285,6 +286,7 @@ def test_revision_after_intent_before_request_abandons_then_requeues(integrated,
 def test_revision_with_unknown_forecast_only_reconciles_and_stays_frozen(integrated, read_effect, change):
     e = integrated
     e.transport.effects["forecast"] = ["timeout_after"]
+    e.transport.read_effects = [read_effect]  # End-of-cycle reconcile is also unavailable.
     e.run()
     intent, = [r for r in rows(e) if r["status"] == "intent"]
     assert history(e, intent)[-1]["status"] == "unknown"
@@ -295,7 +297,7 @@ def test_revision_with_unknown_forecast_only_reconciles_and_stays_frozen(integra
     before = rows(e)
     e.run()
     assert rows(e) == before  # Identical unknown results are deduplicated, reads are not.
-    assert e.transport.reads == [("forecast", request_id)] * 2
+    assert e.transport.reads == [("forecast", request_id)] * 3
     assert len(e.transport.writes) == 1 and len(e.tracker["calls"]) == 1
     assert Q.committed_questions(e.root) == {100}
     assert not any(r["status"] == "abandoned" for r in rows(e))
@@ -350,3 +352,74 @@ def test_structural_revision_too_late_rejects_published_result(integrated, chang
     assert rows(e) == before
     assert not e.transport.calls and not any(r["status"] == "intent" for r in rows(e))
     assert len(e.tracker["calls"]) == 1
+
+
+def test_deadline_publishes_and_submits_while_another_model_is_running(integrated, monkeypatch):
+    import threading
+    import forecast as F
+    from test_scheduler import Adapter
+
+    e = integrated
+    enabled = dict(claude=True, gemini=False, gpt=True)
+    (e.config / "players_enabled.json").write_text(json.dumps(enabled))
+    e.post["question"]["scheduled_close_time"] = to_iso(NOW + timedelta(seconds=1800))
+    def preflight(player, tier, adapter):
+        return F.Preflight(player, tier=tier, problems=["synthetic paused line"] if player == "claude" else [])
+    e.run(preflight=preflight)
+    assert not offers(e)  # B has one valid line, but still waits for the paused line.
+    other = copy.deepcopy(e.post)
+    other["id"], other["question"]["id"] = 1101, 101
+    other["question"]["scheduled_close_time"] = to_iso(NOW + timedelta(hours=3))
+    e.posts.append(other)
+    e.clock[0] = NOW + timedelta(seconds=250)
+    started, release, finished = threading.Event(), threading.Event(), threading.Event()
+    original_run, original_wait = Adapter.run, scheduler.wait
+    wakeups = []
+
+    def model(self, req, **kwargs):
+        assert req.schema["properties"]["question_id"]["const"] == 101
+        started.set()
+        assert release.wait(3)
+        e.clock[0] = NOW + timedelta(seconds=850)
+        result = original_run(self, req, **kwargs)
+        finished.set()
+        return result
+
+    def wait(active, *, timeout, return_when):
+        assert started.wait(2)
+        wakeups.append(timeout)
+        if not release.is_set():
+            assert timeout == 50
+            assert all(not f.done() for f in active)
+            e.clock[0] += timedelta(seconds=timeout)
+            return set(), set(active)
+        return original_wait(active, timeout=2, return_when=return_when)
+
+    def submit(project, seconds):
+        if not release.is_set():
+            assert not finished.is_set()
+            assert e.clock[0] == NOW + timedelta(seconds=300)
+            result = e.submit(project, seconds)
+            assert [w[0] for w in e.transport.writes] == ["forecast", "comment"]
+            assert history(e, next(r for r in rows(e) if r["status"] == "intent"))[-1]["status"] == "comment_ok"
+            release.set()
+            return result
+        return e.submit(project, seconds)
+
+    monkeypatch.setattr(Adapter, "run", model)
+    monkeypatch.setattr(scheduler, "wait", wait)
+    try:
+        result = e.run(preflight=preflight, submit=submit)
+    finally:
+        release.set()
+    assert finished.is_set() and wakeups[0] == 50
+    assert result["steps"]["scheduler"]["jobs_completed"] == 1
+    call, = result["steps"]["on_finalized"]["calls"]
+    assert call["question_ids"] == [100] and call["status"] == "ok"
+    assert call["publish"]["aggregate_ids"] == [offers(e)[0]["record_id"]]
+    assert offers(e)[0]["completion_reason"] == "decision_deadline"
+    assert all(r["at"] < to_iso(NOW + timedelta(seconds=600)) for r in rows(e) if r["status"] == "forecast_ok")
+    attempts = rows(e, "forecasts")
+    assert len(attempts) == 2 and attempts[-1]["question_id"] == 101
+    assert attempts[-1]["validation_status"] == "valid"
+    assert e.clock[0] > NOW + timedelta(seconds=600)

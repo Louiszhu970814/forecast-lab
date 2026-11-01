@@ -101,7 +101,7 @@ def test_long_cycle_skips_tick_and_defers_new_question(tmp_path):
         line["tier1"], line["tier2"] = [100], [1000]
     result = replay(tmp_path, [question(), question(2, opening=200)], cfg)
     second = result["questions"][1]
-    assert second["seen_at"] == at(1100)
+    assert second["seen_at"] == at(220)
     assert second["first_tier1_at"] == at(1200)
     assert result["overlap_skipped"] >= 1
     assert result["cycles_over_600_ratio"] > 0
@@ -111,7 +111,7 @@ def test_long_cycle_skips_tick_and_defers_new_question(tmp_path):
 def test_job_completion_refresh_sees_new_question_within_admission(tmp_path):
     result = replay(tmp_path, [question(), question(2, opening=30)])
     assert result["questions"][1]["seen_at"] == at(60)
-    assert result["questions"][1]["first_tier1_at"] == at(60)
+    assert result["questions"][1]["first_tier1_at"] == at(65)
 
 
 def test_idle_cycle_does_not_poll_until_next_tick(tmp_path):
@@ -272,6 +272,7 @@ def test_submission_timeout_is_miss_not_success(tmp_path):
 
 def test_submission_waits_for_cycle_and_can_be_late(tmp_path):
     cfg = settings()
+    cfg["submission_policy"] = "cycle_end"
     cfg["escalation_rate"] = 1
     for line in cfg["players"].values():
         line["tier1"] = [100]
@@ -420,6 +421,7 @@ def test_supported_multiple_choice_counts_in_supported_denominator(tmp_path):
 
 def test_submission_budget_defers_unstarted_questions(tmp_path):
     cfg = settings()
+    cfg["submission_policy"] = "cycle_end"
     cfg["submission"] = {"comment_s": 20, "precheck_s": 20, "submit_s": 20}
     result = replay(tmp_path, [question(i) for i in range(1, 4)], cfg)
     assert result["covered"] == 3
@@ -476,3 +478,43 @@ def test_invalid_schedule_is_rejected(tmp_path, schedule):
     with pytest.raises(ValueError):
         CS.register(tmp_path, settings(), schedule)
     assert not (tmp_path / "coverage_sims.jsonl").exists()
+
+
+@pytest.mark.parametrize("count", [1, 2, 4])
+def test_during_schedule_submission_improves_or_preserves_coverage(tmp_path, count):
+    cfg = settings()
+    cfg["escalation_rate"] = 1
+    for line in cfg["players"].values():
+        line["tier1"], line["tier2"] = [100], [1200]
+    schedule = [question(closing=2150), *(question(i) for i in range(2, count + 1))]
+    new = replay(tmp_path / "new", schedule, cfg)
+    cfg["submission_policy"] = "cycle_end"
+    old = replay(tmp_path / "old", schedule, cfg)
+    assert new["coverage_supported"] >= old["coverage_supported"]
+    if count == 2:
+        assert old["questions"][0]["reason"] == "late"
+        assert new["questions"][0]["on_time"]
+        assert new["coverage_supported"] > old["coverage_supported"]
+    calls = [call for c in new["cycles"] for call in c.get("submit_calls", [])]
+    assert any(call["phase"] == "on_finalized" for call in calls)
+    assert any(call["phase"] == "cycle_end" for call in calls)
+
+
+def test_simulated_submit_busy_skips_and_retries_later(tmp_path):
+    cfg = settings()
+    cfg["submit_busy_intervals"] = [{"start": at(0), "end": at(500)}]
+    result = replay(tmp_path, cfg=cfg)
+    first = result["cycles"][0]
+    assert [c["status"] for c in first["submit_calls"]] == ["busy", "busy"]
+    assert all(c["elapsed_s"] == 0 for c in first["submit_calls"])
+    assert result["questions"][0]["submitted_at"] == at(605)
+    assert result["covered"] == 1 and len(result["attempts"]) == 3
+
+
+@pytest.mark.parametrize("change", [
+    {"submission_policy": "unknown"},
+    {"submit_busy_intervals": [{"start": at(1), "end": at(1)}]},
+])
+def test_submission_policy_validation(tmp_path, change):
+    with pytest.raises(ValueError):
+        replay(tmp_path, cfg={**settings(), **change})

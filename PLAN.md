@@ -1,6 +1,6 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.14（v1.0 凍結後的修訂，見 §16；M2 自動載入測試工具、M3 離線開發）
+> 版本：v1.15（v1.0 凍結後的修訂，見 §16；M2 自動載入測試工具、M3 離線開發）
 > 初稿：Claude
 > 本回合整合者：Claude（v1.10 起；v1.5～v1.9 由 Codex 整合）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
@@ -1607,6 +1607,10 @@ view_image                  stable true
 
 ## 16. 變更紀錄
 
+- **v1.15**（2026-11-01）：M3-W7 落實 §3.5「到了決策截止點就送出已有的合格結果」；送出端升為 `submit_v4`，排程升為 `scheduler_v4`，週期升為 `cycle_v3`，模擬器升為 `coverage_sim_v2`。GPT 實作、Claude 審查（D69）。
+  - `submit_v4` 改用專屬、不等待的 `submit.lock`（忙碌時回報 `busy`，CLI 退出碼 75），不再與排程器共用 `scheduler.lock`。帳冊交易只包住讀取與追加；`request_started` 之前，在短交易內重新驗證凍結輸入、去重、停用開關與本地截止。傳輸層呼叫、讀回與退避都在交易之外。
+  - `scheduler_v4`（只在持續模式）的等待最晚在 60 秒或最早未封存題目的決策截止點醒來，然後 finalize；新完成可送出的最終整合時，呼叫 `on_finalized`。`cycle_v3` 的 hook 同步執行 publish 與 `submit.py run`（120 秒），逐次記入 `cycles.jsonl`；`STOP_SUBMIT` 存在時不送出。週期結尾的 publish／submit 保留。固定 M2 題集的行為不變。
+  - `coverage_sim_v2` 預設模擬排程中送出；舊政策 `cycle_end` 保留可選。不改 prompt、模型參數、整合公式或預算政策。
 - **v1.14**（2026-11-01）：落地 M3-W3 的 `src/coverage_sim.py`（`coverage_sim_v1`，§10 M3 第四項的離線覆蓋率模擬器）與 `docs/coverage_sim.md`。GPT 實作、Claude 審查（D69）。
   - 模擬設定、時間表內容與引擎時間政策在執行前登記並凍結（D53），同一 ID 不可修改；重用正式的截止時間、p90 估計與排程優先序函式，與正式程式的差異逐項列在 `docs/coverage_sim.md`。不改預測行為。
   - 模擬器揭露 `cycle_v2` 要等所有執行中的工作結束才送出，可能讓已封存的題目錯過送出截止，不符合 §3.5；修正列為 M3-W7。

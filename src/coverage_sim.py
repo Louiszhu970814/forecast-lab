@@ -1,4 +1,4 @@
-"""Offline, discrete-event coverage replay (coverage_sim_v1).
+"""Offline, discrete-event coverage replay (coverage_sim_v2).
 
 Register freezes settings AND schedule bytes as parsed JSON before any results exist.
 Only coverage_sims.jsonl / coverage_sim_results.jsonl are read or appended. No model,
@@ -28,7 +28,7 @@ from flab.ledger import read_complete, transaction
 from flab.timeutil import parse_iso, to_iso, utc_now
 from flab.workdir import PROJECT_ROOT
 
-VERSION = "coverage_sim_v1"
+VERSION = "coverage_sim_v2"
 SUPPORTED = ("binary", "multiple_choice")
 
 
@@ -47,7 +47,7 @@ def _samples(value, name):
 
 def validate(settings, schedule):
     if settings.get("version") != VERSION or not isinstance(settings.get("sim_id"), str) or not settings["sim_id"]:
-        raise ValueError("coverage_sim_v1 and nonempty sim_id required")
+        raise ValueError("coverage_sim_v2 and nonempty sim_id required")
     start, end = (parse_iso(settings["observation"][k]) for k in ("start", "end"))
     if start >= end:
         raise ValueError("invalid observation window")
@@ -70,6 +70,11 @@ def validate(settings, schedule):
         _number(settings["submission"][field], field)
     if set(settings["submission"]) != {"comment_s", "precheck_s", "submit_s"}:
         raise ValueError("submission needs exactly comment_s, precheck_s, submit_s")
+    if settings.get("submission_policy", "on_finalized") not in ("on_finalized", "cycle_end"):
+        raise ValueError("unknown submission_policy")
+    for interval in settings.get("submit_busy_intervals", []):
+        if parse_iso(interval["start"]) >= parse_iso(interval["end"]):
+            raise ValueError("invalid submit busy interval")
     if set(settings["players"]) != set(PLAYERS):
         raise ValueError("exactly three players required")
     for p in PLAYERS:
@@ -120,7 +125,7 @@ def engine_policy():
     cfg = load_run_config()
     return {"timeouts_s": cfg["timeouts_s"], "deadlines": cfg["deadlines"],
             "interval_s": C.INTERVAL_S, "timing_limits": C.timing_limits(cfg),
-            "max_jobs_per_cycle": 180,
+            "max_jobs_per_cycle": 180, "scheduler_wake_s": 60, "cycle_version": C.VERSION,
             "scheduler_version": S.VERSION, "budget_version": B.VERSION}
 
 
@@ -202,6 +207,7 @@ class Simulation:
         self.waits = []
         self.line_waits = {p: [] for p in PLAYERS}
         self.cycle = None
+        self.completed_during_submit = False
 
     def _reset_states(self, q):
         q["states"] = {(p, t): {"terminal": False, "valid": False, "kind": "initial", "base": "initial",
@@ -399,8 +405,11 @@ class Simulation:
         if not self.start_attempt(job, continuation=True) and not state["terminal"]:
             self.paused.add(p)
 
-    def finalize(self):
+    def finalize(self, *, include_fallbacks=False):
+        newly_ready = []
         for q in self.questions.values():
+            if q["fallback"] and not include_fallbacks:
+                continue
             if q["seen"] is None or q["blocked"] or q["sealed"] or q["submitted"] is not None or q["question_type"] not in SUPPORTED:
                 continue
             enabled = [p for p in PLAYERS if self.stop_reason(p) != "disabled"]
@@ -414,10 +423,39 @@ class Simulation:
                 q["sealed"] = True
                 q["ready"] = any(s["valid"] for s in q["states"].values())
                 q["used_tier2"] = any(q["states"][p, 2]["valid"] for p in PLAYERS)
+                if q["ready"]:
+                    newly_ready.append(q["question_id"])
+        return newly_ready
 
-    def publish(self):
-        self.poll(force=True)
-        self.finalize()
+    def _submit_advance(self, target):
+        # Model calls (including repair/rerun) keep running while the main thread submits.
+        while self.active and min(a["finish"] for a in self.active.values()) <= target:
+            self._advance(max(self.now, min(a["finish"] for a in self.active.values())))
+            for p in PLAYERS:
+                if p in self.active and self.active[p]["finish"] <= self.now:
+                    self.complete(p)
+                    if p not in self.active:
+                        self.completed_during_submit = True
+        self._advance(max(self.now, target))
+
+    def publish(self, *, during_schedule=False, question_ids=()):
+        started = self.now
+        call = {"phase": "on_finalized" if during_schedule else "cycle_end",
+                "question_ids": list(question_ids), "started_at": to_iso(started), "status": "ok"}
+        self.cycle["submit_calls"].append(call)
+        try:
+            self.poll(force=not during_schedule)
+            if not during_schedule:
+                self.finalize(include_fallbacks=True)
+            if any(parse_iso(i["start"]) <= self.now < parse_iso(i["end"])
+                   for i in self.settings.get("submit_busy_intervals", [])):
+                call["status"] = "busy"
+                return
+            self._submit_ready()
+        finally:
+            call.update(finished_at=to_iso(self.now), elapsed_s=(self.now - started).total_seconds())
+
+    def _submit_ready(self):
         submit_end = self.now + timedelta(seconds=C.SUBMIT_TIMEOUT_S)
         for q in self.questions.values():
             if not q["sealed"] or not q.get("ready") or q["blocked"] or q["submitted"] is not None or q.get("submit_unknown"):
@@ -430,7 +468,7 @@ class Simulation:
                 break
             duration = sum(self.settings["submission"].values())
             finish = self.now + timedelta(seconds=duration)
-            self._advance(min(finish, submit_end))
+            self._submit_advance(min(finish, submit_end))
             if finish > submit_end:
                 q.update(submit_unknown=True, reason="timeout")
                 break
@@ -453,7 +491,7 @@ class Simulation:
         started = self.now
         limits = self.cfg["timing_limits"]
         self.admission_end = started + timedelta(seconds=limits["admission_window_s"])
-        self.cycle = {"started_at": to_iso(started), "worker_deadline": started + timedelta(seconds=limits["worker_timeout_s"]), "status": "complete"}
+        self.cycle = {"started_at": to_iso(started), "worker_deadline": started + timedelta(seconds=limits["worker_timeout_s"]), "status": "complete", "submit_calls": []}
         self.cycle_jobs = 0
         self.paused = set()
         try:
@@ -466,20 +504,34 @@ class Simulation:
                 for q in self.questions.values():
                     if self._eligible(q):
                         q["reasons"].update(filter(None, (self.stop_reason(p) for p in PLAYERS)))
-                self.finalize()
+                if self.settings.get("submission_policy", "on_finalized") == "on_finalized":
+                    self.poll(force=self.completed_during_submit)
+                    self.completed_during_submit = False
+                newly_ready = self.finalize()
+                if newly_ready and self.settings.get("submission_policy", "on_finalized") == "on_finalized":
+                    self.publish(during_schedule=True, question_ids=newly_ready)
                 if self.now < self.admission_end:
                     for job in self.jobs():
                         if job.player not in self.active and job.player not in self.paused:
                             self.start_attempt(job)
                 if not self.active:
                     break
-                self._advance(max(self.now, min(a["finish"] for a in self.active.values())))
+                wake = max(self.now, min(a["finish"] for a in self.active.values()))
+                if self.settings.get("submission_policy", "on_finalized") == "on_finalized":
+                    deadlines = [self.deadline(q) for q in self.questions.values()
+                                 if q["seen"] is not None and not q["sealed"] and not q["blocked"] and not q["fallback"]
+                                 and q["question_type"] in SUPPORTED and q["submitted"] is None]
+                    wake = min([wake, self.now + timedelta(seconds=self.cfg["scheduler_wake_s"]),
+                                *(d for d in deadlines if d > self.now)])
+                self._advance(wake)
                 completed = [p for p in PLAYERS if p in self.active and self.active[p]["finish"] <= self.now]
                 for p in completed:
                     self.complete(p)
                     if p not in self.active:
                         self.poll(force=True)
-            self.finalize()
+            newly_ready = self.finalize()
+            if newly_ready and self.settings.get("submission_policy", "on_finalized") == "on_finalized":
+                self.publish(during_schedule=True, question_ids=newly_ready)
             self.publish()
         except WorkerTimeout:
             self.cycle["status"] = "timeout"
@@ -489,7 +541,7 @@ class Simulation:
                 active["job"].snapshot["reasons"].add("timeout")
                 active["attempt"].update(outcome="supervisor_timeout", finished_at_utc=to_iso(self.now))
             self.active.clear()
-            # cycle_v2 reserves cleanup time separately from the worker timeout.
+            # The cycle reserves cleanup time separately from the worker timeout.
             cleanup = self.now + timedelta(seconds=limits["cleanup_reserve_s"])
             while self.next_tick < cleanup:
                 self.cycles.append({"started_at": to_iso(self.next_tick), "finished_at": to_iso(self.next_tick),

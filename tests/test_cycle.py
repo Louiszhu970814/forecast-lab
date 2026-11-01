@@ -59,8 +59,8 @@ def setup_cycle(environment, tmp_path, monkeypatch):
         return {s["question_id"]: latest[s["question_id"]] for s in current}
     def submit(project, seconds):
         assert seconds == C.SUBMIT_TIMEOUT_S
-        # M3-W1 acquires the same scheduler lock, so it must have been released.
-        with F.Lock(tmp_path / "scheduler.lock"):
+        # Submission owns a separate lock, including during scheduler.run().
+        with F.Lock(tmp_path / "submit.lock"):
             calls.append("submit")
         return {"status": "ok"}
     def run(**kw):
@@ -100,7 +100,7 @@ def test_new_questions_append_resume_and_publish(setup_cycle, tmp_path):
     assert len(tracker["calls"]) == 1
     current.append(snapshot(101))
     assert run()["new_question_ids"] == [101]
-    assert len(tracker["calls"]) == 2 and calls.count("submit") == 3
+    assert len(tracker["calls"]) == 2 and calls.count("submit") == 5
     logs = read_complete(tmp_path / "cycles.jsonl")
     assert len(logs) == 3
     assert all(r["started_at"].endswith("Z") and r["finished_at"].endswith("Z") for r in logs)
@@ -218,7 +218,7 @@ def test_published_stale_result_allows_new_snapshot_and_other_questions(setup_cy
     result = run()
     assert len(tracker["calls"]) == 3
     assert result["steps"]["submit"]["status"] == "ok"
-    assert calls.count("submit") == 2
+    assert calls.count("submit") == 5
     assert result["steps"]["publish"]["stale_aggregate_ids"] == [old["record_id"]]
     offers = [a for a in read_complete(tmp_path / "aggregates.jsonl") if a.get("submission_eligible")]
     assert len(offers) == 3
@@ -413,7 +413,7 @@ def test_started_attempt_keeps_full_timeout_and_submits_after_admission_close(se
     result = run(deadline=clock[0] + timedelta(seconds=1))
     assert result["status"] == "complete", result
     assert deadlines and len(tracker["calls"]) == 1
-    assert result["steps"]["publish"]["aggregate_ids"] and calls.count("submit") == 1
+    assert result["steps"]["on_finalized"]["calls"][0]["publish"]["aggregate_ids"] and calls.count("submit") == 2
     attempt = read_complete(tmp_path / "forecasts.jsonl")[0]
     assert attempt["timeout_s"] == 600 and attempt["validation_status"] == "valid"
     assert attempt["decision_deadline_utc"] != result["admission_deadline"]
@@ -534,7 +534,7 @@ def test_unmeasured_tier2_can_run_longer_than_cycle_interval(setup_cycle, tmp_pa
     assert [tier for _, tier, _ in tracker['calls']] == ['tier1', 'tier2']
     jobs = read_complete(tmp_path / 'scheduler_jobs.jsonl')
     assert jobs[-1]['tier'] == 2 and jobs[-1]['estimated_completion_s'] == 1260
-    assert result['steps']['publish']['aggregate_ids'] and calls.count('submit') == 1
+    assert result['steps']['on_finalized']['calls'][0]['publish']['aggregate_ids'] and calls.count('submit') == 2
     assert result['timing_limits'] == C.timing_limits(F.load_run_config())
 
 
@@ -609,7 +609,7 @@ def test_abandoned_intent_requeues_new_snapshot(setup_cycle, tmp_path, observe_b
         assert read_complete(tmp_path / 'question_queue.jsonl')[-1]['action'] == 'already_submitted'
     append_record(log, {'intent_id': 'i1', 'status': 'abandoned'})
     result = run()
-    assert result['status'] == 'complete' and result['steps']['publish']['aggregate_ids']
+    assert result['status'] == 'complete' and result['steps']['on_finalized']['calls'][0]['publish']['aggregate_ids']
     assert len(tracker['calls']) == 2
     assert read_complete(tmp_path / 'question_queue.jsonl')[-1]['action'] == 'requeued'
     offers = [r for r in read_complete(tmp_path / 'aggregates.jsonl') if r.get('submission_eligible')]
@@ -682,3 +682,46 @@ def test_abandoned_unchanged_intent_does_not_invalidate_its_own_snapshot(setup_c
     assert not result['steps']['publish']['stale_aggregate_ids']
     assert len(tracker['calls']) == 1
     assert not any(r['type'] == 'snapshot_invalidated' for r in read_complete(tmp_path / 'question_queue.jsonl'))
+
+
+@pytest.mark.parametrize("outcome", ["busy", "timeout"])
+def test_finalized_submit_failure_is_recorded_and_cycle_continues(setup_cycle, tmp_path, outcome):
+    run, _, clock, _, _, tracker, _ = setup_cycle
+    calls = []
+    def submit(project, seconds):
+        calls.append(seconds)
+        if len(calls) == 1:
+            clock[0] += timedelta(seconds=2)
+            if outcome == "timeout":
+                raise subprocess.TimeoutExpired("synthetic", seconds)
+            return {"status": "busy", "returncode": C.BUSY_EXIT_CODE}
+        return {"status": "ok"}
+    result = run(submit=submit)
+    assert result["status"] == "complete" and len(tracker["calls"]) == 1
+    assert calls == [120, 120]
+    hook = result["steps"]["on_finalized"]
+    assert hook["count"] == 1
+    call, = hook["calls"]
+    assert call["status"] == ("error" if outcome == "timeout" else "busy")
+    assert call["elapsed_s"] == 2 and call["publish"]["aggregate_ids"]
+    assert read_complete(tmp_path / "cycles.jsonl") == [result]
+    progress = read_complete(tmp_path / "cycle_progress.jsonl")
+    assert any(r["summary"]["steps"]["on_finalized"]["calls"] and
+               r["summary"]["steps"]["on_finalized"]["calls"][0].get("elapsed_s") == 2 for r in progress)
+
+
+def test_stop_submit_records_hook_without_invoking_submit(setup_cycle):
+    run, _, _, _, calls, _, project = setup_cycle
+    (project / "config" / "STOP_SUBMIT").touch()
+    result = run()
+    hook = result["steps"]["on_finalized"]
+    assert hook["count"] == 1
+    assert hook["calls"][0]["submit"] == {"status": "stopped", "reason": "STOP_SUBMIT"}
+    assert "submit" not in calls
+
+
+def test_submit_cli_reports_busy_exit_code(tmp_path, monkeypatch):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src/submit.py").touch()
+    monkeypatch.setattr(C.subprocess, "run", lambda *args, **kwargs: subprocess.CompletedProcess(args, C.BUSY_EXIT_CODE))
+    assert C.submit_cli(tmp_path, 120) == {"status": "busy", "returncode": C.BUSY_EXIT_CODE}

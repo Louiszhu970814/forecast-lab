@@ -32,7 +32,7 @@ from flab.ledger import transaction, read_complete
 from flab.timeutil import parse_iso, to_iso, utc_now
 from poll_questions import latest_snapshots
 
-VERSION = "scheduler_v3"
+VERSION = "scheduler_v4"
 TERMINAL = {"selected", "already_selected", "prior_answer_excluded", "output_excluded", "attempts_exhausted",
             "schema_failed", "semantic_failed", "parse_failed", "invalid_output", "not_candidate", "not_admitted", "budget_skipped"}
 
@@ -116,7 +116,8 @@ class Scheduler:
                  context_extra: Callable[[str], dict] | None = None,
                  now: Callable[[], datetime] = utc_now,
                  acceptance_log: Path = baseline.ACCEPTANCE_LOG,
-                 continuous: bool = False, execution_deadline: datetime | None = None):
+                 continuous: bool = False, execution_deadline: datetime | None = None,
+                 on_finalized: Callable[[list[int]], None] | None = None):
         if snapshots is None:
             from m2_campaign import SafeSnapshots
             from metaculus import MetaculusClient
@@ -124,6 +125,7 @@ class Scheduler:
             from flab.workdir import PROJECT_ROOT
             snapshots = SafeSnapshots(MetaculusClient(get_secret("METACULUS_TOKEN", PROJECT_ROOT / ".env")), root, campaign)
         self.continuous, self.execution_deadline = continuous, execution_deadline
+        self.on_finalized = on_finalized
         self.snapshot_ids = {}
         self.root, self.campaign, self.provider, self.now = root, campaign, snapshots, now
         self.cfg, self.policy = load_run_config(), load_quota_policy()
@@ -278,6 +280,7 @@ class Scheduler:
         return result
 
     def finalize(self, snapshots, *, force=()):
+        newly_ready = []
         self.snapshot_ids = {qid: s["snapshot_id"] for qid, s in snapshots.items()}
         with transaction(self.root):
             attempts, aggregates, events, view = self.state()
@@ -292,7 +295,8 @@ class Scheduler:
                     # Crash after aggregate append must not permanently lose its comment.
                     snap = snapshots.get(qid)
                     if snap is not None:
-                        self._comment(snap, existing, attempts, aggregates, events)
+                        if self._comment(snap, existing, attempts, aggregates, events):
+                            newly_ready.append(qid)
                     continue
                 snap = snapshots.get(qid)
                 if snap is None:
@@ -311,8 +315,12 @@ class Scheduler:
                              submission_eligible=False)
                 append_record(self.root / "aggregates.jsonl", final)
                 aggregates.append(final)
-                self._comment(snap, final, attempts, aggregates, events)
+                if self._comment(snap, final, attempts, aggregates, events):
+                    newly_ready.append(qid)
             L.append_impacts(self.root / "audit_impacts.jsonl", L.ImpactGraph([*attempts, *aggregates]), events, now=self.now())
+        if self.continuous and newly_ready and self.on_finalized is not None:
+            self.on_finalized(newly_ready)
+        return newly_ready
 
     def _comment(self, snap, final, attempts, aggregates, events):
         if final["status"] != "ready":
@@ -328,6 +336,18 @@ class Scheduler:
             comment = {"type": "comment_failed", "aggregate_id": final["record_id"], "question_id": final["question_id"],
                        "error": str(exc), "at": to_iso(self.now())}
         append_record(self.root / "comments.jsonl", comment)
+        return comment["type"] == "comment"
+
+    def _wait_timeout(self, snapshots):
+        if not self.continuous:
+            return None
+        with transaction(self.root):
+            sealed = {a.get("question_snapshot_id") for a in read_complete(self.root / "aggregates.jsonl")
+                      if a.get("scheduler_campaign_id") == self.campaign["campaign_id"]
+                      and a.get("completion_status") == "complete_local"}
+        deadlines = [F.decision_deadline(s, self.cfg) for s in snapshots.values()
+                     if s["snapshot_id"] not in sealed]
+        return min([60.0, *(max(0.0, (d - self.now()).total_seconds()) for d in deadlines if d is not None)])
 
     def run(self, *, max_jobs=180, lock_held=False, paused_players=()) -> dict:
         if not self.continuous and load_submit_mode().get("mode") != "local":
@@ -343,6 +363,8 @@ class Scheduler:
             with ThreadPoolExecutor(max_workers=3) as pool:
                 while True:
                     snapshots = self.provider()
+                    if self.continuous:
+                        self.finalize(snapshots)
                     if (self.execution_deadline is None or self.now() < self.execution_deadline) and len(results) + len(active) < max_jobs:
                         jobs = self.jobs(snapshots, paused=paused, active={j.player for j in active.values()})
                         for job in jobs:
@@ -353,7 +375,7 @@ class Scheduler:
                             active[pool.submit(self.execute, job)] = job
                     if not active:
                         break
-                    completed, _ = wait(active, return_when=FIRST_COMPLETED)
+                    completed, _ = wait(active, timeout=self._wait_timeout(snapshots), return_when=FIRST_COMPLETED)
                     for future in completed:
                         job = active.pop(future)
                         try:
