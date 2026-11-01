@@ -9,7 +9,9 @@
 - Argon：Louis 將個人保留線由 40% 降為 20%（`quota_policy_v2`，gemini `weekly_cap` 0.8）；人工驗收門檻改由政策推導（25%）。
 - M2 題集重新登記為 **`data/campaigns/m2_1793529615987_7867f9f1.json`**（同樣 20 題、同樣上限，只換 ID 與政策雜湊）；舊的 `m2_1793513402324_f7c9d20c` 不再使用。
 - 隔離驗收：M2-W7 改過 `flab/runner.py`，三線六種正式設定都要重跑。另修正 autoload 的呼叫紀錄被誤判為「驗收未完成」的錯誤。
-- **進行中**：claude、gpt 的正式驗收（第 1、2 層）→ gemini 正式驗收 → `scheduler.py --campaign data/campaigns/m2_1793529615987_7867f9f1.json` → `m2_report.py --campaign …`。中斷時先看 `data/acceptance.jsonl` 最後的 `acceptance_result`，以及 `data/scheduler_runs.jsonl`。
+- 隔離驗收已全部重跑通過（2026-11-01T11:10Z，`m2_report.py` 的六項 `production_acceptance` 都是 ok）。Gemini 第 2 層跑了三次：第一次 GPT 在驗收期間安裝 Telegram 的 LaunchAgent，`schedule` 測試誤判；第二次 smarkets.com 回 HTTP 403；第三次 PASS。驗收後 Argon 剩 34.3%。
+- **進行中（2026-11-01T11:12Z 起）**：`scheduler.py --campaign data/campaigns/m2_1793529615987_7867f9f1.json`，由 Claude 在背景執行（移除 `CLAUDE*` 環境變數）。進度看 `data/scheduler_jobs.jsonl`（只看 player／tier／question_id／outcome，不看預測內容）。結束後執行 `m2_report.py --campaign data/campaigns/m2_1793529615987_7867f9f1.json`。若排程器中斷，重新執行同一指令即可，不要重設帳冊。
+- GPT 依 Louis 要求在另一個對話做 Telegram 營運介面（`telegram_ops_v1`，未提交），並已安裝、啟動 `org.forecast-lab.telegram` LaunchAgent。人工隔離驗收會檢查 LaunchAgents 有沒有變動，所以跑驗收時不要安裝或重載 launchd 服務。GPT 完成後，由 Claude 審查並整合進 §15／§16。
 
 Louis 要求繼續 M2、M3，並指出 GPT 線是 Pro 方案、額度充裕：**耗用大量 token 的實作優先交給 GPT（代理開發模式），Claude 負責任務說明與審查**（PLAN D69）。
 
