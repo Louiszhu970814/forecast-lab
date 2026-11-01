@@ -1,6 +1,8 @@
 # Forecast Lab launchd 範本
 
-本目錄只提供範本，不會安裝或載入排程。安裝前須由 Louis 核准 `trial`、完成機器人帳號與場地核准、M1 隔離／模型／全域基準驗收，以及 M3-W1 的送出驗收與本次程式審查。`submit.py` 缺席時只記錄 unavailable，不代表已送出。不得用人類帳號。
+Telegram 介面另見 [手機控制台設定指南](../docs/telegram.md)。`org.forecast-lab.telegram.plist` 已有對應程式；完成 Token 設定與帳號配對後，可用 `telegram_bot.py install` 安裝。它提供報告、通知排程與隔離的 Codex 開發任務，不啟動預測或送出流程。**模型隔離驗收期間，不可安裝、重載或改動 LaunchAgents。**以下 trial／驗收前置條件適用於預測排程，與 Telegram 服務分開。
+
+以下預測工作只提供範本，不會自動安裝或載入排程。安裝前須由 Louis 核准 `trial`、完成機器人帳號與場地核准、M1 隔離／模型／全域基準驗收，以及 M3-W1 的送出驗收與本次程式審查。`submit.py` 缺席時只記錄 unavailable，不代表已送出。不得用人類帳號。
 
 `cycle` 每 600 秒觸發一次，前 510 秒允許接新工作；准入截止後不開始新工作、重跑或格式修復，等待已開始的嘗試依正常 timeout 與題目決策截止點結束，再刷新、finalize、publish、submit。第 1／2 層准入沿用 M2 的題目截止與預算規則，不要求工作在本次 600 秒內完成。尚未開始的嘗試留到下一輪。週期全程持有 `cycle.lock`；跨過下一次排程時，新呼叫直接記錄 `overlap_skipped`，不排隊。`submit.py run` 固定 timeout 為 120 秒。
 

@@ -308,7 +308,9 @@ def test_launchd_templates():
     assert configs["cycle"]["StartInterval"] == 600
     assert configs["resolve"]["StartCalendarInterval"] == {"Hour": 21, "Minute": 0}
     assert configs["report"]["StartCalendarInterval"] == {"Hour": 21, "Minute": 0, "Weekday": 1}
-    assert all(c["ProgramArguments"][:3] == ["/usr/bin/caffeinate", "-i", "/bin/sh"] for c in configs.values())
+    # Only forecast jobs use run.sh/caffeinate; Telegram has its own resident service.
+    assert all(configs[name]["ProgramArguments"][:3] == ["/usr/bin/caffeinate", "-i", "/bin/sh"]
+               for name in ("cycle", "resolve", "report"))
 
 
 @pytest.fixture

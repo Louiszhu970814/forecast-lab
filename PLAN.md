@@ -1,6 +1,6 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.18（v1.0 凍結後的修訂，見 §16；M2 自動載入測試與基準核准、M3 離線開發、機器人帳號建立）
+> 版本：v1.19（v1.0 凍結後的修訂，見 §16；M2 自動載入測試與基準核准、M3 離線開發、機器人帳號建立）
 > 初稿：Claude
 > 本回合整合者：Claude（v1.10 起；v1.5～v1.9 由 Codex 整合）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
@@ -362,7 +362,7 @@ forecast-lab/
 ├── AGENTS.md
 ├── CLAUDE.md
 ├── .gitignore
-├── .env                       不進版本控制，放 METACULUS_TOKEN（機器人帳號）等機密
+├── .env                       不進版本控制，放 METACULUS_TOKEN（機器人帳號）、TELEGRAM_BOT_TOKEN 與配對 ID 等機密
 ├── config/
 │   ├── run_config_v2.json     各線各層的模型、推理強度、子代理上限與升級門檻；修改即升版
 │   ├── agg_v1.json            整合規則參數；修改即升版
@@ -388,6 +388,10 @@ forecast-lab/
 │   ├── m2_campaign.py          試驗場地中繼資料與同步題檢查
 │   ├── m2_prepare.py           輸出前準備固定 20 題名單
 │   ├── m2_report.py            有效率、成本與驗收缺口
+│   ├── telegram_bot.py         手機控制台：私人配對、狀態、營運報告、通知排程、開發任務入口（D73）
+│   ├── flab/ops_report.py      只輸出計數的營運摘要
+│   ├── flab/dev_tasks.py       手機開發任務佇列與上限
+│   ├── flab/dev_runner.py      隔離的 Codex 開發執行器
 │   ├── adapters/
 │   │   ├── claude.py
 │   │   ├── gemini.py
@@ -407,8 +411,16 @@ forecast-lab/
 ├── reports/                   不進版本控制
 │   ├── periodic/
 │   └── advisory/
-└── launchd/                   macOS 排程設定
+└── launchd/                   macOS 排程設定（預測排程範本；org.forecast-lab.telegram 為常駐的手機控制台）
 ```
+
+手機控制台（`telegram_ops_v2`、`telegram_dev_v1`，D73；操作見 `docs/telegram.md`）：
+
+- 只接受配對的私人 Telegram 帳號；拒絕群組、轉傳、bot 與代發訊息。會改變狀態的指令超過 10 分鐘即作廢。
+- 營運報告只輸出計數，不輸出題號、題目文字、機率、理由或原始輸出，對所有題目一律如此。查詢不呼叫模型，也不改預測設定或送出。
+- 開發模式：只有明確的「開發：需求」才會啟動 `codex exec`。工作在專案外的副本進行，副本不含 `.git`、`.env`、`data/`、`reports/`。模型的指令在命名權限政策 `flabdev` 下執行：預設全部拒絕，只開放副本可寫、`.venv` 與必要執行環境唯讀，網路關閉。結果只產生待審 patch，不自動套回、提交、部署或送出；整合前由 Claude 審查。
+- 開發執行使用 GPT 線的同一個 ChatGPT 訂閱，不計入 `budget_v1` 的每週次數。上限：同時 1 項、每 UTC 日 10 輪、每輪 30 分鐘。
+- 人工隔離驗收會檢查 `LaunchAgents` 是否變動；驗收進行中不得安裝、重載或修改 LaunchAgents。
 
 ### 5.3 模型轉接層（adapters）
 
@@ -1522,6 +1534,12 @@ view_image                  stable true
 
 本回合沒有 blocking 意見。
 
+#### Telegram 營運介面交接（GPT，2026-11-01）
+
+- [§4.5 / §5.1 / §5.2] 依使用者本輪要求已新增 `telegram_ops_v1`：私人帳號配對、彙總營運報告、狀態查詢及每日／每週通知排程；建議整合者將 `src/telegram_bot.py`、`src/flab/ops_report.py`、`data/telegram_events.jsonl` 與 `launchd/org.forecast-lab.telegram.plist` 納入架構，並於 §15／§16 記錄。設定與限制詳見 `docs/telegram.md`；完整結算分數報告仍待後續實作｜手機可讀取進度，通知設定與歷史採 UTC JSONL 追加；介面不呼叫模型、不修改預測行為，所有題目均不顯示答案、理由或原始輸出，符合既有資訊限制；本輪不代替 Claude 修改正文或升版｜non-blocking
+
+- [§5.1 / §5.2 / §7 / §9] 使用者續要求 Telegram 開發模式，已新增 `telegram_ops_v2`／`telegram_dev_v1` 的私人任務佇列、補充續作、停止與進度／完成通知；建議整合者納入 `src/flab/dev_tasks.py`、`src/flab/dev_runner.py` 與 `data/telegram_dev/events.jsonl`，將開發與無人值守預測的權限及額度口徑分開記錄。詳見 `docs/telegram.md` 與 `docs/tasks/TELEGRAM-DEV.md`｜開發使用獨立程式副本與官方 Codex CLI、命名檔案權限及離線測試；不讀正式資料、報告或憑證，不自動套回主專案／提交／部署；沿用既有 Telegram 服務，啟用前避開模型隔離驗收的 LaunchAgents 觀測窗口；實作由 Claude 獨立審查，GPT 不修改正文｜non-blocking
+
 ### 14.3 Louis 與女友
 
 （待填）
@@ -1605,11 +1623,13 @@ view_image                  stable true
 | D70 | 2026-11-01 | Louis 指示：(1) 自動載入測試由 Claude 在開發對話中代為執行（原交接建議 Louis 在一般終端機親自執行）；執行時移除 Claude Code 自身的環境變數（`CLAUDE*`、`CLAUDECODE`），使子程序環境接近一般終端機；(2) 自動載入測試的 Argon 門檻由 45% 降為 20%，只適用 `autoload.py`，人工驗收與預測管線的保留額度不變；(3) Louis 已建立機器人帳號（Metaculus 使用者 ID 311763，`is_bot`、`is_primary_bot` 為真，`api_forecasting_access` 為 enabled），token 只放在 `.env` 的 `METACULUS_TOKEN` | 本輪指示。機器人帳號尚未報名任何比賽（`registered_campaigns` 為空）；切換到 `trial` 與填寫 `approved_bot_id` 仍待 Louis 另行核准（§3.6） |
 | D71 | 2026-11-01 | Louis 審查自動載入測試的 `must_review`（gpt 確定載入 `~/.codex/AGENTS.md` 與 `~/.codex/skills/`；其餘家目錄與暫存資料夾祖先路徑為未知且目前不存在；claude 的 3 個 CLI 內建外掛）後核准全域基準 `base_1793529281499_4a1eccba`。Louis 將 Argon 個人保留線由 40% 降為 20%：`quota_policy_v2` 的 gemini `weekly_cap` 改為 0.8，人工驗收門檻改由政策推導（保留線 + 5% = 25%）；M2 題集以同樣 20 題、同樣上限重新登記，以對應新的政策雜湊 | 本輪指示。重新登記時尚無任何模型預測輸出；舊題集 `m2_1793513402324_f7c9d20c` 不再使用 |
 | D72 | 2026-11-01 | M2 量測的第一個 claude 嘗試因管線白名單漏列 `StructuredOutput` 被判為 `tool_scope_violation` 而停線（v1.18 已修正）；Louis 判定為誤判，不重新驗收，直接恢復 claude 線（`line_resume`，by Louis）。正式驗收 `acc_1793529463945_ced0ca65`（第 1 層）、`acc_1793529642642_fba87085`（第 2 層）仍然有效 | 本輪決定。該次嘗試只用了 WebSearch 4 次與 StructuredOutput 2 次 |
+| D73 | 2026-11-01 | Louis 要求以 Telegram 作為手機控制台，並可從手機交辦開發任務；GPT 實作 `telegram_ops_v2`、`telegram_dev_v1`，Claude 審查通過後整合（§5.2）。開發模式由 Louis 透過已配對的私人帳號遠端操作，在專案外的隔離副本以 Codex 開發，結果一律經 Claude 審查才整合 | 本輪指示；審查紀錄見 `docs/tasks/TELEGRAM-DEV.md`。開發執行與 GPT 預測線共用訂閱，不計入預測預算 |
 
 ---
 
 ## 16. 變更紀錄
 
+- **v1.19**（2026-11-01）：整合 GPT 實作的 Telegram 手機控制台（`telegram_ops_v2`、`telegram_dev_v1`，D73）：`src/telegram_bot.py`、`src/flab/ops_report.py`、`src/flab/dev_tasks.py`、`src/flab/dev_runner.py`、`launchd/org.forecast-lab.telegram.plist`、`docs/telegram.md`。不改 prompt、模型參數、篩題、整合或送出行為。Claude 審查時實測開發沙箱讀不到 `.env`、`data/`、`~/.codex/auth.json`、`config.toml`、`~/.claude.json`、`~/.ssh` 與鑰匙圈，只有 `.venv` 可讀。
 - **v1.18**（2026-11-01）：修正 `forecast.tool_violations()` 的 claude 白名單漏列 `StructuredOutput`（claude CLI 以這個內建工具交付 `--json-schema` 輸出）。改為沿用驗收判定的 `CLAUDE_SAFE_TOOLS`／`CLAUDE_FORMAT_REPAIR_TOOLS`，兩邊不再各自維護。
   - 這個錯誤讓 M2 量測的第一個 claude 嘗試（`att_1793531558486_5668dcaf`，只用了 4 次 WebSearch 與 2 次 StructuredOutput）被判為 `tool_scope_violation` 並停線。離線測試的假 adapter 不會產生這個工具呼叫，所以先前沒有抓到。
   - 不升 `forecast_pipeline_v6`：沒有改 prompt、模型參數、篩題或整合，只修正安全檢查的誤判；修正前沒有任何 claude 嘗試被判為合格，題集內的版本仍然一致。
