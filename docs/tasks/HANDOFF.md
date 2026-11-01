@@ -1,6 +1,6 @@
 # 給下一個對話的接手紀錄
 
-## 最新進度（Claude，2026-11-01T07:26Z；優先讀這段）
+## 最新進度（Claude，2026-11-01T07:40Z；優先讀這段）
 
 Louis 要求繼續 M2、M3，並指出 GPT 線是 Pro 方案、額度充裕：**耗用大量 token 的實作優先交給 GPT（代理開發模式），Claude 負責任務說明與審查**（PLAN D69）。
 
@@ -21,14 +21,15 @@ Louis 要求繼續 M2、M3，並指出 GPT 線是 Pro 方案、額度充裕：**
 | M3-W1 送出狀態機 `submit.py`（`submit_v2`） | `7668b77` | v1.11 | 725 passed |
 | M3-W2 `cycle.py`（`cycle_v2`）、`continuous.py`（`continuous_v2`）、`launchd/` 範本；`scheduler_v3`、`forecast_pipeline_v6` | `d094440` | v1.12 | 781 passed |
 | M3-W6 週期與送出的整合測試（修正兩項契約錯誤：`submit_v3`、`continuous_v3`） | `874e0be` | v1.13 | 796 passed |
+| M3-W3 覆蓋率模擬器 `coverage_sim.py`（`coverage_sim_v1`；尚未用真實資料執行） | `9c554ec` | v1.14 | 848 passed |
 
 每個任務的退回理由與通過依據，都寫在各任務說明末尾的「審查紀錄」。
 
-### 進行中：M3-W3 覆蓋率模擬器（GPT，背景執行）
+### 進行中：M3-W7 決策截止即送出（GPT，背景執行）
 
-- 任務說明：`docs/tasks/M3-W3.md`。範圍只有離線模擬器（合成資料）；真實的主賽／MiniBench 開題時間表與 M2 實測耗時，由協調者之後收集再執行，執行前要先登記並凍結設定（D53）。
-- clone：`/private/tmp/claude-501/-Users-ucchengg-forecast-lab/fdce1ec4-5ac2-4896-873c-35dfd4f98b06/scratchpad/dev_m3w3`（從 `874e0be` 建立）；事件紀錄 `/private/tmp/claude-501/-Users-ucchengg-forecast-lab/fdce1ec4-5ac2-4896-873c-35dfd4f98b06/scratchpad/dev_m3w3.jsonl`，結束標記 `dev_m3w3.end`。
-- 結束後：在沙箱外跑完整測試；審查重點是模擬器與正式排程器的差異清單，以及優先序一致性測試；通過就合併、更新 PLAN §16、commit + push。
+- 起因：M3-W3 的模擬器揭露 `cycle_v2` 要等所有執行中的工作結束才 publish／submit，已封存的題目可能錯過送出截止（違反 §3.5）。設計決定寫在 `docs/tasks/M3-W7.md`：`submit.py` 改用專屬的 `submit.lock`，帳冊交易不包住網路呼叫；排程器最晚在決策截止點醒來，並在執行中透過 hook 觸發 publish 與 `submit.py run`；模擬器同步更新。
+- clone：`/private/tmp/claude-501/-Users-ucchengg-forecast-lab/fdce1ec4-5ac2-4896-873c-35dfd4f98b06/scratchpad/dev_m3w7`（從 `9c554ec` 建立）；事件紀錄 `/private/tmp/claude-501/-Users-ucchengg-forecast-lab/fdce1ec4-5ac2-4896-873c-35dfd4f98b06/scratchpad/dev_m3w7.jsonl`，結束標記 `dev_m3w7.end`。
+- 審查重點：交易確實不包住傳輸層呼叫；兩個送出程序不可能同時寫入；hook 在 `STOP_SUBMIT` 時不送出；固定 M2 題集的行為不變；被修改的既有測試的理由。
 
 ### 後續候選（未開始）
 
