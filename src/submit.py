@@ -1,6 +1,6 @@
 """Recoverable submission ledger for PLAN §3.6 (M3-W1).
 
-The default transport is deliberately offline until V15 verifies authenticated readback.
+The CLI selects the API transport only in trial/live; V15 still requires real validation.
 Transport implementations must never retry writes themselves. A missing readback is unknown,
 not evidence that a request failed. Both commands use submit.lock and short ledger transactions.
 """
@@ -10,7 +10,6 @@ import argparse
 import copy
 import json
 import time
-from dataclasses import dataclass
 from datetime import timedelta
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
@@ -27,8 +26,10 @@ from flab.timeutil import parse_iso, to_iso, utc_now
 from flab.workdir import PROJECT_ROOT
 from poll_questions import TournamentIndex, is_synced_copy, snapshot_from_post
 from validate import submit_deadline
+from project_policy import trial_membership_error
+from submit_contract import ConfirmedFailure, Readback
 
-VERSION = "submit_v5"
+VERSION = "submit_v6"
 BUSY_EXIT_CODE = 75
 FORECAST_PATH = "/api/questions/forecast/"
 COMMENT_PATH = "/api/comments/create/"
@@ -51,21 +52,6 @@ class PermanentPrecheckError(PrecheckError):
     """This frozen input is unusable: invalidated/changed data, target or closed window."""
 
 
-class ConfirmedFailure(Exception):
-    """Transport has authoritative evidence the write was NOT accepted (never a timeout).
-
-    Evidence must be a credential-free description suitable for the local ledger.
-    """
-
-
-@dataclass(frozen=True)
-class Readback:
-    outcome: str = "unknown"  # found, not_accepted, unknown
-    record: dict | None = None
-    request_id: str | None = None
-    evidence: str | None = None
-
-
 class Transport(Protocol):
     """V15 boundary. Records/receipts are normalized, authenticated and credential-free.
 
@@ -74,6 +60,8 @@ class Transport(Protocol):
     across trial repetitions; matching an older identical forecast is not sufficient.
     not_accepted requires authoritative evidence and the exact local request_id. Empty
     pages, eventual consistency, HTTP errors and read failures must return unknown.
+    readback receives intent.request_started_at from the original request_started ledger
+    event (also after restart), never from the latest unknown/reconciliation event.
     tournament_index must freshly cover all open/upcoming main and MiniBench rounds,
     including overlapping rounds; raise if completeness or project identity is uncertain.
     """
@@ -218,7 +206,13 @@ class Submitter:
             if intent["tournament_id"] in cfg["excluded_project_ids"]:
                 raise PrecheckError("venue not allowed in trial")
         entries = [(name, entry) for name, entry in cfg["tournaments"].items()
-                   if entry.get("id") == intent["tournament_id"]]
+                   if entry.get("id") == intent["tournament_id"] and (mode["mode"] != "live" or name != "minibench")]
+        if mode["mode"] == "live" and not entries:
+            ongoing = (discovery or {}).get("ongoing_minibench_ids")
+            if not isinstance(ongoing, list) or any(type(pid) is not int or pid <= 0 for pid in ongoing) \
+                    or intent["tournament_id"] not in ongoing:
+                raise PrecheckError("target is not a confirmed ongoing MiniBench round")
+            entries = [("minibench", cfg["tournaments"]["minibench"])]
         if type(intent["tournament_id"]) is not int or len(entries) != 1:
             raise PrecheckError("venue ID is not uniquely configured")
         name, entry = entries[0]
@@ -231,6 +225,13 @@ class Submitter:
                 self.allow_resubmit.get(intent["tournament_id"]) is not True):
             raise PrecheckError("explicit trial repeat policy is no longer enabled")
         return cfg
+
+    def _needs_discovery(self, intent):
+        if intent["mode"] == "trial":
+            return True
+        _, cfg = self._policy()
+        return not any(name != "minibench" and entry.get("id") == intent["tournament_id"]
+                       for name, entry in cfg["tournaments"].items())
 
     def _identity(self, intent):
         account = self.transport.account()
@@ -311,11 +312,14 @@ class Submitter:
                     raise PrecheckError("duplicate bot/question across venues or unresolved prior intent")
 
     def _precheck(self, intent):
-        discovery = self._discovery() if intent["mode"] == "trial" else None
+        discovery = self._discovery() if self._needs_discovery(intent) else None
         cfg = self._gate(intent, discovery)
         self._identity(intent)
         self._duplicate(intent)
         post = self.transport.get_post(intent["post_id"])
+        if intent["mode"] == "trial":
+            if reason := trial_membership_error(post, cfg["tournaments"]["bot_testing_area"]["id"]):
+                raise PrecheckError(reason)
         current = snapshot_from_post(post, intent["snapshot"].get("venue", ""))
         if current is None:
             raise PrecheckError("unrecognized current post")
@@ -362,7 +366,10 @@ class Submitter:
         request_id = last["request_id"]
         try:
             self._identity(intent)
-            result = self.transport.readback(operation, copy.deepcopy(intent), request_id=request_id)
+            started = next(r for r in self._history(intent) if r["status"] == "request_started"
+                           and r.get("request_id") == request_id)
+            lookup = {**copy.deepcopy(intent), "request_started_at": started["at"]}
+            result = self.transport.readback(operation, lookup, request_id=request_id)
             if result.request_id == request_id and result.outcome == "found" \
                     and self._receipt_matches(operation, intent, result.record):
                 self._event(intent, operation + "_ok", operation=operation, request_id=request_id,
@@ -394,9 +401,14 @@ class Submitter:
                 revised = self._precheck(intent)
             else:
                 self._identity(intent)
+                if intent["mode"] == "trial":
+                    _, cfg = self._policy()
+                    post = self.transport.get_post(intent["post_id"])
+                    if reason := trial_membership_error(post, cfg["tournaments"]["bot_testing_area"]["id"]):
+                        raise PrecheckError(reason)
                 revised = False
-            discovery = self._discovery() if intent["mode"] == "trial" else None
-            if operation == "forecast" and intent["mode"] == "trial" and discovery != self._checked_discovery:
+            discovery = self._discovery() if self._needs_discovery(intent) else None
+            if operation == "forecast" and discovery is not None and discovery != self._checked_discovery:
                 raise PrecheckError("current tournament discovery changed before write")
         except Exception as exc:
             abandon = isinstance(exc, PermanentPrecheckError) and not any(
@@ -551,9 +563,19 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("command", choices=("run", "reconcile"))
     args = parser.parse_args(argv)
-    result = Submitter(PROJECT_ROOT / "data").run(reconcile_only=args.command == "reconcile")
+    transport = cli_transport(PROJECT_ROOT)
+    result = Submitter(PROJECT_ROOT / "data", transport=transport).run(reconcile_only=args.command == "reconcile")
     print(json.dumps({"events": result["events"], "statuses": result["statuses"]}, sort_keys=True))
     return BUSY_EXIT_CODE if result.get("status") == "busy" else 0
+
+
+def cli_transport(root):
+    """Local mode does not construct a client or read credentials."""
+    if load_submit_mode(root / "config")["mode"] == "local":
+        return OfflineTransport()
+    from flab.envfile import get_secret
+    from submit_transport import APITransport
+    return APITransport(get_secret("METACULUS_TOKEN", root / ".env"))
 
 
 if __name__ == "__main__":

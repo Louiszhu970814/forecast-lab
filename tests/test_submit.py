@@ -494,16 +494,26 @@ def test_unterminated_submission_ledger_fails_closed(environment):
     assert not e["transport"].writes
 
 
-def test_offline_default_and_cli_commands_never_create_network_transport(environment, monkeypatch, capsys):
+def test_cli_keeps_local_offline_and_selects_transport_for_trial(environment, monkeypatch, capsys):
+    original_submitter = S.Submitter
+    monkeypatch.setattr(S, "Submitter", lambda *a, **kw: original_submitter(*a, now=lambda: NOW, **kw))
     e = environment
     e["seed"]()
     monkeypatch.setattr(S, "PROJECT_ROOT", e["root"].parent)
     set_mode(e, mode="local")
     assert S.main(["run"]) == 0 and rows(e)[-1]["status"] == "dry_run"
     assert S.main(["reconcile"]) == 0
+    import submit_transport
+    import flab.envfile
+    constructed = []
+    monkeypatch.setattr(flab.envfile, "get_secret", lambda *a: "synthetic-token")
+    def factory(token):
+        constructed.append(token)
+        return e["transport"]
+    monkeypatch.setattr(submit_transport, "APITransport", factory)
     set_mode(e, mode="trial")
     assert S.main(["run"]) == 0
-    assert rows(e)[-1]["status"] == "rejected_precheck" and "V15" in rows(e)[-1]["reason"]
+    assert rows(e)[-1]["status"] == "comment_ok" and constructed == ["synthetic-token"]
     assert "probability" not in capsys.readouterr().out
 
 
@@ -778,7 +788,7 @@ def test_unsent_intent_permanent_blockers_abandon_once(environment, monkeypatch,
     elif change == "close_time":
         e["post"]["question"]["scheduled_close_time"] = to_iso(NOW + timedelta(hours=4))
     elif change == "venue":
-        e["post"]["projects"] = {}
+        e["post"]["projects"] = {"site_main": [{"id": 144}]}
     elif change == "closed":
         e["post"]["question"]["status"] = "closed"
     elif change == "deadline":
@@ -1104,7 +1114,7 @@ def test_trial_discovery_with_repository_configuration(environment, monkeypatch,
         return {**original(cfg), 'excluded_project_ids': [33121, 33122, 33123]}
     monkeypatch.setattr(e['transport'], 'current_tournaments', discover)
     e['transport'].index.project_ids.add(33123)
-    e['post']['projects'] = {'default_project': {'id': venue}}
+    e['post']['projects'] = {'default_project': {'id': venue, 'type': 'site_main' if venue == 144 else 'tournament'}}
     snap = {**snapshot_from_post(e['post'], 'synthetic'), 'tournament_id': venue, 'snapshot_id': 's1'}
     e['seed'](snap)
     e['make']().run()

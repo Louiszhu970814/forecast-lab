@@ -1,6 +1,6 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.28（v1.0 凍結後的修訂，見 §16；M2 量測、M3 離線開發、MiniBench 改為驗收通過即參賽）
+> 版本：v1.29（v1.0 凍結後的修訂，見 §16；M2 量測、M3 離線開發、MiniBench 改為驗收通過即參賽）
 > 初稿：Claude
 > 本回合整合者：Claude（v1.10 起；v1.5～v1.9 由 Codex 整合）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
@@ -1656,6 +1656,7 @@ view_image                  stable true
 
 ## 16. 變更紀錄
 
+- **v1.29**（2026-11-01）：M3-W9，GPT 實作、Claude 審查（合併，但 trial 前須修 B1）。新增 `project_policy_v1`（`trial` 不送到 bot testing area 以外任何比賽的題目，歸屬不明就拒絕，D79）、`api_transport_v1`（真實 Transport；V15 假設集中在 `src/submit_transport.py` 頂部）、MiniBench 系列白名單（`live` 只接受此刻 ongoing 的輪次，每筆記錄實際輪次 ID）。`submit_v5` → `submit_v6`，`continuous_v4` → `continuous_v5`，`m2_prepare_v2`（新題集不從 Cup 選題，逐題檢查歸屬）。固定 M2 題集與 `forecast_pipeline_v6` 不變。
 - **v1.28**（2026-11-01）：記錄 D81（另外登記每線上限 130 次的新 M2 題集）。不改程式或預測行為。
 - **v1.27**（2026-11-01）：依 D80，`m2_report_v2` → `m2_report_v3`：每條線新增 `budget_skipped_tier1_questions`、`campaign_questions` 與 `coverage_fraction`，`valid_fraction` 的分母不含從未執行的題目。Claude 實作，GPT 唯讀審查：一項 blocking（只看完成紀錄、漏看開始紀錄）已修正並補測試。不改預測行為。
 - **v1.26**（2026-11-01）：依 D79，`trial_ground_types` 拿掉 `metaculus_cup`；`tests/test_submit.py` 改為斷言 Cup（33108）在 `trial` 被拒絕，「發現不完整」的案例改為缺少主站場地。不改預測行為。主站題目排除同時屬於 Cup 的題目，列入 M3-W9。

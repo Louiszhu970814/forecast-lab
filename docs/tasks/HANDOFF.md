@@ -1,5 +1,36 @@
 # 給下一個對話的接手紀錄
 
+## 交接給 GPT 與 Gemini（Claude，2026-11-01T14:20Z；Claude 額度接近 5 小時上限，優先讀這段）
+
+Louis 指示：Claude 額度快用完，接下來的工作交給 GPT 與 Gemini。分工照 D69：**GPT 實作，Gemini 審查**（不讓同一個模型審查自己的實作）。PLAN 正文原本由 Claude 整合；Claude 不在時，由 Louis 指定整合者，否則先把建議寫在 §14 自己的標題下。
+
+### 現在的狀態（PLAN v1.29，主專案完整測試 1201 passed）
+
+- **背景還在跑**：Claude 從本對話啟動的排程器（pid 81935），跑舊題集 `m2_1793529615987_7867f9f1` 剩下的 gpt 第 2 層。先用 `pgrep -fl "scheduler.py --campaign"` 確認是否還在。
+  - 如果 Claude 的對話結束時它被一併終止，正在執行的嘗試會留下「沒有結果的啟動」，該線會停線（`forecast.py` 的 `line_stopped`）。要恢復必須由 Louis 決定（`forecast.py resume --player <線> --by Louis --reason ...`），不得代替 Louis 執行。
+- **舊題集的結果**：第 1 層 gpt 20/20、claude 19/20（46289 因誤判永久缺）、gemini 15/15（另有 5 題因每週 64 次上限未執行，D80）。第 2 層 claude 5 題、gpt 進行中、gemini 0 題（次數用完）。
+- **D81（Louis 已決定）**：另外登記一個新的 M2 題集，20 題、每線上限 130 次，題目只來自主站（不含 Cup，也不含同時屬於任何比賽的題目）。**還沒準備**。
+- **D78**：Louis 已核准 `trial`（機器人 311763），但要等 M2 結束才切換；固定題集的排程器只能在 `local` 執行。
+- **D77**：MiniBench 不設固定天數，驗收全部通過、Louis 核准後即參賽。逐項清單在 [MINIBENCH-READINESS.md](MINIBENCH-READINESS.md)。
+- Louis 已填完參與表單；FutureEval 頁面沒有報名按鈕（`futureeval.md` 補記）。
+
+### 接下來依序要做的事
+
+1. **舊題集跑完後**：用 `.venv/bin/python src/m2_report.py --campaign data/campaigns/m2_1793529615987_7867f9f1.json` 產生報表，摘要給 Louis。
+2. **準備並跑新題集（D81）**：`.venv/bin/python src/m2_prepare.py --attempt-cap 130` 會寫出題集檔（`data/campaigns/<id>.json`），接著 `.venv/bin/python src/scheduler.py --campaign <那個檔>`。執行前先確認 `baseline.py check --credits 0` 三線都是 `ok`。如果選不到 20 題，看 `poll_log.jsonl` 的 `skipped` 原因，不要放寬歸屬檢查。
+   - 執行環境：要移除 Claude Code 的環境變數（`CLAUDE*`、`CLAUDECODE`），並在一般終端機或沙箱外執行，否則子程序的 CLI 行為會和正式環境不同。
+   - claude 線和 Louis 的 Claude 額度共用，碰到 5 小時上限時會記為 `quota_exhausted` 並退避，這正好是 V5 需要的證據。
+3. **M3-W9 的 B1**（GPT 實作、Gemini 審查）：見 [M3-W9.md](M3-W9.md) 的審查紀錄。切換 trial 前必須完成。
+4. **M2 結束後**：依 D78 把 `config/submit_mode.json` 改成 `trial`、`approved_bot_id` 311763，然後在 bot testing area 實測 V15（`src/submit_transport.py` 頂部列出的每個假設都要逐項確認）。改設定前再向 Louis 確認一次。
+5. **還要 Louis 決定的事**：持續模式題集的每週滾動與上限政策（稽核 B4）；V5 額度耗盡證據的處理方式；主賽要不要提前。
+
+### 今天學到、之後要避免的事
+
+- 兩處各自維護同一份清單或規則（工具白名單、基準快取、排除索引）會在真實執行時出錯：改用單一來源，並用真實 CLI 與 API 的形狀寫測試。
+- 題集的次數上限要先扣掉可能的驗收重跑。
+- 給 GPT 的環境說明要寫明：TMPDIR 是系統暫存區，pytest 一律加 `TMPDIR="$PWD/.tmp"`。
+- 跑隔離驗收時，不要安裝或重載 LaunchAgents（Telegram 服務）。
+
 ## 14:00Z 更新（Claude）
 
 - D79：Cup 已從試驗場地拿掉；主站題目還要排除同時屬於 Cup 的題目（M3-W9）。

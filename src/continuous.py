@@ -1,4 +1,4 @@
-"""Append-only snapshot queue and bounded campaign registration for continuous_v4."""
+"""Append-only snapshot queue and bounded campaign registration for continuous_v5."""
 from __future__ import annotations
 
 import copy
@@ -15,15 +15,16 @@ from flab.ledger import read_complete, transaction
 from flab.timeutil import parse_iso, to_iso, utc_now
 from m2_campaign import discover_tournaments
 from poll_questions import TournamentIndex, latest_snapshots, poll
+from project_policy import MEMBERSHIP_UNKNOWN
 
-VERSION = "continuous_v4"
+VERSION = "continuous_v5"
 STRUCTURAL = ("question_type", "options", "scheduled_close_time", "post_id", "tournament_id")
 
 
 def register(root: Path, policy: dict, *, now=utc_now):
     """Freeze an explicit budget window and venue selection before polling any outputs."""
-    if policy.get("version") not in ("continuous_v2", "continuous_v3", VERSION) or not isinstance(policy.get("campaign_id"), str) or not policy["campaign_id"]:
-        raise ValueError("continuous_v2, continuous_v3 or continuous_v4 campaign identity required")
+    if policy.get("version") not in ("continuous_v2", "continuous_v3", "continuous_v4", VERSION) or not isinstance(policy.get("campaign_id"), str) or not policy["campaign_id"]:
+        raise ValueError("continuous_v2 through continuous_v5 campaign identity required")
     start, end = parse_iso(policy["budget_window_start"]), parse_iso(policy["budget_window_end"])
     if not start <= now() < end or end - start > timedelta(days=7):
         raise ValueError("continuous budget window must be active and at most seven days")
@@ -65,23 +66,30 @@ def current_tournaments(client, *, configured, now=utc_now):
     (also the current alias). No static fallback on any metadata failure.
     """
     cfg = discover_tournaments(client, configured=configured)
+    # Discovery resolves identity; authorization always comes from local configuration.
+    cfg["tournaments"]["minibench"]["submit_whitelisted"] = configured["tournaments"]["minibench"].get("submit_whitelisted") is True
     mini = client.get("projects/minibenches/")
-    if not isinstance(mini, list) or not mini or not any(
+    if not isinstance(mini, list) or not mini or sum(
             isinstance(r, dict) and r.get("slug") == "minibench" and
-            r.get("id") == cfg["tournaments"]["minibench"]["id"] for r in mini):
+            r.get("id") == cfg["tournaments"]["minibench"]["id"] for r in mini) != 1 \
+            or sum(isinstance(r, dict) and r.get("slug") == "minibench" for r in mini) != 1:
         raise F.PreflightError("MiniBench index unavailable or inconsistent")
     exclusions = {cfg["tournaments"][role]["id"] for role in ("main", "minibench")}
-    seen = set()
+    seen, ongoing = set(), set()
     for r in mini:
         if not isinstance(r, dict) or type(r.get("id")) is not int or r["id"] <= 0 or \
                 type(r.get("is_ongoing")) is not bool or r["id"] in seen or (not r["is_ongoing"] and not r.get("start_date")):
             raise F.PreflightError("incomplete MiniBench metadata")
         seen.add(r["id"])
+        if r["is_ongoing"]:
+            if r.get("start_date") and parse_iso(r["start_date"]) > now():
+                raise F.PreflightError("inconsistent MiniBench ongoing metadata")
+            ongoing.add(r["id"])
         if r["is_ongoing"] or parse_iso(r["start_date"]) > now():
             exclusions.add(r["id"])
     if any(type(v) is not int or v <= 0 for v in exclusions):
         raise F.PreflightError("main and MiniBench exclusion IDs required")
-    return {**cfg, "excluded_project_ids": sorted(exclusions)}
+    return {**cfg, "excluded_project_ids": sorted(exclusions), "ongoing_minibench_ids": sorted(ongoing)}
 
 
 class Poller:
@@ -93,7 +101,7 @@ class Poller:
     def __call__(self):
         cfg = load_tournaments()
         mode = load_submit_mode()["mode"]
-        if mode != "live":
+        if mode != "live" or "minibench" in self.policy["venues"]:
             cfg = current_tournaments(self.client, configured=cfg, now=self.now)
         entries = cfg["tournaments"]
         venues = self.policy["venues"]
@@ -113,11 +121,16 @@ class Poller:
                        for v in sorted(set(exclusions))]
             index = TournamentIndex.from_polls(records)
         current = {}
-        for venue in sorted(venues, key=lambda v: (v == "minibench", v)):
-            project = entries[venue]["id"]
+        targets = [(v, pid) for v in sorted(venues, key=lambda v: (v == "minibench", v))
+                   for pid in (cfg["ongoing_minibench_ids"] if mode == "live" and v == "minibench"
+                               else [entries[v]["id"]])]
+        for venue, project in targets:
             rec = poll(self.client, project, questions_log=self.root / "questions.jsonl",
-                       poll_log=self.root / "poll_log.jsonl", exclude=index, seen_question_ids=set(current))
+                       poll_log=self.root / "poll_log.jsonl", exclude=index, seen_question_ids=set(current),
+                       trial_bot_project_id=entries["bot_testing_area"]["id"] if mode != "live" else None)
             records.append(rec)
+            if any(r["reason"] == MEMBERSHIP_UNKNOWN for r in rec["skipped"]):
+                raise F.PreflightError("polled question project membership is unverified")
             stored = latest_snapshots(self.root / "questions.jsonl")
             skipped = {r.get("question_id") for r in rec["skipped"]}
             for timing in rec["timing"]:

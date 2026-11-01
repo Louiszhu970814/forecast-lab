@@ -26,6 +26,7 @@ from flab.jsonl import append_record, read_records  # noqa: E402
 from flab.timeutil import to_iso, utc_now  # noqa: E402
 from flab.workdir import PROJECT_ROOT  # noqa: E402
 from metaculus import MetaculusClient  # noqa: E402
+from project_policy import trial_membership_error, VERSION as PROJECT_POLICY_VERSION  # noqa: E402
 
 QUESTIONS_LOG = PROJECT_ROOT / "data" / "questions.jsonl"
 POLL_LOG = PROJECT_ROOT / "data" / "poll_log.jsonl"
@@ -154,13 +155,18 @@ def record_snapshots(snaps: Iterable[dict[str, Any]], *, log: Path = QUESTIONS_L
 def poll(client: MetaculusClient, venue: str, *, metadata_only: bool = False,
          questions_log: Path = QUESTIONS_LOG, poll_log: Path = POLL_LOG,
          exclude: TournamentIndex | None = None, tournaments: dict[str, Any] | None = None,
-         seen_question_ids: set[int] | None = None) -> dict[str, Any]:
+         seen_question_ids: set[int] | None = None, trial_bot_project_id: int | None = None) -> dict[str, Any]:
     tournament_id = resolve_venue(venue, tournaments)
     polled_at = to_iso(utc_now())
     # Tournament metadata also covers upcoming questions so trial venues can exclude their copies (D53).
     statuses = ["open", "upcoming"] if metadata_only else ["open"]
     snaps, skipped, timing = [], [], []
     for post in client.list_posts(tournament_id, statuses=statuses):
+        membership_error = trial_membership_error(post, trial_bot_project_id) if trial_bot_project_id is not None else None
+        if membership_error:
+            skipped.append({"post_id": post.get("id"), "question_id": (post.get("question") or {}).get("id"),
+                            "reason": membership_error, "retryable": True})
+            continue
         snap = snapshot_from_post(post, venue)
         if snap is None:
             skipped.append({"post_id": post.get("id"), "reason": "not a single-question post"})
@@ -180,6 +186,8 @@ def poll(client: MetaculusClient, venue: str, *, metadata_only: bool = False,
     rec = {"type": "poll", "record_id": new_id("poll"), "polled_at": polled_at, "venue": venue,
            "tournament_id": tournament_id, "metadata_only": metadata_only, "statuses": statuses,
            "n_questions": len(timing), "timing": timing, "skipped": skipped, **outcome}
+    if trial_bot_project_id is not None:
+        rec["project_policy_version"] = PROJECT_POLICY_VERSION
     append_record(poll_log, rec)
     return rec
 
