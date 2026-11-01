@@ -194,27 +194,33 @@ def run(
         pgid = proc.pid
 
         try:
-            if stdin_bytes is not None:
-                proc.communicate(input=stdin_bytes, timeout=timeout_s)
-            else:
-                proc.wait(timeout=timeout_s)
-        except subprocess.TimeoutExpired:
-            timed_out = True
-            if proc.stdin is not None:
-                try:
-                    proc.stdin.close()
-                except OSError:
-                    pass
+            try:
+                if stdin_bytes is not None:
+                    proc.communicate(input=stdin_bytes, timeout=timeout_s)
+                else:
+                    proc.wait(timeout=timeout_s)
+            except subprocess.TimeoutExpired:
+                timed_out = True
+                if proc.stdin is not None:
+                    try:
+                        proc.stdin.close()
+                    except OSError:
+                        pass
 
-            killed_signal = _terminate_group(pgid, proc, _sigterm_grace_s)
-            proc.wait()
+                killed_signal = _terminate_group(pgid, proc, _sigterm_grace_s)
+                proc.wait()
 
-        # The leader exited normally, but children it spawned (for example background
-        # subagent helpers) may still hold the process group (PLAN §7.6 item 5).
-        orphans_terminated = False
-        if not timed_out and _is_pg_alive(pgid, proc):
-            orphans_terminated = True
+            # The leader exited normally, but children it spawned (for example background
+            # subagent helpers) may still hold the process group (PLAN §7.6 item 5).
+            orphans_terminated = False
+            if not timed_out and _is_pg_alive(pgid, proc):
+                orphans_terminated = True
+                _terminate_group(pgid, proc, _sigterm_grace_s)
+        except BaseException:
+            # Manual acceptance must stop the CLI before restoring its global test files.
             _terminate_group(pgid, proc, _sigterm_grace_s)
+            proc.wait()
+            raise
 
     duration_s = time.monotonic() - t0
     finished_dt = utc_now()

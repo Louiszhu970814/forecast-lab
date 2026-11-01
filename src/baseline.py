@@ -109,6 +109,8 @@ def default_sources(env: dict[str, str] | None = None) -> list[Source]:
         Source("agy.hooks", "gemini", "~/.gemini/config/hooks.json", "file"),
         Source("agy.mcp", "gemini", "~/.gemini/config/mcp_config.json", "file"),
         Source("agy.project_grants", "gemini", "~/.gemini/config/projects", "dir"),
+        # agy automations ("sidecars") can start agent sessions on a schedule (agy 1.4.12 automation skill).
+        Source("agy.sidecars", "gemini", "~/.gemini/config/sidecars", "dir"),
         Source("agy.shared_config", "gemini", "~/.gemini/config/config.json", "json_mixed", category=GENERAL),
         Source("agy.cli_settings", "gemini", "~/.gemini/antigravity-cli/settings.json", "json_mixed",
                content_keys=AGY_SETTINGS_CONTENT_KEYS),

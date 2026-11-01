@@ -1,8 +1,8 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.9（v1.0 凍結後的修訂，見 §16；M2 本地排程、留言與實測準備）
+> 版本：v1.10（v1.0 凍結後的修訂，見 §16；M2 自動載入測試工具、M3 離線開發）
 > 初稿：Claude
-> 本回合整合者：Codex（依本輪使用者指示接續 W8 與 M2 離線開發；先前計畫審查整合者為 Claude）
+> 本回合整合者：Claude（v1.10；v1.5～v1.9 由 Codex 整合）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
 > 最後更新：2026-11-01
 > 狀態：M1 進行中（v1.0 於 2026-10-31 經 Louis 核准凍結，D54）
@@ -1601,11 +1601,16 @@ view_image                  stable true
 | D67 | 2026-11-01 | 使用者要求先 commit／push 再繼續；Codex 將 W8、M2-W1／W2 與交接文件提交為 `382841f` 並推送 main，接續 M2-W3。以 host 計算 `changed_from_tier1` 落實匿名輸入與比較紀錄，模型仍須提供具體理由 | 本輪「先幫我commit & push 然後繼續下面的計劃」；保存開發進度不代表 M1／M2 或正式參賽驗收完成；程式比較細節見 §5.4、§6.2 |
 
 | D68 | 2026-11-01 | 使用者要求繼續完成整個 M2 並確認 Gemini 的參與。Codex 接續 W4／W5 與 W6 工具，Gemini 透過官方 agy 做開發審查；另開始三線正式設定隔離驗收 | 本輪指示；不替代 Louis 的全域人工審查，不解除個人額度保留線，不啟用 trial／live。有界量測配置、真實與合成證據分開記錄 |
+| D69 | 2026-11-01 | Louis 指示：GPT 線為 Pro 方案、額度充裕，耗用大量 token 的實作優先交給 GPT（代理開發，D56），Claude 負責任務說明、審查與整合；Gemini／Argon 只做少量的跨文件稽核；不讓同一模型審查自己的實作。Louis 對全域基準人工審查的回覆：claude.ai 同步的 13 個官方 skills 接受列為「會載入」；未啟用 marketplace 外掛；同意以自動載入測試確認 codex `config.toml` 的 `notify` 在 `--ignore-user-config` 下被忽略 | 本輪指示與回覆。基準仍待自動載入測試與 `must_review` 審查後才核准；若 `notify` 實際會載入，該線不得核准 |
 
 ---
 
 ## 16. 變更紀錄
 
+- **v1.10**（2026-11-01）：落地 M2-W7 的 `src/autoload.py`（§7.6 第 7 項的人工自動載入測試），GPT 實作、Claude 兩輪審查（D69）。
+  - 只在 `--approved-by` 與 `--i-understand-this-edits-global-files` 同時提供時才修改全域檔案；備份與追加式 manifest 先寫入，`finally` 還原並逐項驗證 sha256，失敗時印出人工還原指示並以非零碼結束。`flab/runner.py` 在中斷或例外時先終止 CLI 程序群組再拋出。
+  - 判定：canary 或 CLI 宣告證明載入為 `loaded`；只有完整的宣告能排除時才是 `not_loaded`；其餘為 `unknown`。依 D43 不以沒有出現 canary 推論沒有載入，`unknown` 保守視為可能載入，與 `loaded` 一起列入 `must_review` 交人工審查，不使測試失敗。`passed` 需三線都完成、全部還原、沒有執行錯誤，且不是 `--cheap`。
+  - 每線模型呼叫前寫入 `acceptance_call_started`（`source = "autoload"`），計入 `budget_v1` 的每週次數；Gemini 沿用驗收的 credits 與 Argon 45% 門檻。不改 prompt、模型參數、篩題或送出行為。
 - **v1.9**（2026-11-01）：落地 M2-W4 `scheduler_v1`／`budget_v1`、W5 `comment_v1` 與 W6 的 `m2_safety_v1`／`m2_report_v1`；細節、命令與審查證據見 `docs/tasks/M2-W4-W6.md`（D68）。
   - `forecast_pipeline_v4`／`reconciliation_pipeline_v2` 接上逐線執行鎖、共用短交易、逐次 reservation／start／outcome、p90 截止估計與預算熔斷；首層明確預算不足記為 `budget_skipped`，不明狀態停線。scheduler 終止事件不被 W3 的 record type 覆蓋，重啟不重排已拒絕升級。
   - 英文留言按實際採用與完整稽核圖產生，清洗與 3,000 字元限制可離線測試；最終整合與留言中斷接續不重呼模型。事後污染會讓舊整合／留言無法列為有效完成。

@@ -230,3 +230,56 @@ def test_runner_reports_no_orphans_for_clean_exit(tmp_path: Path) -> None:
     )
     assert res.exit_code == 0
     assert res.orphans_terminated is False
+
+
+def test_runner_interrupt_terminates_process_group(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import subprocess
+    from flab import runner
+
+    real_popen = subprocess.Popen
+    processes = []
+
+    def interrupted_popen(*args, **kwargs):
+        proc = real_popen(*args, **kwargs)
+        processes.append(proc)
+        wait = proc.wait
+        first = True
+
+        def interrupted_wait(*a, **kw):
+            nonlocal first
+            if first:
+                first = False
+                raise KeyboardInterrupt()
+            return wait(*a, **kw)
+
+        monkeypatch.setattr(proc, "wait", interrupted_wait)
+        return proc
+
+    monkeypatch.setattr(runner.subprocess, "Popen", interrupted_popen)
+    with pytest.raises(KeyboardInterrupt):
+        runner.run([sys.executable, "-c", "import time; time.sleep(30)"], cwd=tmp_path,
+                   timeout_s=5, stdout_path=tmp_path / "out", stderr_path=tmp_path / "err",
+                   _sigterm_grace_s=0.1)
+    assert len(processes) == 1 and processes[0].poll() is not None
+    assert not _pid_exists(processes[0].pid)
+
+
+def test_runner_interrupt_during_timeout_cleanup_retries_termination(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from flab import runner
+
+    terminate = runner._terminate_group
+    calls = []
+
+    def interrupted_cleanup(pgid, proc, grace):
+        calls.append(pgid)
+        if len(calls) == 1:
+            raise InterruptedError("fake SIGTERM during timeout cleanup")
+        return terminate(pgid, proc, grace)
+
+    monkeypatch.setattr(runner, "_terminate_group", interrupted_cleanup)
+    with pytest.raises(InterruptedError):
+        runner.run([sys.executable, "-c", "import time; time.sleep(30)"], cwd=tmp_path,
+                   timeout_s=.1, stdout_path=tmp_path / "out", stderr_path=tmp_path / "err",
+                   _sigterm_grace_s=.1)
+    assert len(calls) == 2 and calls[0] == calls[1]
+    assert not _pid_exists(calls[0])

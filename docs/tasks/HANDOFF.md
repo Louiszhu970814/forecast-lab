@@ -1,4 +1,45 @@
-# 給 Claude 的接手紀錄
+# 給下一個對話的接手紀錄
+
+## 最新進度（Claude，2026-11-01T07:08Z；優先讀這段）
+
+Louis 要求繼續 M2、M3，並指出 GPT 線是 Pro 方案、額度充裕：**耗用大量 token 的實作優先交給 GPT（代理開發模式），Claude 負責任務說明與審查**（PLAN D69）。
+
+### 分工依據（Louis，2026-11-01）
+
+依 GPT 整理的公開評測（Google DeepMind 的同一份彙整；不是本專案實測，只作方向）與三家的額度：
+
+- **GPT／Astra**：實作、長時間的修正迴圈、複雜問題拆解（軟體工程評測領先，Pro 方案額度最充裕）。預設的執行者。
+- **Gemini／Argon**：跨文件一致性稽核（PLAN、程式、任務說明互相核對）、消化長篇規則頁或 PDF、流程與狀態機邏輯的檢查（長上下文關係追蹤與企業流程評測領先）。Argon 週額度要替 Louis 保留 40%，預測線也要用，所以少量使用；便宜的檢查用 Flash Low，分派前先查 `/usage`。
+- **Claude／Opus 5.5**：協調、任務說明、最終審查、給 Louis 的報告與文件、大範圍跨檔重構、需要判斷的決定。
+- 不讓同一個模型審查自己的實作。
+
+### 已完成：M2-W7 自動載入測試工具（PLAN v1.10）
+
+GPT 實作、Claude 兩輪審查通過，已合併回主專案並 commit（`feat: add manual autoload acceptance tool`；hash 以 git log 為準）。主專案完整測試 `601 passed`。審查重點與人工執行注意事項見 `docs/tasks/M2-W7.md` 末尾。
+
+### 進行中：M3-W1、M3-W2 第 1 輪修正（GPT，背景執行）
+
+| 任務 | clone | 狀態 |
+|---|---|---|
+| M3-W1 送出狀態機 `submit.py` | `/private/tmp/claude-501/-Users-ucchengg-forecast-lab/fdce1ec4-5ac2-4896-873c-35dfd4f98b06/scratchpad/dev_m3w1` | 第 1 輪退回（B1 帳冊重複寫入與 `abandoned`、B2 讀取 `snapshot_invalidated`、N1 預測重試上限、N2 還原測試 fixture）；GPT 修正已結束（`dev_m3w1_fix1.end`），**待 Claude 第 2 輪審查** |
+| M3-W2 持續輪詢 `cycle.py`、`continuous.py`、launchd 範本 | `/private/tmp/claude-501/-Users-ucchengg-forecast-lab/fdce1ec4-5ac2-4896-873c-35dfd4f98b06/scratchpad/dev_m3w2` | 第 1 輪退回（B1 週期上限截斷執行中的模型呼叫、第 2 層永遠不會被排入；B2 `publish()` 整批阻擋造成永久停擺；B3 `committed_questions()` 對齊 `abandoned`；N1 還原測試 fixture 與 PLAN）；GPT 修正中（`dev_m3w2_fix1.end` 出現 `exit=` 代表結束） |
+
+兩個任務之間的契約（審查時要對照）：M3-W2 在 `data/question_queue.jsonl` 追加 `snapshot_invalidated`（`old_snapshot_id`）；M3-W1 拒絕已作廢快照的整合結果與尚未開始預測請求的意圖（記為 `abandoned`）；M3-W2 的 committed 判定忽略 `abandoned` 的意圖。兩者都改到測試 fixture 時，合併時以 HEAD 版本為準；GPT 沙箱因 `TMPDIR` 在 clone 內而失敗的既有測試，要在沙箱外重跑確認。
+
+合併順序：先 M3-W1（新增 `submit.py`，不改共用檔），再 M3-W2（改 `scheduler.py`、`forecast.py`、`reconcile.py`、`aggregate.py`、`poll_questions.py`），每一步都重跑完整測試。M3-W2 的程式行為版本（`scheduler_v2`、`forecast_pipeline_v5`、`reconciliation_pipeline_v3`）要寫入 PLAN §16。
+
+### 等 Louis 回來處理
+
+1. **全域基準人工審查**（§7.2）：claude 是 `~/.claude/skills/synced`（claude.ai 同步的 skills）、官方 plugin marketplace、`settings.json`（model、modelSettings、theme）；codex 只有內建 `.system` skills，`~/.codex/AGENTS.md` 為空；agy 幾乎是空的。盤點在 `reports/baseline_inventory_1793512681977_99f25159.json`。
+   - **Louis 已回覆（2026-11-01T07:00Z）**：(a) claude 同步的 13 個官方 skills（docs、pdf、pptx、docx、xlsx、deep-research、computer-use、chrome-browser、built-in-browser、google-workspace、morning、import-memory、skill-creator）接受列為「會載入」，不關閉同步；(b) 未啟用過 marketplace 外掛（回答 "no"，依上下文解讀為「沒有啟用」；`settings.json` 也沒有 `enabledPlugins`；autoload 的 init 事件若列出外掛，仍要回報 Louis 審查）；(c) 同意由 autoload 測試確認 codex `config.toml` 的 `notify`（每輪結束執行 Computer Use 程式）在 `--ignore-user-config` 下被忽略；若實際仍會載入，該線不能核准基準，須先處理。
+   - 人工內容審查的結論：三線目前存在的全域來源都沒有歷史答案、比賽資訊，啟用中的設定沒有可執行的 hook（codex `notify` 待 autoload 證實被忽略）。正式核准仍要等 autoload 結果與 `must_review` 清單。
+2. **自動載入測試**（§7.6 第 7 項）：M2-W7 已通過審查。Louis 在場、在**一般終端機**（不是 Claude Code 的 `!` 或沙箱）先執行 `agy /usage` 確認 Argon ≥ 45%，再執行 `.venv/bin/python src/autoload.py plan` 檢視要放的位置，最後執行 `.venv/bin/python src/autoload.py run --approved-by Louis --i-understand-this-edits-global-files`（會暫時修改全域檔案並還原；三線各呼叫模型一次）。取得 `passed = true` 的 `autoload_result` 後，由 Louis 審查 `must_review`，再 `baseline.approve()`。
+3. **Argon 額度**：2026-11-01T06:47Z 剩 46.52%，保留線 40%，重置 2026-11-06T12:03Z。M2 註冊題集的 20 題中只有 1 題在重置前截止（11/02 13:00Z），其餘都在重置後。建議：claude 與 GPT 線先跑，gemini 線用剩餘額度，其餘等重置；不調整保留線。須 Louis 決定。
+4. 之後依上方 Codex 段落的步驟 3～5 執行 M2 的真實 20 題量測與報告。
+
+---
+
+## 前一段（Codex，2026-11-01T06:34Z）
 
 更新時間：2026-11-01T06:34:53.975Z。記錄者：Codex。
 
