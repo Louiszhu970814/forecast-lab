@@ -1,6 +1,14 @@
 # 給下一個對話的接手紀錄
 
-## 最新進度（Claude，2026-11-01T10:40Z；優先讀這段）
+## 最新進度（Claude，2026-11-01T13:05Z；優先讀這段）
+
+**13:05Z 摘要**
+
+- Louis 升級 Google AI Ultra。M2-W9（`7eb0e73`，PLAN v1.21、D75）支援共用 Gemini 組的額度、5 小時等待，以及實際偵測其他 agy 程序。Gemini 正式驗收已在 Ultra 下重跑通過（第 1、2 層）。
+- 全域基準又因 claude CLI 中斷的刷新留下 `plugin-directory-cache-v2.json.tmp.*` 而停線，`c8439a9` 修正（v1.22）。Louis 確認 agy 預設模型是他改的，重新核准基準 `base_1793538013655_8fc7b859`，三線都是 `ok`，六項正式驗收也都是 ok。
+- Gemini 稽核（`docs/tasks/AUDIT-ARGON-2026-11-01.md`）找到的 trial 前問題，已由 M3-W8 修正（`c1b0ff1`，v1.23）。題集每週滾動（稽核 B4）需要 Louis 決定上限政策，尚未處理。
+- **進行中**：13:02Z 起第四輪 M2 排程（同一題集 `m2_1793529615987_7867f9f1`），補 claude 與 gemini 的第 1 層，之後跑三線第 2 層。截至第三輪：gpt 第 1 層 20/20 `selected`；claude 第 1 層 12 題 `selected`，46289 永久缺（`attempts_exhausted`）；gemini 4 題 `selected`。
+- 給 GPT 的環境說明要寫明：TMPDIR 是系統暫存區，pytest 一律加 `TMPDIR="$PWD/.tmp"`。
 
 **2026-11-01T10:45Z 更新（D70、D71）**
 
