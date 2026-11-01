@@ -1604,6 +1604,7 @@ view_image                  stable true
 | D69 | 2026-11-01 | Louis 指示：GPT 線為 Pro 方案、額度充裕，耗用大量 token 的實作優先交給 GPT（代理開發，D56），Claude 負責任務說明、審查與整合；Gemini／Argon 只做少量的跨文件稽核；不讓同一模型審查自己的實作。Louis 對全域基準人工審查的回覆：claude.ai 同步的 13 個官方 skills 接受列為「會載入」；未啟用 marketplace 外掛；同意以自動載入測試確認 codex `config.toml` 的 `notify` 在 `--ignore-user-config` 下被忽略 | 本輪指示與回覆。基準仍待自動載入測試與 `must_review` 審查後才核准；若 `notify` 實際會載入，該線不得核准 |
 | D70 | 2026-11-01 | Louis 指示：(1) 自動載入測試由 Claude 在開發對話中代為執行（原交接建議 Louis 在一般終端機親自執行）；執行時移除 Claude Code 自身的環境變數（`CLAUDE*`、`CLAUDECODE`），使子程序環境接近一般終端機；(2) 自動載入測試的 Argon 門檻由 45% 降為 20%，只適用 `autoload.py`，人工驗收與預測管線的保留額度不變；(3) Louis 已建立機器人帳號（Metaculus 使用者 ID 311763，`is_bot`、`is_primary_bot` 為真，`api_forecasting_access` 為 enabled），token 只放在 `.env` 的 `METACULUS_TOKEN` | 本輪指示。機器人帳號尚未報名任何比賽（`registered_campaigns` 為空）；切換到 `trial` 與填寫 `approved_bot_id` 仍待 Louis 另行核准（§3.6） |
 | D71 | 2026-11-01 | Louis 審查自動載入測試的 `must_review`（gpt 確定載入 `~/.codex/AGENTS.md` 與 `~/.codex/skills/`；其餘家目錄與暫存資料夾祖先路徑為未知且目前不存在；claude 的 3 個 CLI 內建外掛）後核准全域基準 `base_1793529281499_4a1eccba`。Louis 將 Argon 個人保留線由 40% 降為 20%：`quota_policy_v2` 的 gemini `weekly_cap` 改為 0.8，人工驗收門檻改由政策推導（保留線 + 5% = 25%）；M2 題集以同樣 20 題、同樣上限重新登記，以對應新的政策雜湊 | 本輪指示。重新登記時尚無任何模型預測輸出；舊題集 `m2_1793513402324_f7c9d20c` 不再使用 |
+| D72 | 2026-11-01 | M2 量測的第一個 claude 嘗試因管線白名單漏列 `StructuredOutput` 被判為 `tool_scope_violation` 而停線（v1.18 已修正）；Louis 判定為誤判，不重新驗收，直接恢復 claude 線（`line_resume`，by Louis）。正式驗收 `acc_1793529463945_ced0ca65`（第 1 層）、`acc_1793529642642_fba87085`（第 2 層）仍然有效 | 本輪決定。該次嘗試只用了 WebSearch 4 次與 StructuredOutput 2 次 |
 
 ---
 
