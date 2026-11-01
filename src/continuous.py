@@ -1,4 +1,4 @@
-"""Append-only snapshot queue and bounded campaign registration for continuous_v5."""
+"""Append-only snapshot queue and bounded campaign registration for continuous_v7."""
 from __future__ import annotations
 
 import copy
@@ -17,14 +17,17 @@ from m2_campaign import discover_tournaments
 from poll_questions import TournamentIndex, latest_snapshots, poll
 from project_policy import MEMBERSHIP_UNKNOWN
 
-VERSION = "continuous_v5"
+VERSION = "continuous_v7"
+ROLLOVER_VERSION = "weekly_rollover_v1"
 STRUCTURAL = ("question_type", "options", "scheduled_close_time", "post_id", "tournament_id")
 
 
 def register(root: Path, policy: dict, *, now=utc_now):
     """Freeze an explicit budget window and venue selection before polling any outputs."""
-    if policy.get("version") not in ("continuous_v2", "continuous_v3", "continuous_v4", VERSION) or not isinstance(policy.get("campaign_id"), str) or not policy["campaign_id"]:
-        raise ValueError("continuous_v2 through continuous_v5 campaign identity required")
+    if policy.get("version") not in ("continuous_v2", "continuous_v3", "continuous_v4", "continuous_v5", "continuous_v6", VERSION) or not isinstance(policy.get("campaign_id"), str) or not policy["campaign_id"]:
+        raise ValueError("continuous_v2 through continuous_v7 campaign identity required")
+    if "rollover" in policy:
+        raise ValueError("resolve the rollover template before registering a window")
     start, end = parse_iso(policy["budget_window_start"]), parse_iso(policy["budget_window_end"])
     if not start <= now() < end or end - start > timedelta(days=7):
         raise ValueError("continuous budget window must be active and at most seven days")
@@ -59,6 +62,62 @@ def register(root: Path, policy: dict, *, now=utc_now):
             "campaign": copy.deepcopy(policy), "sha256": hash_obj(policy), "at": to_iso(now())})
 
 
+def active_campaign(root: Path, template: dict, *, now=utc_now) -> dict:
+    """Resolve a finite, immutable weekly schedule without changing caps or history.
+
+    An absent rollover setting preserves the original single-window contract.
+    A schedule opts in to N consecutive seven-day UTC windows, all with the same
+    pinned configuration, venues and caps. Only the current window is registered;
+    missed windows are never run retroactively or accumulated as extra allowance.
+    """
+    if "rollover" not in template:
+        register(root, template, now=now)
+        return copy.deepcopy(template)
+    setting = template["rollover"]
+    if template.get("version") != VERSION or not isinstance(setting, dict) or \
+            set(setting) != {"version", "windows"} or setting["version"] != ROLLOVER_VERSION or \
+            type(setting["windows"]) is not int or setting["windows"] < 1:
+        raise ValueError("explicit finite weekly rollover required")
+    identity = template.get("campaign_id")
+    if not isinstance(identity, str) or not identity or any(k in template for k in
+            ("series_id", "series_sha256", "window_index")):
+        raise ValueError("rollover template identity is invalid")
+    anchor, first_end = parse_iso(template["budget_window_start"]), parse_iso(template["budget_window_end"])
+    week = timedelta(days=7)
+    if first_end - anchor != week:
+        raise ValueError("rollover anchor window must be exactly seven days")
+    observed = now()
+    index = (observed - anchor) // week
+    if not 0 <= index < setting["windows"]:
+        raise ValueError("weekly rollover schedule is inactive")
+    digest = hash_obj(template)
+    active = copy.deepcopy(template)
+    del active["rollover"]
+    active.update(campaign_id=f"{identity}:week:{index}", series_id=identity,
+        series_sha256=digest, window_index=index,
+        budget_window_start=to_iso(anchor + index * week),
+        budget_window_end=to_iso(anchor + (index + 1) * week))
+    with transaction(root):
+        series = read_complete(root / "continuous_series.jsonl")
+        own = [r for r in series if r["template"]["campaign_id"] == identity]
+        if any(r["sha256"] != digest for r in own):
+            raise ValueError("registered rollover template cannot change")
+        windows = read_complete(root / "continuous_campaigns.jsonl")
+        previous = [r["campaign"] for r in windows if r["campaign"].get("series_id") == identity]
+        if any(p["series_sha256"] != digest for p in previous):
+            raise ValueError("registered rollover template cannot change")
+        if any(p["window_index"] > index for p in previous):
+            raise ValueError("rollover clock moved into an earlier window")
+        # register() enforces current configuration, caps, and global window
+        # non-overlap under this same reentrant transaction. Write the window
+        # first: a crash before the template row is safely replayable by its hash.
+        register(root, active, now=lambda: observed)
+        if not own:
+            append_record(root / "continuous_series.jsonl", {"type": "continuous_series_registered",
+                "template": copy.deepcopy(template), "sha256": digest, "at": to_iso(observed)})
+    return active
+
+
 def current_tournaments(client, *, configured, now=utc_now):
     """Read-only official discovery shared with the future V15 Transport.
 
@@ -76,16 +135,18 @@ def current_tournaments(client, *, configured, now=utc_now):
         raise F.PreflightError("MiniBench index unavailable or inconsistent")
     exclusions = {cfg["tournaments"][role]["id"] for role in ("main", "minibench")}
     seen, ongoing = set(), set()
+    observed_at = now()
     for r in mini:
         if not isinstance(r, dict) or type(r.get("id")) is not int or r["id"] <= 0 or \
                 type(r.get("is_ongoing")) is not bool or r["id"] in seen or (not r["is_ongoing"] and not r.get("start_date")):
             raise F.PreflightError("incomplete MiniBench metadata")
         seen.add(r["id"])
-        if r["is_ongoing"]:
-            if r.get("start_date") and parse_iso(r["start_date"]) > now():
-                raise F.PreflightError("inconsistent MiniBench ongoing metadata")
+        # The API can mark the next round ongoing before its start date. It must
+        # remain excluded from trial, but cannot authorize live submissions yet.
+        starts_in_future = bool(r.get("start_date")) and parse_iso(r["start_date"]) > observed_at
+        if r["is_ongoing"] and not starts_in_future:
             ongoing.add(r["id"])
-        if r["is_ongoing"] or parse_iso(r["start_date"]) > now():
+        if r["is_ongoing"] or starts_in_future:
             exclusions.add(r["id"])
     if any(type(v) is not int or v <= 0 for v in exclusions):
         raise F.PreflightError("main and MiniBench exclusion IDs required")

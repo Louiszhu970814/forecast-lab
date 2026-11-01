@@ -27,7 +27,8 @@ BOT, MAIN, MINI, SITE = 32977, 33121, 33122, 144
 
 
 @pytest.fixture(autouse=True)
-def no_token_in_any_test_ledger_or_console(tmp_path, capsys):
+def no_token_in_any_test_ledger_or_console(tmp_path, capsys, monkeypatch):
+    monkeypatch.setattr(T, 'POLL_LOG', tmp_path / 'transport_poll.jsonl')
     yield
     for path in tmp_path.rglob('*.jsonl'):
         assert TOKEN not in path.read_text()
@@ -87,6 +88,60 @@ def transport(http):
     obj = T.APITransport(TOKEN, opener=http)
     obj.client._sleep = lambda delay: None
     return obj
+
+
+def test_transport_exclusion_index_uses_shared_metadata_poll_with_groups(tmp_path):
+    http = HTTP()
+    http.posts[MAIN] = [
+        _post(20, 30, 'binary', 'Synthetic excluded question'),
+        {'id': 21, 'title': 'Synthetic group', 'question': None,
+         'group_of_questions': {'questions': [{'id': 31, 'type': 'numeric', 'title': 'Synthetic child'}]}},
+        {'id': 22, 'title': 'Synthetic conditional', 'question': None, 'conditional': {
+            k: {'id': 32+i, 'type': 'binary', 'title': 'Synthetic '+k}
+            for i,k in enumerate(('condition','condition_child','question_yes','question_no'))}},
+    ]
+    obj = transport(http)
+    cfg = {'excluded_project_ids': [MINI, MAIN, MAIN]}
+    actual = obj.tournament_index(cfg)
+    records = read_complete(tmp_path / 'transport_poll.jsonl')
+    expected = PQ.TournamentIndex.from_polls(
+        PQ.poll(obj.client, pid, metadata_only=True, poll_log=tmp_path / 'expected.jsonl')
+        for pid in (MAIN, MINI))
+    assert actual == expected
+    assert actual.project_ids == {MAIN, MINI}
+    assert actual.question_ids == {30, 31, 32, 33, 34, 35} and actual.post_ids == {20, 21, 22}
+    assert all(r['metadata_only'] and r['statuses'] == ['open', 'upcoming'] for r in records)
+    assert [r['tournament_id'] for r in records] == [MAIN, MINI]
+    assert not [s for r in records for s in r['skipped']]
+    assert 'Synthetic' not in json.dumps(records)
+    assert not http.writes()
+
+
+@pytest.mark.parametrize('copy', [False, True])
+def test_trial_submission_with_group_in_exclusion_feed(environment, copy):
+    e = environment
+    http = HTTP(e['post'])
+    http.posts[MAIN] = [{'id': 21, 'title':'Synthetic group', 'question': None,
+                        'group_of_questions': {'questions': [{'id': 31, 'type': 'numeric', 'title':'Synthetic child'}]}}]
+    if copy:
+        http.posts[MAIN].append(_post(22, 32, 'binary', http.post['title']))
+    e['seed']()
+    S.Submitter(e['root'], config_dir=e['config'], transport=transport(http), now=lambda: NOW).run()
+    assert len(http.writes()) == (0 if copy else 2)
+    assert rows(e)[-1]['status'] == ('rejected_precheck' if copy else 'comment_ok')
+
+
+def test_transport_index_does_not_return_partial_coverage_after_read_failure(tmp_path):
+    http = HTTP()
+    def opener(req, timeout):
+        if urllib.parse.parse_qs(urllib.parse.urlsplit(req.full_url).query).get('tournaments') == [str(MINI)]:
+            raise TimeoutError(TOKEN)
+        return http(req, timeout)
+    obj = T.APITransport(TOKEN, opener=opener, poll_log=tmp_path / 'poll.jsonl')
+    with pytest.raises(T.TransportError):
+        obj.tournament_index({'excluded_project_ids': [MAIN, MINI]})
+    assert [r['tournament_id'] for r in read_complete(tmp_path / 'poll.jsonl')] == [MAIN]
+    assert not http.writes()
 
 
 def memberships(kind):
@@ -246,6 +301,45 @@ def test_live_poller_two_rounds_and_rollover(tmp_path, monkeypatch):
     http.alias = MINI + 2
     assert set(poller()) == {MINI + 1, MINI + 2}
     assert cfg['tournaments']['minibench']['id'] is None
+
+
+def test_future_ongoing_alias_is_excluded_but_not_live_until_start():
+    http = HTTP()
+    http.rounds[0]['start_date'] = to_iso(NOW + timedelta(hours=8))
+    cfg = {'tournaments': {'main': {'id': MAIN}, 'minibench': {'id': None, 'submit_whitelisted': True}}}
+    before = Q.current_tournaments(transport(http).client, configured=cfg, now=lambda: NOW)
+    assert before['excluded_project_ids'] == [MAIN, MINI, MINI + 1, MINI + 2]
+    assert before['ongoing_minibench_ids'] == [MINI + 1]
+    after = Q.current_tournaments(transport(http).client, configured=cfg,
+                                  now=lambda: NOW + timedelta(hours=8))
+    assert after['excluded_project_ids'] == before['excluded_project_ids']
+    assert after['ongoing_minibench_ids'] == [MINI, MINI + 1]
+
+
+@pytest.mark.parametrize('synced', [False, True])
+def test_trial_poller_with_future_ongoing_alias_still_excludes_its_copies(tmp_path, monkeypatch, synced):
+    http = HTTP()
+    http.rounds[0]['start_date'] = to_iso(NOW + timedelta(hours=8))
+    http.post['projects'] = memberships('site')
+    http.posts[SITE] = [http.post]
+    if synced:
+        http.posts[MINI] = [_post(22, 32, 'binary', http.post['title'])]
+    cfg = {'tournaments': {'main': {'id': MAIN}, 'minibench': {'id': None},
+                          'bot_testing_area': {'id': BOT}, 'main_site_questions': {'id': SITE}},
+           'trial_ground_types': ['bot_testing_area', 'main_site_questions']}
+    monkeypatch.setattr(Q, 'load_tournaments', lambda: copy.deepcopy(cfg))
+    monkeypatch.setattr(Q, 'load_submit_mode', lambda: {'mode': 'local'})
+    result = Q.Poller(transport(http).client, tmp_path, {'venues': ['main_site_questions']}, now=lambda: NOW)()
+    assert bool(result) is not synced
+    assert bool(read_complete(tmp_path / 'questions.jsonl')) is not synced
+
+
+def test_invalid_ongoing_start_date_still_fails_closed():
+    http = HTTP()
+    http.rounds[0]['start_date'] = 'not-a-date'
+    cfg = {'tournaments': {'main': {'id': MAIN}, 'minibench': {'id': None}}}
+    with pytest.raises(ValueError):
+        Q.current_tournaments(transport(http).client, configured=cfg, now=lambda: NOW)
 
 
 def intent():
@@ -476,7 +570,8 @@ def test_trial_project_change_before_comment_is_rejected(environment):
 
 
 @pytest.mark.parametrize('changed', [False, True])
-def test_new_m2_campaign_rechecks_membership_without_changing_frozen_campaigns(tmp_path, monkeypatch, changed):
+@pytest.mark.parametrize('paginated', [False, True])
+def test_new_m2_campaign_rechecks_membership_without_changing_frozen_campaigns(tmp_path, monkeypatch, changed, paginated):
     root = tmp_path / 'data'
     root.mkdir()
     posts = [_post(100 + i, 100 + i, 'binary', f'Synthetic {i}',
@@ -489,7 +584,15 @@ def test_new_m2_campaign_rechecks_membership_without_changing_frozen_campaigns(t
            'excluded_project_ids': [MAIN, MINI]}
     class Client:
         def get(self, path, params):
-            return {'results': copy.deepcopy(posts)}
+            invalid = copy.deepcopy(posts[0])
+            invalid['id'] = 'Synthetic private remote identifier'
+            return {'results': [*copy.deepcopy(posts[:17] if paginated else posts), invalid],
+                    'next': 'https://www.metaculus.com/api/posts/?offset=50' if paginated else None}
+        def _get_url(self, url):
+            assert url == 'https://www.metaculus.com/api/posts/?offset=50'
+            unsafe = _post(555, 555, 'binary', 'Synthetic unsafe')
+            unsafe['projects'] = memberships('cup')
+            return {'results': copy.deepcopy([posts[0], unsafe, *posts[17:]]), 'next': None}
         def get_post(self, post_id):
             result = copy.deepcopy(posts[post_id - 100])
             if changed:
@@ -511,6 +614,48 @@ def test_new_m2_campaign_rechecks_membership_without_changing_frozen_campaigns(t
     else:
         path = M.prepare(64)
         campaign = json.loads(path.read_text())
-        assert campaign['preparation_version'] == 'm2_prepare_v2'
+        assert campaign['preparation_version'] == 'm2_prepare_v4'
         assert campaign['version'] == 'm2_campaign_v1' and len(campaign['questions']) == 20
         assert all(q['ground'] == 'main_site_questions' for q in campaign['questions'])
+    records = read_complete(root / 'poll_log.jsonl')
+    assert len(records) == (2 if paginated else 1)
+    assert records[-1]['eligible_candidates'] == 20
+    assert 'Synthetic' not in json.dumps(records)
+    if paginated:
+        assert {r['reason'] for r in records[-1]['skipped']} == {
+            'duplicate candidate', trial_membership_error({'projects': memberships('cup')}, BOT)}
+
+
+def test_main_site_pagination_is_bounded(monkeypatch):
+    monkeypatch.setattr(M, 'MAX_MAIN_PAGES', 2)
+    class Client:
+        def __init__(self): self.calls = 0
+        def get(self, *args): return self._get_url('first')
+        def _get_url(self, url):
+            self.calls += 1
+            return {'results': [{'id': self.calls}], 'next': f'https://www.metaculus.com/api/posts/?offset={self.calls}'}
+    client = Client()
+    assert list(M.main_site_pages(client)) == [[{'id': 1}], [{'id': 2}]]
+    assert client.calls == 2
+
+
+@pytest.mark.parametrize('fault', ['results', 'next_type', 'cycle'])
+def test_main_site_pagination_rejects_unrecognized_responses(fault):
+    class Client:
+        def get(self, *args):
+            return {'results': {} if fault == 'results' else [{'id': 1}],
+                    'next': 123 if fault == 'next_type' else 'https://www.metaculus.com/api/posts/?offset=50'}
+        def _get_url(self, url): return self.get()
+    with pytest.raises(SystemExit, match='main-site'):
+        list(M.main_site_pages(Client()))
+
+
+def test_main_site_pagination_refuses_foreign_host():
+    from metaculus import MetaculusClient, MetaculusError
+    calls = []
+    def opener(req, timeout):
+        calls.append(req)
+        return Response({'results': [{'id': 1}], 'next': 'https://foreign.example/api/posts/'})
+    with pytest.raises(MetaculusError, match='outside the API host'):
+        list(M.main_site_pages(MetaculusClient(TOKEN, opener=opener)))
+    assert len(calls) == 1

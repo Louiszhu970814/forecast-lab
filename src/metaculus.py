@@ -12,6 +12,7 @@ import time
 import urllib.error
 import urllib.parse
 import urllib.request
+from http import HTTPStatus
 from typing import Any, Callable, Iterator
 
 API_BASE = "https://www.metaculus.com/api"
@@ -30,8 +31,13 @@ class MetaculusError(RuntimeError):
 Opener = Callable[[urllib.request.Request, float], Any]
 
 
+class NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        raise MetaculusError(code, "read", "redirect refused")
+
+
 def _default_opener(req: urllib.request.Request, timeout: float) -> Any:
-    return urllib.request.urlopen(req, timeout=timeout)
+    return urllib.request.build_opener(NoRedirect()).open(req, timeout=timeout)
 
 
 class MetaculusClient:
@@ -52,8 +58,10 @@ class MetaculusClient:
 
     def _get_url(self, url: str) -> dict[str, Any]:
         parts = urllib.parse.urlsplit(url)
-        if parts.scheme != "https" or parts.netloc != self._host:
-            raise MetaculusError(None, parts.path, "refusing to follow a URL outside the API host")
+        base_path = urllib.parse.urlsplit(self._base).path.rstrip("/") + "/"
+        if parts.scheme != "https" or parts.netloc != self._host or parts.fragment \
+                or not parts.path.startswith(base_path) or ".." in urllib.parse.unquote(parts.path).split("/"):
+            raise MetaculusError(None, "read", "refusing to follow a URL outside the API host or HTTPS API path boundary")
         req = urllib.request.Request(url, method="GET", headers={
             "Authorization": f"Token {self._token}", "Accept": "application/json", "User-Agent": USER_AGENT,
         })
@@ -69,19 +77,20 @@ class MetaculusClient:
                     self._sleep(min(delay, 60.0))
                     attempt += 1
                     continue
-                raise MetaculusError(exc.code, parts.path, str(exc.reason)) from None
+                summary = HTTPStatus(exc.code).phrase if exc.code in HTTPStatus._value2member_map_ else "Request rejected"
+                raise MetaculusError(exc.code, "read", summary) from None
             except (urllib.error.URLError, TimeoutError) as exc:
                 if attempt < self._max_retries:
                     self._sleep(2.0 ** attempt)
                     attempt += 1
                     continue
-                raise MetaculusError(None, parts.path, type(exc).__name__) from None
+                raise MetaculusError(None, "read", type(exc).__name__) from None
 
     def get(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
         query = urllib.parse.urlencode(params or {}, doseq=True)
         return self._get_url(f"{self._base}/{path.lstrip('/')}" + (f"?{query}" if query else ""))
 
-    def list_posts(self, tournament: int, *, statuses: str | list[str] = "open", forecast_type: str = FORECAST_TYPES,
+    def list_posts(self, tournament: int, *, statuses: str | list[str] = "open", forecast_type: str | None = FORECAST_TYPES,
                    limit: int = 50, max_pages: int = 20) -> Iterator[dict[str, Any]]:
         """All posts of a tournament, following pagination on the same host only.
 
@@ -90,8 +99,11 @@ class MetaculusClient:
         """
         if isinstance(tournament, bool) or not (isinstance(tournament, int) or (isinstance(tournament, str) and tournament.isdigit())):
             raise ValueError(f"tournament must be a numeric project ID, got {tournament!r}")
-        page = self.get("posts/", {"tournaments": int(tournament), "statuses": statuses, "forecast_type": forecast_type,
-                                   "limit": limit, "offset": 0, "include_description": "true"})
+        params = {"tournaments": int(tournament), "statuses": statuses,
+                  "limit": limit, "offset": 0, "include_description": "true"}
+        if forecast_type is not None:
+            params["forecast_type"] = forecast_type
+        page = self.get("posts/", params)
         for pages_read in range(1, max_pages + 1):
             results = page.get("results") or []
             yield from results

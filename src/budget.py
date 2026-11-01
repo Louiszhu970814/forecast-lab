@@ -18,7 +18,7 @@ from flab.jsonl import append_record
 from flab.ledger import transaction, read_complete
 from flab.timeutil import parse_iso, to_iso, utc_now
 
-VERSION = "budget_v2"
+VERSION = "budget_v3"
 
 
 def quantile(values: list[float], q=.9) -> float | None:
@@ -105,13 +105,14 @@ class Budget:
             outcomes = {r["attempt_id"]: r for r in events if r["type"] == "budget_outcome"}
             if aid in reservations:
                 raise ValueError("attempt already has a budget reservation")
-            window_starts = [r for r in starts if r.get("player") == player and start <= parse_iso(r["started_at_utc"]) < end]
+            player_starts = [r for r in starts if r.get("player") == player]
+            window_starts = [r for r in player_starts if start <= parse_iso(r["started_at_utc"]) < end]
             done = {r["attempt_id"]: r for r in forecasts}
             active = [r for r in reservations.values() if r["player"] == player
-                      and start <= parse_iso(r["at"]) < end and r["attempt_id"] not in done
+                      and r["attempt_id"] not in done
                       and outcomes.get(r["attempt_id"], {}).get("status") != "released"]
             reason = None
-            if active or any(r["attempt_id"] not in done for r in window_starts):
+            if active or any(r["attempt_id"] not in done for r in player_starts):
                 reason = "unresolved_or_running_attempt"
             acceptance = read_complete(self.acceptance_log) if self.acceptance_log else []
             calls = [r for r in acceptance if r.get("type") == "acceptance_call_started" and r.get("player") == player]

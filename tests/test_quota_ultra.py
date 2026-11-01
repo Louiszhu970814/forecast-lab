@@ -218,8 +218,12 @@ def test_forecast_cost_status_and_model_check_are_persisted(env, monkeypatch, ki
 
 @pytest.mark.parametrize("gate", ["acceptance", "autoload", "budget"])
 @pytest.mark.parametrize("problem", ["short", "weekly", "unknown"])
-def test_each_gate_denies_before_model_call(tmp_path, monkeypatch, ledger, gate, problem):
-    before = ultra(weekly=.21 if problem == "weekly" else .9, short=.01 if problem == "short" else .8)
+@pytest.mark.parametrize("weekly_cap", [.8, 1.0])
+def test_each_gate_denies_before_model_call(tmp_path, monkeypatch, ledger, gate, problem, weekly_cap):
+    ledger.policy['players']['gemini']['weekly_cap'] = weekly_cap
+    monkeypatch.setattr(acceptance, 'load_quota_policy', lambda: ledger.policy)
+    monkeypatch.setattr('flab.config.load_quota_policy', lambda: ledger.policy)
+    before = ultra(weekly=1 - weekly_cap + .01 if problem == "weekly" else .9, short=.01 if problem == "short" else .8)
     if problem == "unknown":
         before = replace(before, buckets={})
     monkeypatch.setattr(quota, "snapshot", lambda **kw: before)
@@ -336,10 +340,12 @@ def test_manual_entrypoints_accept_both_layouts(tmp_path, monkeypatch, layout, g
     assert sum(r["type"] == "acceptance_call_started" for r in read_records(log)) == 1
 
 
-def test_budget_reserves_tier1_capacity_in_shared_weekly_units(ledger):
+@pytest.mark.parametrize('weekly_cap,remaining', [(.8, .34), (1.0, .14)])
+def test_budget_reserves_tier1_capacity_in_shared_weekly_units(ledger, weekly_cap, remaining):
+    ledger.policy['players']['gemini']['weekly_cap'] = weekly_cap
     attempt(ledger, player="gemini")
     save_pair(ledger.root, "old", ultra(), ultra(.85, .79))
-    append_record(ledger.root / "quota.jsonl", {"attempt_id": "new", "when": "before", **ultra(weekly=.34).to_dict()})
+    append_record(ledger.root / "quota.jsonl", {"attempt_id": "new", "when": "before", **ultra(weekly=remaining).to_dict()})
     decision = reserve(ledger, player="gemini", tier=2, pending=2)
     assert not decision["allowed"] and decision["reason"] == "argon_personal_or_tier1_reserve"
     assert decision["protected_attempts"] == 2

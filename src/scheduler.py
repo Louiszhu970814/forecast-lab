@@ -33,7 +33,7 @@ from flab.ledger import transaction, read_complete
 from flab.timeutil import parse_iso, to_iso, utc_now
 from poll_questions import latest_snapshots
 
-VERSION = "scheduler_v6"
+VERSION = "scheduler_v7"
 QUOTA_WAITS = {"quota_5h_wait", "quota_weekly_wait"}
 IDLE_LOOKAHEAD_S = 780  # next 600-second tick + bounded submission tail + startup allowance
 
@@ -189,7 +189,7 @@ class Scheduler:
             waiting.update(p for p in PLAYERS if F.line_stopped(self.root / "line_status.jsonl", p,
                                                               self.root / "forecasts.jsonl"))
         enabled = load_players_enabled()
-        sealed = {a["question_id"] for a in aggregates if a.get("scheduler_campaign_id") == self.campaign["campaign_id"]
+        sealed = {a["question_id"] for a in aggregates if (self.continuous or a.get("scheduler_campaign_id") == self.campaign["campaign_id"])
                   and a.get("completion_status") == "complete_local"
                   and (not self.continuous or a.get("question_snapshot_id") == self.snapshot_ids.get(a["question_id"]))}
         first, second = [], []
@@ -321,7 +321,7 @@ class Scheduler:
             enabled = load_players_enabled()
             for entry in self.campaign["questions"]:
                 qid = entry["question_id"]
-                existing = next((a for a in aggregates if a.get("scheduler_campaign_id") == self.campaign["campaign_id"]
+                existing = next((a for a in aggregates if (self.continuous or a.get("scheduler_campaign_id") == self.campaign["campaign_id"])
                                  and a["question_id"] == qid and a.get("completion_status") == "complete_local"
                                  and (not self.continuous or a.get("question_snapshot_id") == self.snapshot_ids.get(qid))), None)
                 if existing is not None:
@@ -374,7 +374,7 @@ class Scheduler:
     def _pending_deadlines(self, snapshots):
         with transaction(self.root):
             sealed = {a.get("question_snapshot_id") for a in read_complete(self.root / "aggregates.jsonl")
-                      if a.get("scheduler_campaign_id") == self.campaign["campaign_id"]
+                      if (self.continuous or a.get("scheduler_campaign_id") == self.campaign["campaign_id"])
                       and a.get("completion_status") == "complete_local"}
         return [F.decision_deadline(s, self.cfg) for s in snapshots.values()
                 if s["snapshot_id"] not in sealed]

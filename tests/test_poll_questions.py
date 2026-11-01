@@ -30,7 +30,8 @@ POSTS = [
     _post(1, 11, "binary", "Will X happen?"),
     _post(2, 12, "multiple_choice", "Which option?", options=["A", "B", "C"]),
     _post(3, 13, "numeric", "How many?"),
-    {"id": 4, "title": "Group post", "question": None, "group_of_questions": {"questions": []}},
+    {"id": 4, "title": "Group post", "question": None,
+     "group_of_questions": {"questions": [{"id": 14, "type": "binary", "title": "Group binary child"}]}},
 ]
 
 
@@ -124,7 +125,7 @@ def test_tournament_index_from_metadata_poll(tmp_path: Path) -> None:
     client = MetaculusClient(TOKEN, opener=_opener([{"results": POSTS, "next": None}], []))
     rec = pq.poll(client, "33121", metadata_only=True, questions_log=tmp_path / "q.jsonl", poll_log=tmp_path / "p.jsonl")
     idx = pq.TournamentIndex.from_polls([rec])
-    assert idx.question_ids == {11, 12, 13} and idx.post_ids == {1, 2, 3} and idx.project_ids == {33121}
+    assert idx.question_ids == {11, 12, 13, 14} and idx.post_ids == {1, 2, 3, 4} and idx.project_ids == {33121}
     assert rec["statuses"] == ["open", "upcoming"]
     snap = pq.snapshot_from_post(POSTS[1], "main-site")
     assert pq.is_synced_copy(snap, idx) is not None
@@ -145,7 +146,7 @@ def test_poll_metadata_only_writes_no_snapshots(tmp_path: Path) -> None:
     rec = pq.poll(client, "33121", metadata_only=True,
                   questions_log=tmp_path / "q.jsonl", poll_log=tmp_path / "p.jsonl")
     assert not (tmp_path / "q.jsonl").exists()
-    assert rec["metadata_only"] is True and rec["n_questions"] == 3
+    assert rec["metadata_only"] is True and rec["n_questions"] == 4
 
 
 def test_resolve_venue_requires_numeric_id() -> None:

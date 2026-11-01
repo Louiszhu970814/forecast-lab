@@ -507,7 +507,8 @@ def test_cli_keeps_local_offline_and_selects_transport_for_trial(environment, mo
     import flab.envfile
     constructed = []
     monkeypatch.setattr(flab.envfile, "get_secret", lambda *a: "synthetic-token")
-    def factory(token):
+    def factory(token, *, poll_log):
+        assert poll_log == e["root"] / "poll_log.jsonl"
         constructed.append(token)
         return e["transport"]
     monkeypatch.setattr(submit_transport, "APITransport", factory)

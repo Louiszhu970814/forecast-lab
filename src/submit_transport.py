@@ -1,4 +1,4 @@
-"""Authenticated API transport, api_transport_v1. No write retries; V15 assumptions below.
+"""Authenticated API transport, api_transport_v3. No write retries; V15 checks below.
 
 Only normalized allowlisted receipts leave this boundary. Remote bodies and exception
 messages may contain credentials and are never used as diagnostics or ledger evidence.
@@ -7,6 +7,9 @@ from __future__ import annotations
 
 import copy
 import json
+import math
+from decimal import Decimal
+from datetime import datetime, timezone
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -14,15 +17,15 @@ from http import HTTPStatus
 
 from continuous import current_tournaments
 from flab.ids import sha256_hex
-from flab.timeutil import parse_iso
+from flab.timeutil import parse_iso, utc_now
 from metaculus import API_BASE, USER_AGENT, MetaculusClient
-from poll_questions import TournamentIndex, snapshot_from_post, title_key
-from submit_contract import ConfirmedFailure, Readback
+from poll_questions import POLL_LOG, TournamentIndex, poll
+from submit_contract import ConfirmedFailure, Readback, own_forecast_records
 
 FORECAST_PATH = "/api/questions/forecast/"
 COMMENT_PATH = "/api/comments/create/"
 
-VERSION = "api_transport_v1"
+VERSION = "api_transport_v3"
 # V15: verify every endpoint, field and query on bot testing area before live.
 ACCOUNT_PATH = "users/me/"
 ACCOUNT_ID, ACCOUNT_IS_BOT = "id", "is_bot"
@@ -32,12 +35,76 @@ FORECAST_TIME = "start_time"
 FORECAST_BINARY = "probability_yes"
 FORECAST_CATEGORIES = "probability_yes_per_category"
 COMMENTS_PATH = "comments/"
-COMMENT_QUERY_POST, COMMENT_QUERY_AUTHOR = "post_id", "author"
+COMMENT_QUERY_POST, COMMENT_QUERY_AUTHOR = "post", "author"
 COMMENT_QUERY_LIMIT = "limit"
 COMMENT_TIME, COMMENT_TEXT = "created_at", "text"
 COMMENT_AUTHOR, COMMENT_POST = "author", "on_post"
 PAGE_RESULTS, PAGE_NEXT = "results", "next"
 MAX_COMMENT_PAGES = 20
+
+
+def known_option_order(question):
+    options, current = question.get("all_options_ever"), question.get("options")
+    if not isinstance(options, list) or not options or any(not isinstance(v, str) for v in options) \
+            or len(set(options)) != len(options) or not isinstance(current, list) or not current \
+            or any(not isinstance(v, str) for v in current) or len(set(current)) != len(current) \
+            or not set(current) <= set(options):
+        return None
+    return options
+
+
+def forecast_identity(row):
+    qid, author, stamp = (row.get(k) for k in ("question_id", "author_id", "start_time"))
+    if type(qid) is not int or qid <= 0 or type(author) is not int or author <= 0 \
+            or type(stamp) not in (int, float) or not math.isfinite(stamp) or stamp <= 0:
+        raise ValueError("unrecognized forecast identity")
+    datetime.fromtimestamp(stamp, timezone.utc)  # reject out-of-range timestamps
+    return f"forecast:{qid}:{author}:{format(Decimal(str(stamp)).normalize(), 'f')}"
+
+
+def serialized_forecast_receipt(question, row, intent, payload, started):
+    """Match the official MyForecastSerializer without inventing a database ID.
+
+    Its identity is (question_id, author_id, start_time), start_time is Unix
+    seconds, and forecast_values is an ordered vector. Missing option-order
+    metadata is ambiguous and must leave the request unknown.
+    """
+    qid, author, stamp = (row.get(k) for k in ("question_id", "author_id", "start_time"))
+    if type(qid) is not int or type(author) is not int or qid != intent["question_id"] or author != intent["bot_id"] \
+            or type(stamp) not in (int, float) or not math.isfinite(stamp):
+        return None
+    when = datetime.fromtimestamp(stamp, timezone.utc)
+    if not started < when <= utc_now():
+        return None
+    values = row.get("forecast_values")
+    if not isinstance(values, list):
+        return None
+    expected = payload[0]
+    if type(expected.get("question")) is not int or expected["question"] != qid:
+        return None
+    if "probability_yes" in expected:
+        if question.get("type") != "binary":
+            return None
+        wanted = [1 - expected["probability_yes"], expected["probability_yes"]]
+    else:
+        options = known_option_order(question)
+        current = question.get("options")
+        probabilities = expected.get("probability_yes_per_category")
+        if question.get("type") != "multiple_choice" or not isinstance(options, list) or not options \
+                or any(not isinstance(v, str) for v in options) or len(set(options)) != len(options) \
+                or not isinstance(current, list) or any(not isinstance(v, str) for v in current) \
+                or len(set(current)) != len(current) or not isinstance(probabilities, dict) \
+                or set(current) != set(probabilities) or not set(current) <= set(options):
+            return None
+        wanted = [probabilities.get(option) for option in options]
+    if len(values) != len(wanted) or any(
+            (actual is not None if target is None else type(actual) not in (int, float) or
+             not math.isfinite(actual) or not 0 <= actual <= 1 or actual != target)
+            for actual, target in zip(values, wanted)):
+        return None
+    identity = forecast_identity(row)
+    return {"id": identity, "id_kind": "question_author_start_time", "bot_id": author,
+        "question_id": qid, "start_time_unix": stamp, "payload": copy.deepcopy(payload)}
 
 
 class TransportError(RuntimeError):
@@ -66,11 +133,12 @@ class SafeReadClient(MetaculusClient):
 
 
 class APITransport:
-    def __init__(self, token, *, opener=default_opener, timeout=30.0):
+    def __init__(self, token, *, opener=default_opener, timeout=30.0, poll_log=None):
         if not isinstance(token, str) or not token:
             raise ValueError("Metaculus token required")
         self._token, self._open, self._timeout = token, opener, timeout
         self._bot_id = None
+        self._poll_log = POLL_LOG if poll_log is None else poll_log
         # The same host/redirect/error boundary protects authenticated GET pagination.
         self.client = SafeReadClient(token, opener=self._safe_open, timeout=timeout)
 
@@ -114,24 +182,30 @@ class APITransport:
     def get_post(self, post_id):
         return self.client.get_post(post_id)
 
+    def can_reconcile_forecast(self, post):
+        question = post.get("question") or {}
+        return question.get("type") == "binary" or (question.get("type") == "multiple_choice"
+            and known_option_order(question) is not None)
+
+    def forecast_readback_baseline(self, post):
+        question = post.get("question") or {}
+        records = own_forecast_records(post)
+        if not isinstance(question.get("my_forecasts"), dict):
+            return None  # old transport contract: no tuple-format readback
+        if any(r.get("question_id") != question.get("id") or r.get("author_id") != self._bot_id for r in records):
+            raise TransportError(summary="own forecast identity unavailable")
+        return sorted({forecast_identity(row) for row in records})
+
     def current_tournaments(self, configured):
         return current_tournaments(self.client, configured=configured)
 
     def tournament_index(self, configured):
-        index = TournamentIndex()
-        for pid in configured["excluded_project_ids"]:
-            index.project_ids.add(pid)
-            for post in self.client.list_posts(pid, statuses=["open", "upcoming"]):
-                snap = snapshot_from_post(post, str(pid))
-                if snap is None:
-                    # Exclusion coverage must include every post, including groups.
-                    raise TransportError(summary="unrecognized exclusion post")
-                index.post_ids.add(snap["post_id"])
-                index.question_ids.add(snap["question_id"])
-                key = title_key(snap.get("title"))
-                if key:
-                    index.title_keys.add(key)
-        return index
+        # Match continuous polling and M2 preparation. Unsupported posts are recorded
+        # by the shared metadata poller, without exposing competition content.
+        return TournamentIndex.from_polls(
+            poll(self.client, pid, metadata_only=True, poll_log=self._poll_log)
+            for pid in sorted(set(configured["excluded_project_ids"]))
+        )
 
     def _receipt(self, operation, payload, remote_id, bot_id):
         # Numeric IDs only: an arbitrary string from the API could be a credential echo.
@@ -186,9 +260,17 @@ class APITransport:
                 if type(post[REMOTE_ID]) is not int or type(question[REMOTE_ID]) is not int \
                         or post[REMOTE_ID] != intent["post_id"] or question[REMOTE_ID] != intent["question_id"]:
                     return unknown
-                records = question[FORECASTS]
-                if not isinstance(records, list):
-                    return unknown
+                records = own_forecast_records(post)
+                if isinstance(question[FORECASTS], dict):
+                    prior = intent.get("request_forecast_baseline")
+                    if not isinstance(prior, list) or any(not isinstance(v, str) for v in prior):
+                        return unknown
+                    matches = {}
+                    for row in records:
+                        receipt = serialized_forecast_receipt(question, row, intent, payload, started)
+                        if receipt and receipt["id"] not in prior:
+                            matches[receipt["id"]] = receipt
+                    return Readback("found", next(iter(matches.values())), request_id) if len(matches) == 1 else unknown
                 for row in records:
                     if not isinstance(row, dict):
                         continue
@@ -212,9 +294,9 @@ class APITransport:
                     return unknown
                 page = self.client.get(COMMENTS_PATH, {COMMENT_QUERY_POST: intent["post_id"],
                     COMMENT_QUERY_AUTHOR: intent["bot_id"], COMMENT_QUERY_LIMIT: 100})
-                visited = set()
+                visited, matches_found = set(), {}
                 for _ in range(MAX_COMMENT_PAGES):
-                    if not isinstance(page, dict) or not isinstance(page.get(PAGE_RESULTS), list):
+                    if not isinstance(page, dict) or not isinstance(page.get(PAGE_RESULTS), list) or PAGE_NEXT not in page:
                         return unknown
                     for row in page[PAGE_RESULTS]:
                         if not isinstance(row, dict):
@@ -224,7 +306,7 @@ class APITransport:
                         try:
                             matches = type(author) is int and author == intent["bot_id"] \
                                 and type(row.get(COMMENT_POST)) is int and row[COMMENT_POST] == intent["post_id"] \
-                                and parse_iso(row[COMMENT_TIME]) > started \
+                                and started < parse_iso(row[COMMENT_TIME]) <= utc_now() \
                                 and isinstance(row.get(COMMENT_TEXT), str) \
                                 and sha256_hex(row[COMMENT_TEXT]) == intent["comment_hash"]
                         except (KeyError, TypeError, ValueError):
@@ -232,10 +314,12 @@ class APITransport:
                         if matches:
                             receipt = self._receipt(operation, payload, row.get(REMOTE_ID), intent["bot_id"])
                             if receipt:
-                                return Readback("found", receipt, request_id)
+                                matches_found[receipt["id"]] = receipt
                     nxt = page.get(PAGE_NEXT)
-                    if not isinstance(nxt, str) or not nxt or nxt in visited:
-                        break
+                    if nxt is None or nxt == "":
+                        return Readback("found", next(iter(matches_found.values())), request_id) if len(matches_found) == 1 else unknown
+                    if not isinstance(nxt, str) or nxt in visited:
+                        return unknown
                     visited.add(nxt)
                     page = self.client._get_url(nxt)
         except Exception:

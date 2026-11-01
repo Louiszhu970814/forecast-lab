@@ -23,7 +23,7 @@ from flab.config import load_tournaments  # noqa: E402
 from flab.envfile import get_secret  # noqa: E402
 from flab.ids import hash_obj, new_id, sha256_hex  # noqa: E402
 from flab.jsonl import append_record, read_records  # noqa: E402
-from flab.timeutil import to_iso, utc_now  # noqa: E402
+from flab.timeutil import to_iso, utc_now, parse_iso  # noqa: E402
 from flab.workdir import PROJECT_ROOT  # noqa: E402
 from metaculus import MetaculusClient  # noqa: E402
 from project_policy import trial_membership_error, VERSION as PROJECT_POLICY_VERSION  # noqa: E402
@@ -33,6 +33,11 @@ POLL_LOG = PROJECT_ROOT / "data" / "poll_log.jsonl"
 SUPPORTED_TYPES = ("binary", "multiple_choice")       # numeric and discrete come in M5 (D39, D49)
 CONTENT_FIELDS = ("type", "title", "description", "resolution_criteria", "fine_print", "options")
 TIME_FIELDS = ("open_time", "scheduled_close_time", "scheduled_resolve_time")
+METADATA_VERSION = "exclusion_metadata_v2"
+
+
+def safe_remote_id(value):
+    return value if type(value) is int and value > 0 else None
 
 
 def _project_ids(post: dict[str, Any]) -> set[int]:
@@ -100,6 +105,8 @@ class TournamentIndex:
     def from_polls(cls, polls: Iterable[dict[str, Any]]) -> "TournamentIndex":
         idx = cls()
         for rec in polls:
+            if any(s.get("reason") != "notebook (no forecast question)" for s in rec.get("skipped", [])):
+                raise ValueError("incomplete exclusion metadata")
             if isinstance(rec.get("tournament_id"), int):
                 idx.project_ids.add(rec["tournament_id"])
             for t in rec.get("timing") or []:
@@ -108,6 +115,8 @@ class TournamentIndex:
                     idx.post_ids.add(t["post_id"])
                 if t.get("title_key"):
                     idx.title_keys.add(t["title_key"])
+                if t.get("post_title_key"):
+                    idx.title_keys.add(t["post_title_key"])
         return idx
 
 
@@ -152,6 +161,54 @@ def record_snapshots(snaps: Iterable[dict[str, Any]], *, log: Path = QUESTIONS_L
     return outcome
 
 
+def exclusion_metadata(post: dict) -> list[dict]:
+    """Index all group/conditional children without retaining their content.
+
+    A known notebook is not a forecast. Every other unrecognized structure fails
+    closed instead of silently claiming complete exclusion coverage.
+    """
+    valid_id = lambda value: type(value) is int and value > 0
+    if not isinstance(post, dict) or not valid_id(post.get("id")):
+        raise ValueError("invalid exclusion post identity")
+    shapes = [k for k in ("question", "group_of_questions", "conditional", "notebook") if post.get(k) is not None]
+    if len(shapes) != 1 or not isinstance(post[shapes[0]], dict):
+        raise ValueError("unrecognized exclusion post structure")
+    shape = shapes[0]
+    if shape == "notebook":
+        if not valid_id(post[shape].get("id")):
+            raise ValueError("unrecognized exclusion notebook")
+        return []
+    if not isinstance(post.get("title"), str) or not post["title"].strip():
+        raise ValueError("exclusion post title unavailable")
+    if shape == "question":
+        questions = [post[shape]]
+    elif shape == "group_of_questions":
+        questions = post[shape].get("questions")
+    else:
+        questions = [post[shape].get(k) for k in ("condition", "condition_child", "question_yes", "question_no")]
+    if not isinstance(questions, list) or not questions:
+        raise ValueError("exclusion children unavailable")
+    timing = []
+    for q in questions:
+        if not isinstance(q, dict) or not valid_id(q.get("id")):
+            raise ValueError("invalid exclusion child identity")
+        title = (q.get("title") or post["title"]) if shape == "question" else q.get("title")
+        if not isinstance(title, str) or not title.strip():
+            raise ValueError("exclusion child title unavailable")
+        times = {}
+        for k in TIME_FIELDS:
+            value = q.get(k) or post.get(k)
+            try:
+                times[k] = to_iso(parse_iso(value)) if value is not None else None
+            except (TypeError, ValueError):
+                raise ValueError("invalid exclusion timing") from None
+        timing.append({"question_id": q["id"], "post_id": post["id"],
+            "question_type": q.get("type") if q.get("type") in ("binary", "multiple_choice", "numeric", "discrete", "date") else "unknown",
+            "status": q.get("status") if q.get("status") in ("open", "upcoming", "closed", "resolved", "pending") else "unknown",
+            "title_key": title_key(title), "post_title_key": title_key(post["title"]), "post_type": shape, **times})
+    return timing
+
+
 def poll(client: MetaculusClient, venue: str, *, metadata_only: bool = False,
          questions_log: Path = QUESTIONS_LOG, poll_log: Path = POLL_LOG,
          exclude: TournamentIndex | None = None, tournaments: dict[str, Any] | None = None,
@@ -161,15 +218,28 @@ def poll(client: MetaculusClient, venue: str, *, metadata_only: bool = False,
     # Tournament metadata also covers upcoming questions so trial venues can exclude their copies (D53).
     statuses = ["open", "upcoming"] if metadata_only else ["open"]
     snaps, skipped, timing = [], [], []
-    for post in client.list_posts(tournament_id, statuses=statuses):
+    listing = {"statuses": statuses}
+    if metadata_only:
+        listing["forecast_type"] = None  # Omit the parameter; include every post structure.
+    for post in client.list_posts(tournament_id, **listing):
+        if not isinstance(post, dict):
+            raise ValueError("unrecognized polled post")
+        if metadata_only:
+            entries = exclusion_metadata(post)
+            timing.extend(entries)
+            if not entries:
+                skipped.append({"post_id": post["id"], "reason": "notebook (no forecast question)"})
+            continue
         membership_error = trial_membership_error(post, trial_bot_project_id) if trial_bot_project_id is not None else None
         if membership_error:
-            skipped.append({"post_id": post.get("id"), "question_id": (post.get("question") or {}).get("id"),
+            question = post.get("question")
+            skipped.append({"post_id": safe_remote_id(post.get("id")),
+                            "question_id": safe_remote_id(question.get("id")) if isinstance(question, dict) else None,
                             "reason": membership_error, "retryable": True})
             continue
         snap = snapshot_from_post(post, venue)
         if snap is None:
-            skipped.append({"post_id": post.get("id"), "reason": "not a single-question post"})
+            skipped.append({"post_id": safe_remote_id(post.get("id")), "reason": "not a single-question post"})
             continue
         snap["tournament_id"] = tournament_id
         timing.append({"question_id": snap["question_id"], "post_id": snap["post_id"],
@@ -186,6 +256,8 @@ def poll(client: MetaculusClient, venue: str, *, metadata_only: bool = False,
     rec = {"type": "poll", "record_id": new_id("poll"), "polled_at": polled_at, "venue": venue,
            "tournament_id": tournament_id, "metadata_only": metadata_only, "statuses": statuses,
            "n_questions": len(timing), "timing": timing, "skipped": skipped, **outcome}
+    if metadata_only:
+        rec["metadata_version"] = METADATA_VERSION
     if trial_bot_project_id is not None:
         rec["project_policy_version"] = PROJECT_POLICY_VERSION
     append_record(poll_log, rec)

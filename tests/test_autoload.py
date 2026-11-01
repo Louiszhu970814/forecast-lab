@@ -519,10 +519,15 @@ def test_calls_journaled_before_real_executor_and_counted_by_budget(fx, monkeypa
 
 
 @pytest.mark.parametrize("problem", ["credits", "stale", "concurrent", "low", "missing", "nan"])
-def test_gemini_gate_pauses_without_counting_or_calling_model(fx, monkeypatch, problem):
+@pytest.mark.parametrize('weekly_cap,low_remaining', [(.8, .19), (1.0, .04)])
+def test_gemini_gate_pauses_without_counting_or_calling_model(fx, monkeypatch, problem, weekly_cap, low_remaining):
+    from flab.config import load_quota_policy
+    policy = load_quota_policy()
+    policy['players']['gemini']['weekly_cap'] = weekly_cap
+    monkeypatch.setattr('flab.config.load_quota_policy', lambda: policy)
     snapshot = quota.QuotaSnapshot(
         buckets={} if problem == "missing" else {**quota.parse_snapshot(Path(__file__).parent / "fixtures/gemini/slash_usage.json").buckets, quota.ARGON_BUCKET_ID: quota.BucketQuota(
-            id=quota.ARGON_BUCKET_ID, remaining_fraction=.19 if problem == "low" else
+            id=quota.ARGON_BUCKET_ID, remaining_fraction=low_remaining if problem == "low" else
             float("nan") if problem == "nan" else .9)},
         remaining_credits=1 if problem == "credits" else 0,
         stale=problem == "stale", concurrent_agy_detected=problem == "concurrent")

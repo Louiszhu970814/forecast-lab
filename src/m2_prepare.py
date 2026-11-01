@@ -9,6 +9,7 @@ import forecast as F
 from flab.config import load_run_config, load_quota_policy
 from flab.envfile import get_secret
 from flab.ids import hash_obj, new_id
+from flab.jsonl import append_record
 from flab.ledger import transaction, read_complete
 from flab.timeutil import utc_now, to_iso
 from flab.workdir import PROJECT_ROOT
@@ -19,6 +20,28 @@ from project_policy import trial_membership_error
 from metaculus import MetaculusClient
 from poll_questions import (poll, TournamentIndex, latest_snapshots, snapshot_from_post,
                             is_synced_copy, record_snapshots)
+
+PREPARATION_VERSION = "m2_prepare_v4"
+MAX_MAIN_PAGES = 20
+
+
+def main_site_pages(client):
+    """Bound the candidate search; the existing GET client validates pagination URLs."""
+    page = client.get("posts/", {"main_feed": "true", "statuses": "open", "forecast_type": "binary,multiple_choice",
+                                 "limit": 50, "offset": 0, "include_description": "true"})
+    visited = set()
+    for _ in range(MAX_MAIN_PAGES):
+        if not isinstance(page, dict) or not isinstance(page.get("results"), list):
+            raise SystemExit("Unrecognized main-site page; no campaign file written")
+        yield page["results"]
+        nxt = page.get("next")
+        if not page["results"] or not nxt:
+            return
+        if not isinstance(nxt, str) or nxt in visited:
+            raise SystemExit("Invalid main-site pagination; no campaign file written")
+        visited.add(nxt)
+        if len(visited) < MAX_MAIN_PAGES:
+            page = client._get_url(nxt)
 
 
 def prepare(attempt_cap: int):
@@ -32,26 +55,47 @@ def prepare(attempt_cap: int):
     now, rcfg, chosen = utc_now(), load_run_config(), []
     for ground in ("main_site_questions",):
         project = cfg["tournaments"][ground]["id"]
-        # Cap listing at one page; verify all memberships independently of feed filters.
-        posts = client.get("posts/", {"main_feed": "true", "statuses": "open", "forecast_type": "binary,multiple_choice",
-                                      "limit": 50, "offset": 0, "include_description": "true"})
-        candidates = []
-        for post in posts.get("results", []):
-            if trial_membership_error(post, cfg["tournaments"]["bot_testing_area"]["id"]):
-                continue
-            snap = snapshot_from_post(post, ground)
-            if snap and snap["question_id"] not in previous and project in snap["project_ids"] and not is_synced_copy(snap, index):
+        # Read only until enough safe candidates exist; no membership or timing fallback.
+        pool, seen = {}, set()
+        for page_number, posts in enumerate(main_site_pages(client), 1):
+            candidates, skipped = [], []
+            for post in posts:
+                if not isinstance(post, dict):
+                    raise SystemExit("Unrecognized main-site post; no campaign file written")
+                reason = trial_membership_error(post, cfg["tournaments"]["bot_testing_area"]["id"])
+                snap = None if reason else snapshot_from_post(post, ground)
+                if not reason:
+                    if snap is None:
+                        reason = "not a single-question post"
+                    elif snap["question_id"] in previous:
+                        reason = "already forecast"
+                    elif snap["question_id"] in seen:
+                        reason = "duplicate candidate"
+                    elif project not in snap["project_ids"]:
+                        reason = "post does not belong to main site"
+                    else:
+                        reason = is_synced_copy(snap, index)
+                if reason:
+                    post_id = post.get("id")
+                    skipped.append({"post_id": post_id if type(post_id) is int and post_id > 0 else None, "reason": reason})
+                    continue
+                seen.add(snap["question_id"])
                 snap["tournament_id"] = project
                 candidates.append(snap)
-        with transaction(root):
-            record_snapshots(candidates)
-            saved = latest_snapshots()
-        candidates = [saved[s["question_id"]] for s in candidates]
-        candidates = sorted([s for s in candidates if not F.eligible(s, rcfg, now) and F.decision_deadline(s, rcfg) is not None],
-                            key=lambda s: (F.decision_deadline(s, rcfg), s["question_id"]))
-        for snap in candidates:
-            if snap["question_id"] not in {s["question_id"] for s in chosen}:
-                chosen.append({**snap, "ground": ground})
+            with transaction(root):
+                record_snapshots(candidates)
+                saved = latest_snapshots()
+            for candidate in candidates:
+                snap = saved[candidate["question_id"]]
+                reason = F.eligible(snap, rcfg, now)
+                if reason or F.decision_deadline(snap, rcfg) is None:
+                    skipped.append({"post_id": snap["post_id"], "reason": reason or "decision deadline unavailable"})
+                else:
+                    pool[snap["question_id"]] = {**snap, "ground": ground}
+            chosen = sorted(pool.values(), key=lambda s: (F.decision_deadline(s, rcfg), s["question_id"]))[:20]
+            append_record(root / "poll_log.jsonl", {"type": "m2_preparation_page", "record_id": new_id("m2page"),
+                "version": PREPARATION_VERSION, "polled_at": to_iso(utc_now()), "tournament_id": project,
+                "page_number": page_number, "n_posts": len(posts), "eligible_candidates": len(pool), "skipped": skipped})
             if len(chosen) == 20:
                 break
         if len(chosen) == 20:
@@ -60,7 +104,7 @@ def prepare(attempt_cap: int):
         raise SystemExit(f"Fewer than 20 eligible, unforecast, nonsynchronized trial questions: {len(chosen)}")
     start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     campaign = {"version": "m2_campaign_v1", "campaign_id": new_id("m2"),
-        "preparation_version": "m2_prepare_v2",
+        "preparation_version": PREPARATION_VERSION,
         "questions": [{"question_id": s["question_id"], "post_id": s["post_id"], "ground": s["ground"], "priority": "main"} for s in chosen],
         "budget_window_start": to_iso(start), "budget_window_end": to_iso(start + timedelta(days=7)),
         "weekly_attempt_caps": dict.fromkeys(("claude", "gemini", "gpt"), attempt_cap),

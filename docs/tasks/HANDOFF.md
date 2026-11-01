@@ -1,5 +1,48 @@
 # 給下一個對話的接手紀錄
 
+## 夜間整合與 M2 接續（GPT，2026-11-01T17:14Z；以本段為準）
+
+Louis 已指定 GPT 為本輪主持／整合者（D84），與 Gemini 自主處理例行工作；Claude 已在台北 00:30 實際參與新一輪複驗。**PLAN v1.34**，完整隔離測試 **1348 passed**，目前仍 `local`，沒有真實預測／留言 POST 或 launchd 安裝。
+
+- API／排除索引：Claude 三輪複審最後 PASS，已整合 `submit_v7`、`api_transport_v3`、`m2_prepare_v4`、`exclusion_metadata_v2`。修正真正的 `my_forecasts` 形狀、空成功回執、完整題組／條件排除及查詢篩選；多選順序不明時在 POST 前拒絕。詳見 [V15](M3-V15-SCHEMA.md)。
+- 跨週：Gemini 兩輪複審最後 PASS，已整合 `continuous_v7`、`cycle_v5`、`scheduler_v7`、`budget_v3`。有界、事先凍結的七天窗口；已封存快照不重開、不重複留言，歷史未知呼叫繼續阻擋。尚未建立或啟用 `cycle_campaign.json`，未選定正式 weekly caps。
+- 第二個 M2 第一段於 UTC 16:58:42 結束，45 jobs、Claude paused，exit 1 代表尚有暫停線。報告 `m2report_1793552323387_d2df8bba`：GPT／Gemini 首層各 20/20，Claude 4/20，無未知啟動；第二層尚未開始，20 次 Gemini 成本均不確定。沒有把這段當作整個 M2 完成。
+- 複審與既有退避均結束後，UTC **17:10:28** 已接續同題集 `m2_1793548033739_590c7d24`。控制 ID `m2control_1793551027121_332977ca`，controller pid **96854**、scheduler pid **96855**，外層等待控制程序 **95121**／防睡眠 **95122**。只再執行一次 scheduler，然後自動產報告；不重設上限／帳冊、不自動解除安全停線、不切換模式。以 `data/m2_control.jsonl` 與操作 metadata 查最新狀態。
+- 覆蓋率輸入已事前固定 UTC 10/05～10/19 全部主賽＋MiniBench 開題，104 題／支援 67 題；只是官方歷史排定時間，未執行正式覆蓋率模擬。資料與限制見 [夜間紀錄](OVERNIGHT-D84.md)。
+
+接續順序：先讓上述 M2 自然完成並讀取操作報告；仍有額度退避就沿用同題集與原嘗試規則，不另開平行 scheduler。D78 已核准 trial／bot 311763，不須再次詢問同一授權；固定 M2 還在跑時不能切模式。M2 量測執行結束後可繼續真實 V15，仍需所有送出前檢查與明確的試驗紀錄。UTC 17:13 額外唯讀候選查詢遇 429，已停止額外 API 探測，等待排程空檔。
+
+確實仍有 Louis／外部依賴：V5 只觀察到 Claude；不刻意燒 GPT／Gemini 額度、不自行取消門檻。Gemini 互動式 agy／Antigravity 開著使成本不可信，依 D75 照常執行但不拿來驗收；未擅自關閉使用者工作。多選歷史選項被 API gateway 隱藏，需可靠的可讀契約或平台授權，未繞過限制。正式參賽與現場權限提示仍由 Louis 處理。
+
+下方為歷史紀錄；「再確認 trial」與「GPT 尚未獲整合授權」等舊狀態已由 D82／D84 取代。
+
+## 第二個 M2 已啟動（GPT，2026-11-01T15:50:50Z；優先讀這段）
+
+Louis 回覆「開始做吧」，由 GPT 暫代 PLAN 正文整合、Gemini 獨立審查（D82）。目前 **PLAN v1.31、`quota_policy_v3`、`continuous_v6`、`m2_prepare_v3`，仍為 `local`**。本輪所有程式修正與設定經 Gemini 靜態審查 PASS；最終隔離副本完整測試 **1235 passed**，未 commit。
+
+1. **舊題集已結束**：`m2_1793529615987_7867f9f1` 於 14:39:03Z 結束，沒有 paused player 或未知嘗試。報告 `reports/m2report_1793547074614_e2b9c38d.json`：20 題均完成整合與留言；第 1 層 claude 19/20、gpt 20/20、gemini 15/15（另 5 題未執行）；第 2 層嘗試 claude 5、gpt 14、gemini 0。M2 仍缺 Gemini 第 2 層量測、GPT／Gemini 的 V5 真實耗盡證據。
+2. **D74 已生效**：Gemini 個人保留線 0%，週 cap 1.0；原有每次預估成本、五小時桶、每題上限、首層容量與 AI credits 0 檢查保留。舊題集及舊帳冊未改寫，新題集仍將本週先前呼叫與驗收計入 130 次上限。
+3. **D81 新題集已登記並在背景執行**：`data/campaigns/m2_1793548033739_590c7d24.json`，20 題，三線各 130 次，UTC 窗口 2026-11-01～11-08。排程器 pid **92222**；控制程序 pid **92220**；`caffeinate` pid **92221** 僅維持本輪執行時不閒置睡眠，沒有安裝 launchd。三線 baseline 啟動前均 `ok`，沒有代替 Louis resume 停線。
+4. **本輪自動產報告**：控制程序等排程結束後執行同一題集的 `m2_report.py`。操作帳冊 `data/m2_control.jsonl`；stdout／stderr 在 `data/operations/m2control_1793548203307_f8cf39a0/`。只有這一輪排程與產報告，沒有自動重試、恢復停線或切換 trial。狀態只看計數與 outcome，禁止查看預測內容。
+5. **新準備修正**：官方提前把 11/2 的 MiniBench 輪次標成 ongoing；現在仍排除該輪，但開始前不允許 live。主站分頁最多 20 頁，每頁 50 筆，湊滿 20 合格候選即停；本次讀 3 頁得 28 合格候選，選 20 題後逐題重讀確認。排除所有不明／比賽歸屬、已預測及同步題，沒有降低安全條件。詳細證據與 Gemini 審查見 [M2-D81.md](M2-D81.md)。
+
+下一步先查看新題集排程與自動報告；若遇到安全停線，仍由 Louis 決定是否恢復。M2 完成後才接真實 V15／trial；跨週上限政策、V5 證據處理與正式參賽白名單仍待原清單的決定與驗收。本輪沒有真實送出、改 prompt／模型或安裝服務。
+
+**15:52:12Z 啟動核對**：三線均已開始第 1 層，Gemini 首題已 `selected`。第一筆准入記錄的既有週次數為 claude 62、gpt 62、gemini 64，三線上限都是 130，證實沒有因新題集重設已用次數。排程仍在執行，其他線的本題結果尚未在此時間點完成；不預先宣稱有效。
+
+## GPT 與 Gemini 接手更新（2026-11-01T14:29:00Z；優先讀這段）
+
+Louis 本輪說 Claude 五小時額度已用完，由 GPT 與 Gemini 接手。已按 GPT 實作／Gemini 審查處理 **M3-W9 B1**，修正與測試已套回主工作目錄，尚未 commit。
+
+- **B1 已解除**：`api_transport_v2` 共用 `poll(metadata_only=True)`／`TournamentIndex.from_polls()`，題組不再阻斷整批 trial；失敗仍保守拒絕。另依 Gemini 建議，使 CLI 的 `poll_log` 路徑跟著傳入的 root。Gemini 經官方 agy／Argon High 兩次靜態審查都 PASS，並補讀了 `submit.py`／`continuous.py`；詳見 `M3-W9.md` 末尾。
+- **測試**：隔離副本完整 1205 passed；最後路徑小修相關 247 passed。pytest 必須從專案外的父工作目錄執行並設 `TMPDIR="$PWD/.tmp"`，再用 `-c <專案>/pyproject.toml <專案>/tests` 指定套件；如此暫存位置在專案外。先前所稱 10 個沙箱失敗，本次重現的直接原因是 TMPDIR 在專案內，觸發既有工作目錄保護，沒有必要修改保護程式。
+- **舊 M2 還在跑**：pid 81935，題集 `m2_1793529615987_7867f9f1`。最新只看狀態計數：claude 第 1 層 19/20、第 2 層 5 題；gpt 第 1 層 20/20、第 2 層 9 題；gemini 第 1 層 15/15（另 5 題 budget_skipped）、第 2 層 0 題。沒有重啟、停用或代替 Louis resume 任何線。
+- **基準**：本輪 `baseline.py check --credits 0` 三線均 `ok`。未讀取預測內容、未呼叫 Claude 預測線、未改設定或 launchd，模式仍 `local`。
+- **套回主專案驗證**：最終完整測試 **1205 passed in 27.46s**，`git diff --check` 通過。
+- **PLAN**：接手與版本整合建議已新增於 §14.2；已詢問 Louis 是否指定 GPT 暫代正文整合者，尚無回覆，故未改正文、§15／§16 或文件版本。不要將尚未回答的整合者問題當成核准。
+
+下一步：舊排程結束後先產生 M2 報告；再處理已核准 D74（舊題集結束後將 Gemini 保留線降到 0%，須先升版並記錄，避免新題集凍結舊政策），接著依 D81 用 `m2_prepare.py --attempt-cap 130` 準備並執行新題集。不要同時啟動第二個固定 M2 排程。V15、跨週政策、正式參賽白名單等仍按原清單完成；這次 B1 修正沒有替代那些驗收。
+
 ## 交接給 GPT 與 Gemini（Claude，2026-11-01T14:20Z；Claude 額度接近 5 小時上限，優先讀這段）
 
 Louis 指示：Claude 額度快用完，接下來的工作交給 GPT 與 Gemini。分工照 D69：**GPT 實作，Gemini 審查**（不讓同一個模型審查自己的實作）。PLAN 正文原本由 Claude 整合；Claude 不在時，由 Louis 指定整合者，否則先把建議寫在 §14 自己的標題下。

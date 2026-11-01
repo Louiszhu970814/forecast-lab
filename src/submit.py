@@ -10,7 +10,7 @@ import argparse
 import copy
 import json
 import time
-from datetime import timedelta
+from datetime import timedelta, timezone
 from decimal import Decimal, ROUND_HALF_UP
 from pathlib import Path
 from typing import Protocol
@@ -29,7 +29,7 @@ from validate import submit_deadline
 from project_policy import trial_membership_error
 from submit_contract import ConfirmedFailure, Readback
 
-VERSION = "submit_v6"
+VERSION = "submit_v7"
 BUSY_EXIT_CODE = 75
 FORECAST_PATH = "/api/questions/forecast/"
 COMMENT_PATH = "/api/comments/create/"
@@ -85,15 +85,15 @@ class OfflineTransport:
 
 
 def existing_predictions(post: dict) -> list[dict]:
-    """V15 assumption: authenticated question.my_forecasts is a complete list.
+    """Explicit empty authenticated history proves absence only at initial precheck.
 
-    Missing/unrecognized is unsafe; only an explicit empty list proves no prior forecast
-    during initial precheck. It NEVER proves nonacceptance of an outstanding request.
+    It NEVER proves nonacceptance of an outstanding write request.
     """
-    values = post.get("question", {}).get("my_forecasts")
-    if not isinstance(values, list) or any(not isinstance(v, dict) for v in values):
-        raise PrecheckError("existing prediction field unavailable or unrecognized (V15)")
-    return values
+    from submit_contract import own_forecast_records
+    try:
+        return own_forecast_records(post)
+    except ValueError:
+        raise PrecheckError("existing prediction field unavailable or unrecognized (V15)") from None
 
 
 def forecast_payload(snapshot: dict, aggregate: dict) -> list[dict]:
@@ -350,8 +350,13 @@ class Submitter:
                 raise PrecheckError("current tournament discovery changed during precheck")
             if reason := is_synced_copy(current, index):
                 raise PrecheckError(reason)
+        can_reconcile = getattr(self.transport, "can_reconcile_forecast", None)
+        if callable(can_reconcile) and not can_reconcile(post):
+            raise PrecheckError("forecast readback option mapping unavailable (V15)")
         if existing_predictions(post) and not intent["allow_resubmit"]:
             raise PrecheckError("platform already has a forecast for this bot/question")
+        baseline = getattr(self.transport, "forecast_readback_baseline", None)
+        self._checked_forecast_baseline = baseline(post) if callable(baseline) else None
         self._checked_discovery = discovery
         return current["content_hash"] != snap.get("content_hash")
 
@@ -368,7 +373,8 @@ class Submitter:
             self._identity(intent)
             started = next(r for r in self._history(intent) if r["status"] == "request_started"
                            and r.get("request_id") == request_id)
-            lookup = {**copy.deepcopy(intent), "request_started_at": started["at"]}
+            lookup = {**copy.deepcopy(intent), "request_started_at": started.get("request_started_at_precise", started["at"]),
+                      "request_forecast_baseline": started.get("forecast_readback_baseline")}
             result = self.transport.readback(operation, lookup, request_id=request_id)
             if result.request_id == request_id and result.outcome == "found" \
                     and self._receipt_matches(operation, intent, result.record):
@@ -434,7 +440,9 @@ class Submitter:
                 self._event(intent, "abandoned" if abandon else "rejected_precheck",
                             reason=self._reason(exc), blocked_operation=operation)
                 return False
-            self._event(intent, "request_started", operation=operation, request_id=request_id, text_revised=revised)
+            self._event(intent, "request_started", operation=operation, request_id=request_id, text_revised=revised,
+                request_started_at_precise=self.now().astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z"),
+                forecast_readback_baseline=self._checked_forecast_baseline if operation == "forecast" else None)
         try:
             path = FORECAST_PATH if operation == "forecast" else COMMENT_PATH
             response = self.transport.write(path, copy.deepcopy(intent[f"{operation}_payload"]), request_id=request_id)
@@ -575,7 +583,8 @@ def cli_transport(root):
         return OfflineTransport()
     from flab.envfile import get_secret
     from submit_transport import APITransport
-    return APITransport(get_secret("METACULUS_TOKEN", root / ".env"))
+    return APITransport(get_secret("METACULUS_TOKEN", root / ".env"),
+                        poll_log=root / "data" / "poll_log.jsonl")
 
 
 if __name__ == "__main__":

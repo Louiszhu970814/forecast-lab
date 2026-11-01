@@ -1,4 +1,4 @@
-"""One bounded continuous polling/forecast/submission cycle (cycle_v4).
+"""One bounded continuous polling/forecast/submission cycle (cycle_v5).
 
 Usage: .venv/bin/python src/cycle.py --campaign config/cycle_campaign.json
 The campaign is explicit and finite; no implicit quota increases or launchd installation.
@@ -29,7 +29,7 @@ from flab.ledger import read_complete, transaction
 from flab.timeutil import parse_iso, to_iso, utc_now
 from flab.workdir import PROJECT_ROOT
 
-VERSION = "cycle_v4"
+VERSION = "cycle_v5"
 INTERVAL_S = 600
 SAFETY_S = 30
 ADMISSION_WINDOW_S = INTERVAL_S - SAFETY_S - 60
@@ -174,8 +174,11 @@ def run_cycle(root: Path, campaign: dict, poller, *, project: Path = PROJECT_ROO
         rec["steps"]["switches"] = {"status": "ok", "players_enabled": enabled,
             "stop_submit": (project / "config" / "STOP_SUBMIT").exists(), "mode": load_submit_mode()["mode"]}
         checkpoint("policy")
-        Q.register(root, campaign, now=now)
-        rec["steps"]["policy"] = {"status": "ok"}
+        campaign = Q.active_campaign(root, campaign, now=now)
+        deadline = min(deadline, parse_iso(campaign["budget_window_end"]))
+        rec["deadline"] = rec["admission_deadline"] = to_iso(deadline)
+        rec["steps"]["policy"] = {"status": "ok", "campaign_id": campaign["campaign_id"],
+            "budget_window_start": campaign["budget_window_start"], "budget_window_end": campaign["budget_window_end"]}
         runtime = {**copy.deepcopy(campaign), "questions": []}
         queue = Q.Queue(root, runtime, poller, now=now)
         checkpoint("poll")

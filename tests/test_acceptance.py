@@ -924,6 +924,9 @@ def test_server_records_every_connection_method_and_path(host: str) -> None:
 @pytest.mark.parametrize("fraction", [.24, None, float("nan"), 1.5])
 def test_gemini_acceptance_respects_personal_reserve_before_cli(tmp_path, monkeypatch, fraction):
     from types import SimpleNamespace
+    policy = acc.load_quota_policy()
+    policy['players']['gemini']['weekly_cap'] = .8  # Preserve the D71 policy regression case.
+    monkeypatch.setattr(acc, 'load_quota_policy', lambda: policy)
     monkeypatch.setattr(acc, "ACCEPTANCE_LOG", tmp_path / "acceptance.jsonl")
     from test_forecast import _qsnap
     quota = _qsnap(fraction)
@@ -937,8 +940,12 @@ def test_gemini_acceptance_respects_personal_reserve_before_cli(tmp_path, monkey
     assert '"acceptance_call_started"' not in acc.ACCEPTANCE_LOG.read_text()
 
 
-def test_gemini_acceptance_gate_follows_quota_policy():
-    assert acc.argon_acceptance_gate() == .25  # 20% personal reserve (PLAN D71) + 5% estimate
+@pytest.mark.parametrize('weekly_cap,expected', [(.6, .45), (.8, .25), (1.0, .05)])
+def test_gemini_acceptance_gate_follows_quota_policy(monkeypatch, weekly_cap, expected):
+    policy = acc.load_quota_policy()
+    policy['players']['gemini']['weekly_cap'] = weekly_cap
+    monkeypatch.setattr(acc, 'load_quota_policy', lambda: policy)
+    assert acc.argon_acceptance_gate() == expected  # Personal reserve + 5% call estimate.
 
 
 def test_flash_acceptance_does_not_spend_or_require_an_argon_reserve(tmp_path, monkeypatch):

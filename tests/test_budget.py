@@ -113,8 +113,10 @@ def test_gemini_requires_trustworthy_current_usage(ledger, change):
     assert not reserve(ledger, player="gemini")["allowed"]
 
 
-def test_gemini_respects_personal_reserve_and_forecast_costs(ledger):
-    snapshot(ledger, remaining=.24)
+@pytest.mark.parametrize('weekly_cap,remaining', [(.8, .24), (1.0, .04)])
+def test_gemini_respects_personal_reserve_and_forecast_costs(ledger, weekly_cap, remaining):
+    ledger.policy['players']['gemini']['weekly_cap'] = weekly_cap
+    snapshot(ledger, remaining=remaining)
     assert reserve(ledger, player="gemini")["reason"] == "argon_personal_or_tier1_reserve"
     snapshot(ledger, aid="next", remaining=.7)
     assert reserve(ledger, player="gemini", aid="next")["allowed"]
