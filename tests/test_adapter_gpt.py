@@ -67,7 +67,8 @@ def test_sample_and_leak(req, monkeypatch):
     assert result.completed and result.error_type is None
     assert result.reported_model_id is None and result.model_check == 'unverified'
     assert result.tool_call_counts == {'web_search':2}
-    assert any(e.state=='opened' and e.host=='www.python.org' for e in result.url_events)
+    # the sample's open_page result carries no turnNviewM page reference, so it is not proof of an open
+    assert any(e.state=='attempted' and e.host=='www.python.org' and e.source=='tool_use' for e in result.url_events)
     assert all(e.state=='unknown' for e in result.url_events if e.source=='search_result')
     assert not any(e.state=='opened' and e.host=='www.metaculus.com' for e in result.url_events)
     assert result.audit_flags == ['leak_confirmed'] and result.audit_required
@@ -160,13 +161,21 @@ def test_format_repair_tools_violate(req):
     assert gpt.parse(replace(req,profile='format_repair')).violations
 
 
+CATALOG = {'models': [{'slug': 'gpt-6-astra', 'tool_mode': 'code_mode_only', 'apply_patch_tool_type': 'freeform'},
+                      {'slug': 'gpt-6-sol', 'tool_mode': 'code_mode_only', 'apply_patch_tool_type': 'freeform'}]}
+
+
 def test_run_uses_runner_and_stdin(req, monkeypatch):
     monkeypatch.setattr(gpt,'cli_version',lambda:'0.166.0')
+    monkeypatch.setattr(gpt,'load_catalog',lambda: CATALOG)
     def fake_run(argv, **kwargs):
         assert kwargs['stdin_text']==req.prompt
         assert kwargs['keep_env']==()
         assert kwargs['cwd']==req.workdir.resolve()
         assert json.loads((req.raw_dir/'schema.json').read_text())==req.schema
+        catalog = json.loads((req.raw_dir/gpt.CATALOG_FILENAME).read_text())
+        assert catalog['models'][0]['tool_mode'] == 'direct' and 'apply_patch_tool_type' not in catalog['models'][0]
+        assert 'model_catalog_json=' + json.dumps(str((req.raw_dir/gpt.CATALOG_FILENAME).resolve())) in argv
         sample(req)
         return execution(req)
     monkeypatch.setattr(gpt.runner,'run',fake_run)
@@ -182,6 +191,7 @@ def test_version(monkeypatch, stdout, code, expected):
 
 def test_launch_failure(req, monkeypatch):
     monkeypatch.setattr(gpt,'cli_version',lambda:None)
+    monkeypatch.setattr(gpt,'load_catalog',lambda: CATALOG)
     def fail(*args, **kwargs):
         raise FileNotFoundError('codex unavailable')
     monkeypatch.setattr(gpt.runner,'run',fail)
@@ -198,7 +208,36 @@ def test_partial_item_merge(req):
     ])
     result=gpt.parse(req)
     assert result.tool_call_counts=={'web_search':1}
-    assert result.url_events[0].state=='opened'
+    # no page result: an attempt, never an open (GPT review 3)
+    assert result.url_events[0].state=='attempted'
+
+
+def test_declined_or_resultless_metaculus_open_is_suspected_not_confirmed(req):
+    for status, results in (('declined', []), ('completed', []), ('declined', [
+            {'ref_id': 'turn0view0', 'url': 'https://www.metaculus.com/questions/1/', 'title': 'Q'}])):
+        write_events(req, [
+            {'type': 'item.started', 'item': {'id': 'a', 'type': 'web_search',
+                                              'action': {'type': 'open_page', 'url': 'https://www.metaculus.com/'}}},
+            {'type': 'item.completed', 'item': {'id': 'a', 'type': 'web_search', 'status': status, 'results': results,
+                                                'action': {'type': 'open_page', 'url': 'https://www.metaculus.com/'}}},
+            {'type': 'turn.completed', 'usage': {}},
+        ])
+        result = gpt.parse(req)
+        assert {e.state for e in result.url_events if 'metaculus' in (e.host or '')} == {'attempted'}, status
+        assert result.audit_flags == [], (status, result.audit_flags)
+
+
+def test_partial_updates_merge_and_a_page_result_confirms_the_open(req):
+    write_events(req, [
+        {'type': 'item.started', 'item': {'id': 'a', 'type': 'web_search', 'action': {'type': 'open_page'}}},
+        {'type': 'item.updated', 'item': {'id': 'a', 'type': 'web_search', 'action': {'url': 'https://www.metaculus.com/'}}},
+        {'type': 'item.completed', 'item': {'id': 'a', 'type': 'web_search', 'results': [
+            {'ref_id': 'turn0view0', 'url': 'https://www.metaculus.com/', 'title': 'Metaculus'}]}},
+        {'type': 'turn.completed', 'usage': {}},
+    ])
+    result = gpt.parse(req)
+    assert [(e.state, e.source) for e in result.url_events] == [('opened', 'tool_use'), ('opened', 'tool_result')]
+    assert result.audit_flags == ['leak_confirmed']
 
 
 def test_default_argv_disables_code_mode_and_collaboration(tmp_path):
@@ -209,3 +248,78 @@ def test_default_argv_disables_code_mode_and_collaboration(tmp_path):
     disabled = {argv[i + 1] for i, x in enumerate(argv) if x == '--disable'}
     assert {'code_mode_host', 'in_app_local_automation', 'code_mode_interrupt', 'multi_agent', 'shell_tool'} <= disabled
     assert argv[argv.index(gpt.AGENTS_DISABLED) - 1] == '-c'
+
+
+def test_restricted_catalog_changes_only_the_requested_model():
+    out = gpt.restricted_catalog(CATALOG, 'gpt-6-astra')
+    astra, sol = out['models']
+    assert astra['tool_mode'] == 'direct' and astra['node_repl_disabled'] is True
+    assert 'apply_patch_tool_type' not in astra
+    assert sol == CATALOG['models'][1] and CATALOG['models'][0]['tool_mode'] == 'code_mode_only'
+    with pytest.raises(ValueError):
+        gpt.restricted_catalog(CATALOG, 'gpt-unknown')
+
+
+def test_catalog_failure_is_a_cli_error(req, monkeypatch):
+    monkeypatch.setattr(gpt, 'load_catalog', lambda: {'models': []})
+    monkeypatch.setattr(gpt.runner, 'run', lambda *a, **k: pytest.fail('must not run without a catalog'))
+    result = gpt.run(req)
+    assert result.error_type == 'cli_error' and 'catalog' in result.error
+
+
+def test_view_result_inside_search_is_an_open(req):
+    # web.run opened pages inside a search call in M1 acceptance (ref_id "turn0view0").
+    write_events(req, [
+        {'type': 'item.completed', 'item': {'id': 'ws', 'type': 'web_search', 'action': {'type': 'search', 'query': 'q'},
+         'results': [{'type': 'text_result', 'ref_id': 'turn0search0', 'url': 'https://www.metaculus.com/questions/1/'},
+                     {'type': 'text_result', 'ref_id': 'turn0view0', 'url': 'https://www.metaculus.com/questions/2/'}]}},
+        {'type': 'turn.completed', 'usage': {}},
+    ])
+    result = gpt.parse(req)
+    states = {e.url: (e.state, e.source) for e in result.url_events}
+    assert states['https://www.metaculus.com/questions/1/'] == ('unknown', 'search_result')
+    assert states['https://www.metaculus.com/questions/2/'] == ('opened', 'tool_result')
+    assert result.audit_flags == ['leak_confirmed']
+
+
+def test_catalog_validation_and_fingerprint():
+    with pytest.raises(ValueError):
+        gpt.restricted_catalog({'models': [{'slug': 'a'}, {'slug': 'a'}]}, 'a')
+    with pytest.raises(ValueError):
+        gpt.restricted_catalog({'models': [{'name': 'no slug'}]}, 'a')
+    out = gpt.restricted_catalog(CATALOG, 'gpt-6-astra')
+    assert gpt.catalog_entry_sha256(out, 'gpt-6-astra') == gpt.catalog_entry_sha256(json.loads(json.dumps(out)), 'gpt-6-astra')
+    changed = json.loads(json.dumps(out)); changed['models'][0]['tool_mode'] = 'code_mode_only'
+    assert gpt.catalog_entry_sha256(changed, 'gpt-6-astra') != gpt.catalog_entry_sha256(out, 'gpt-6-astra')
+
+
+def test_run_uses_a_pinned_catalog(req, monkeypatch):
+    monkeypatch.setattr(gpt, 'cli_version', lambda: '0.166.0')
+    monkeypatch.setattr(gpt, 'load_catalog', lambda: pytest.fail('a pinned catalog must not be reloaded'))
+    def fake_run(argv, **kwargs):
+        sample(req)
+        return execution(req)
+    monkeypatch.setattr(gpt.runner, 'run', fake_run)
+    result = gpt.run(req, catalog=CATALOG)
+    assert result.catalog_entry_sha256 == gpt.catalog_entry_sha256(gpt.restricted_catalog(CATALOG, 'gpt-6-astra'), 'gpt-6-astra')
+
+
+def test_error_or_denied_views_are_not_opens(req):
+    write_events(req, [
+        {'type': 'item.completed', 'item': {'id': 'o', 'type': 'web_search',
+         'action': {'type': 'open_page', 'url': 'https://www.metaculus.com/q/'},
+         'results': [{'type': 'text_result', 'ref_id': 'turn0view0', 'title': 'Internal Error',
+                      'snippet': 'Unable to resolve open call due to invalid ref_id argument'}]}},
+        {'type': 'item.completed', 'item': {'id': 'd', 'type': 'web_search', 'status': 'blocked',
+         'action': {'type': 'search', 'query': 'q'},
+         'results': [{'type': 'text_result', 'ref_id': 'turn1view0', 'url': 'https://metaculus.com/'}]}},
+        {'type': 'item.completed', 'item': {'id': 'x', 'type': 'web_search', 'action': {'type': 'search', 'query': 'q'},
+         'results': [{'type': 'text_result', 'ref_id': 'preview', 'url': 'https://www.metaculus.com/z/'}]}},
+        {'type': 'turn.completed', 'usage': {}},
+    ])
+    result = gpt.parse(req)
+    states = {(e.url, e.source): e.state for e in result.url_events}
+    assert states[('https://www.metaculus.com/q/', 'tool_use')] == 'attempted'
+    assert states[('https://metaculus.com/', 'tool_result')] == 'blocked'
+    assert states[('https://www.metaculus.com/z/', 'search_result')] == 'unknown'
+    assert result.audit_flags == ['suspected_leak']

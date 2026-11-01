@@ -8,7 +8,7 @@ import subprocess
 import time
 from dataclasses import dataclass
 from pathlib import Path
-from typing import Iterable
+from typing import Iterable, Mapping
 
 from flab.timeutil import to_iso, utc_now
 
@@ -91,6 +91,11 @@ def _prepare_env(keep_env: Iterable[str]) -> tuple[dict[str, str], list[str]]:
     return env, scrubbed
 
 
+def scrubbed_env(keep_env: Iterable[str] = ()) -> dict[str, str]:
+    """The environment ``run`` would pass, for helpers that call a CLI through ``subprocess`` directly."""
+    return _prepare_env(keep_env)[0]
+
+
 def _is_pg_alive(pgid: int, proc: subprocess.Popen[bytes]) -> bool:
     proc.poll()
     try:
@@ -140,6 +145,7 @@ def run(
     stdout_path: str | Path,
     stderr_path: str | Path,
     keep_env: Iterable[str] = (),
+    extra_env: Mapping[str, str] | None = None,
     _sigterm_grace_s: float = SIGTERM_GRACE_SECONDS,
 ) -> RunResult:
     """Execute ``argv`` without a shell in a new session, writing stdout/stderr directly to files."""
@@ -161,6 +167,11 @@ def run(
     err_path.parent.mkdir(parents=True, exist_ok=True)
 
     env, scrubbed_names = _prepare_env(keep_env)
+    for key, val in (extra_env or {}).items():
+        # Only non-secret settings such as CODEX_HOME; a secret-looking name is refused, not passed.
+        if _should_scrub(key, set()):
+            raise ValueError(f"extra_env must not carry secret-looking variables: {key}")
+        env[key] = val
 
     started_dt = utc_now()
     t0 = time.monotonic()

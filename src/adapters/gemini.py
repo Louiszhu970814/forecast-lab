@@ -1,16 +1,35 @@
 """Antigravity CLI (agy) adapter for the gemini line.
 
-See docs/tasks/M1-adapters.md, docs/tasks/M1-W5.md, and PLAN.md §5.3, §5.5, §7.3, §7.5, §7.7.
+See docs/tasks/M1-adapters.md, docs/tasks/M1-W5.md, docs/tasks/M1-W2W3.md and PLAN.md §5.3,
+§5.5, §7.3, §7.5, §7.7.
+
+Findings that shape this adapter (agy 1.4.12, M1 acceptance):
+- The default print-mode agent has no page-reading tool but does have ``schedule`` and
+  ``invoke_subagent``. Each run therefore selects a minimal custom agent that the adapter writes
+  to ``<workdir>/.agents/agents/`` (agy's project-level agent location, so no global setting
+  changes) with ``excludeDefaultComponents: true``.
+- ``read_url_content`` fetches on Google's servers and saves the page to
+  ``~/.gemini/antigravity-cli/brain/<conversation>/.system_generated/steps/<n>/content.md``; the
+  model reads it with ``view_file``. agy lets a conversation read its own brain folder without a
+  rule and soft-denies another conversation's. Every other path is denied by explicit rules (see
+  ``read_deny_rules``); a soft-denied action makes agy stop the run.
+- ``--json-schema`` needs the ``finish`` tool, which ``excludeDefaultComponents`` removes unless
+  the agent lists it.
+- Only ``--output-format stream-json`` reports tool calls (``step_update`` events with
+  ``tool_info``: name, parameters and the CLI's own error text). Its ``init`` event lists every
+  registered tool, not the agent's tool set, so it is not a declaration.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
+import os
 import re
 import subprocess
+from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any
-from urllib.parse import urlsplit
+from typing import Any, Callable
 
 from adapters.base import (
     MODEL_CHECKS,
@@ -18,9 +37,11 @@ from adapters.base import (
     AdapterRequest,
     AdapterResult,
     UrlEvent,
+    is_metaculus_host,
     model_check_from_ids,
     url_host,
 )
+from flab import netguard
 from flab import runner as flab_runner
 from flab.runner import RunResult
 
@@ -34,23 +55,29 @@ KEEP_ENV: tuple[str, ...] = ()
 # subagent isolation acceptance passes).
 TIER2_SUBAGENTS_ENABLED_DEFAULT: bool = False
 
+STDOUT_FILENAME = "stdout.jsonl"
+AGENTS_SUBDIR = Path(".agents") / "agents"
+
+TIER1_AGENT = "flab-forecast"
+FORMAT_REPAIR_AGENT = "flab-format-repair"
+TIER2_MAIN_AGENT = "flab-tier2-main"
+TIER2_SUBAGENT = "flab-tier2-research"
+
+WEB_TOOLS: tuple[str, ...] = ("search_web", "read_url_content", "view_file")
+TIER1_TOOLS: tuple[str, ...] = (*WEB_TOOLS, "finish")
+FORMAT_REPAIR_TOOLS: tuple[str, ...] = ("finish",)
+TIER2_MAIN_TOOLS: tuple[str, ...] = (*TIER1_TOOLS, "invoke_subagent")
+TIER2_SUBAGENT_TOOLS: tuple[str, ...] = WEB_TOOLS
+# agy adds manage_task to every agent, including one that lists no tools (M1 acceptance). It acts
+# on background tasks of the conversation; none can be started without schedule or run_command.
+ALWAYS_ADDED_TOOLS: tuple[str, ...] = ("manage_task",)
+# manage_task actions that only report on those tasks (M1 acceptance saw "list").
+INERT_TASK_ACTIONS: tuple[str, ...] = ("list", "status")
+
+COMMON_DENY: tuple[str, ...] = ("command(*)", "write_file(*)", "execute_url(*)", "mcp(*)")
 TIER1_ALLOW_PERMISSIONS: tuple[str, ...] = ("read_url(*)",)
-TIER1_DENY_PERMISSIONS: tuple[str, ...] = (
-    "command(*)",
-    "write_file(*)",
-    "read_file(*)",
-    "execute_url(*)",
-    "mcp(*)",
-    "read_url(metaculus.com)",
-)
-FORMAT_REPAIR_DENY_PERMISSIONS: tuple[str, ...] = (
-    "command(*)",
-    "write_file(*)",
-    "read_file(*)",
-    "read_url(*)",
-    "execute_url(*)",
-    "mcp(*)",
-)
+TIER1_DENY_PERMISSIONS: tuple[str, ...] = (*COMMON_DENY, "read_url(metaculus.com)")
+FORMAT_REPAIR_DENY_PERMISSIONS: tuple[str, ...] = (*COMMON_DENY, "read_url(*)", "read_file(*)")
 
 # Mapping from CLI model IDs (from `agy models`) to human-readable backend labels
 # logged in `agy_cli.log` via `Propagating selected model override to backend: label="..."`.
@@ -70,85 +97,120 @@ MODEL_LABELS: dict[str, str] = {
     "gpt-oss-120b-medium": "GPT-OSS 120B (Medium)",
 }
 
-FORMAT_REPAIR_AGENT_FILENAME = "format_repair_agent.md"
-TIER2_MAIN_AGENT_FILENAME = "tier2_main_agent.md"
-TIER2_SUBAGENT_FILENAME = "tier2_research_subagent.md"
-
-FORMAT_REPAIR_AGENT_CONTENT = """---
-name: flab-format-repair
-description: Minimal format-repair agent with all default tools and subagents excluded.
-excludeDefaultComponents: true
-inheritCustomizations: false
-inheritMcp: false
-tools: []
-agents: []
----
-You are a format repair agent. Convert the provided raw text into the required JSON schema without performing any search or tool actions.
-"""
-
-TIER2_MAIN_AGENT_CONTENT = """---
-name: flab-tier2-main
-description: Minimal Tier 2 forecasting agent with web search, URL reading, and one research subagent.
-excludeDefaultComponents: true
-inheritCustomizations: false
-inheritMcp: false
-tools:
-  - search_web
-  - read_url_content
-  - invoke_subagent
-agents:
-  - ./tier2_research_subagent.md
----
-You are a forecasting agent. Use only web search, URL reading, and the declared research subagent.
-"""
-
-TIER2_SUBAGENT_CONTENT = """---
-name: flab-tier2-research
-description: Minimal read-only web research subagent for Tier 2 forecasting.
-subagent: true
-model: inherit
-excludeDefaultComponents: true
-inheritCustomizations: false
-inheritMcp: false
-tools:
-  - search_web
-  - read_url_content
----
-You are a research subagent. Use only web search and URL reading to gather evidence.
-"""
-
 _LOG_VERSION_RE = re.compile(r"Language server version:\s*(\S+)")
 _LOG_MODEL_LABEL_RE = re.compile(
     r'Propagating selected model override to backend:\s*label="([^"]+)"'
 )
-_LOG_SOFT_DENY_RE = re.compile(
-    r'Print mode:\s*soft-denying tool confirmation\s*"([^"]+)"(?:\s*at step\s*(\d+))?'
-)
-_LOG_DENY_RULE_RE = re.compile(r"Matches user-configured deny rule", re.IGNORECASE)
-_HYPOTHETICAL_DENY_RULE_RE = re.compile(
-    r"(?:\bif\b|\bwhen\b|\bwhether\b|\bexample\b|\bsuch as\b|\be\.g\.\b)[^.\n]{0,80}"
-    r"Matches user-configured deny rule",
-    re.IGNORECASE,
-)
-_NO_BROWSER_TOOL_RE = re.compile(
-    r"(?:no\s+browser\s+tool|do\s+not\s+have\s+a\s+browser|no\s+tool\s+available|"
-    r"browser\s+tool\s+unavailable|cannot\s+open\s+urls?\s+without\s+a\s+browser|"
-    r"lack\s+a\s+browser\s+tool)",
-    re.IGNORECASE,
-)
-_ITEM_DENY_EVIDENCE_RE = re.compile(
-    r"(?:Matches user-configured deny rule|permission\s+denied|denied\s+by\s+(?:a\s+)?(?:user-configured\s+)?(?:permission\s+|deny\s+)?rule)",
-    re.IGNORECASE,
-)
-_URL_RE = re.compile(r"https?://[^\s\"'<>)\]]+")
-_READ_URL_ARG_RE = re.compile(r"read_?url\s*\(\s*([^)\s]+)\s*\)", re.IGNORECASE)
+# The CLI's own error text on a tool step; both name the permission and its target.
+DENY_RULE_RE = re.compile(r"Permission denied for (\w+)\((.*?)\)\. Matches user-configured deny rule")
+SOFT_DENY_RE = re.compile(r"user denied permission for (\w+)\((.*?)\)(?:\n|$)")
 _QUOTA_ERROR_RE = re.compile(
     r"(quota\s+exceeded|resource_exhausted|rate\s+limit\s+exceeded|out\s+of\s+quota|weekly\s+limit)",
     re.IGNORECASE,
 )
 
 
-def build_settings(profile: str) -> dict[str, Any]:
+@dataclass
+class GeminiResult(AdapterResult):
+    conversation_id: str | None = None
+    agent: str | None = None
+    agent_sha256: str | None = None
+    registry_tools: list[str] | None = None      # init event: every registered tool, not a declaration
+    tool_steps: list[dict[str, Any]] = field(default_factory=list)
+    violations: list[dict[str, Any]] = field(default_factory=list)
+    audit_flags: list[str] = field(default_factory=list)
+    parse_errors: list[dict[str, Any]] = field(default_factory=list)
+
+
+# ---------------------------------------------------------------- agents and settings
+
+def agent_markdown(name: str, description: str, tools: tuple[str, ...], body: str, *,
+                   subagent: bool = False, agents: tuple[str, ...] = ()) -> str:
+    lines = ["---", f"name: {name}", f"description: {description}"]
+    if subagent:
+        lines += ["subagent: true", "model: inherit"]
+    lines += ["excludeDefaultComponents: true", "inheritCustomizations: false", "inheritMcp: false", "tools:"]
+    lines += [f"  - {t}" for t in tools]
+    lines += ["agents: []"] if not agents else ["agents:", *[f"  - ./{a}.md" for a in agents]]
+    lines += ["---", f"# {name}", body, ""]
+    return "\n".join(lines)
+
+
+AGENT_FILES: dict[str, str] = {
+    TIER1_AGENT: agent_markdown(
+        TIER1_AGENT, "Forecasting agent limited to web search and reading web pages.", TIER1_TOOLS,
+        "You are a forecasting agent. Use only web search and URL reading. view_file is only for the "
+        "page files that read_url_content reports."),
+    FORMAT_REPAIR_AGENT: agent_markdown(
+        FORMAT_REPAIR_AGENT, "Format repair agent without search or file tools.", FORMAT_REPAIR_TOOLS,
+        "You are a format repair agent. Convert the provided raw text into the required JSON schema "
+        "without performing any search or tool actions."),
+    TIER2_MAIN_AGENT: agent_markdown(
+        TIER2_MAIN_AGENT, "Tier 2 forecasting agent with one web research subagent.", TIER2_MAIN_TOOLS,
+        "You are a forecasting agent. Use only web search, URL reading and the declared research subagent.",
+        agents=(TIER2_SUBAGENT,)),
+    TIER2_SUBAGENT: agent_markdown(
+        TIER2_SUBAGENT, "Read-only web research subagent for Tier 2 forecasting.", TIER2_SUBAGENT_TOOLS,
+        "You are a research subagent. Use only web search and URL reading to gather evidence.", subagent=True),
+}
+
+
+def agent_name(profile: str, subagents_enabled: bool = False) -> str:
+    if profile == "format_repair":
+        return FORMAT_REPAIR_AGENT
+    if profile == "tier2" and subagents_enabled:
+        return TIER2_MAIN_AGENT
+    return TIER1_AGENT
+
+
+def agent_tools(name: str) -> tuple[str, ...]:
+    return {TIER1_AGENT: TIER1_TOOLS, FORMAT_REPAIR_AGENT: FORMAT_REPAIR_TOOLS,
+            TIER2_MAIN_AGENT: TIER2_MAIN_TOOLS, TIER2_SUBAGENT: TIER2_SUBAGENT_TOOLS}[name]
+
+
+def agent_path(workdir: Path, name: str) -> Path:
+    return workdir / AGENTS_SUBDIR / f"{name}.md"
+
+
+def prepare_agent_files(req: AdapterRequest, subagents_enabled: bool = False) -> Path:
+    """Write the run's agent definition(s) into ``<workdir>/.agents/agents/``; unchanged files are kept."""
+    main = agent_name(req.profile, subagents_enabled)
+    names = [main, TIER2_SUBAGENT] if main == TIER2_MAIN_AGENT else [main]
+    for name in names:
+        path = agent_path(req.workdir, name)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        content = AGENT_FILES[name]
+        if not path.is_file() or path.read_text(encoding="utf-8") != content:
+            path.write_text(content, encoding="utf-8")
+    return agent_path(req.workdir, main)
+
+
+def brain_dir() -> Path:
+    """Where agy keeps per-conversation files, including pages read_url_content saved."""
+    return Path(os.path.realpath(Path.home() / ".gemini" / "antigravity-cli" / "brain"))
+
+
+def read_deny_rules(keep: Path, listdir: Callable[[Path], list[str]] = lambda p: os.listdir(p)) -> list[str]:
+    """``read_file`` deny rules for every entry beside the path from / to ``keep``.
+
+    agy denies every path under a listed directory, matched by path component (a rule for
+    ``~/.gemini/antigravity`` does not cover ``~/.gemini/antigravity-cli``), and deny wins over
+    allow, so this leaves ``keep`` as the only readable tree. A path created after the run starts
+    falls back to print mode's soft-deny, which stops the run. A level that cannot be listed
+    raises OSError rather than producing an incomplete rule set.
+    """
+    keep = Path(os.path.realpath(keep))
+    rules: list[str] = []
+    cur = Path("/")
+    for part in keep.parts[1:]:
+        # An unlistable level would leave its entries unruled; refuse to build settings instead.
+        names = sorted(listdir(cur))
+        rules += [f"read_file({cur / n})" for n in names if n != part]
+        cur = cur / part
+    return rules
+
+
+def build_settings(profile: str, *, keep: Path | None = None) -> dict[str, Any]:
     """Build the ``--settings`` JSON object for the requested execution profile."""
     if profile in ("tier1", "tier2", "acceptance"):
         return {
@@ -156,46 +218,16 @@ def build_settings(profile: str) -> dict[str, Any]:
             "useG1Credits": False,
             "permissions": {
                 "allow": list(TIER1_ALLOW_PERMISSIONS),
-                "deny": list(TIER1_DENY_PERMISSIONS),
+                "deny": [*TIER1_DENY_PERMISSIONS, *read_deny_rules(keep or brain_dir())],
             },
         }
     if profile == "format_repair":
         return {
             "agentMode": "",
             "useG1Credits": False,
-            "permissions": {
-                "allow": [],
-                "deny": list(FORMAT_REPAIR_DENY_PERMISSIONS),
-            },
+            "permissions": {"allow": [], "deny": list(FORMAT_REPAIR_DENY_PERMISSIONS)},
         }
     raise ValueError(f"unknown profile: {profile!r}")
-
-
-def write_format_repair_agent_file(workdir: Path) -> Path:
-    """Write the tool-less custom agent definition for ``format_repair`` (PLAN §7.5) into ``workdir``."""
-    workdir.mkdir(parents=True, exist_ok=True)
-    agent_path = workdir / FORMAT_REPAIR_AGENT_FILENAME
-    agent_path.write_text(FORMAT_REPAIR_AGENT_CONTENT, encoding="utf-8")
-    return agent_path
-
-
-def write_tier2_agent_files(workdir: Path) -> Path:
-    """Write the minimal custom agent and research subagent definitions (PLAN §7.3) into ``workdir``."""
-    main_path = workdir / TIER2_MAIN_AGENT_FILENAME
-    sub_path = workdir / TIER2_SUBAGENT_FILENAME
-    workdir.mkdir(parents=True, exist_ok=True)
-    sub_path.write_text(TIER2_SUBAGENT_CONTENT, encoding="utf-8")
-    main_path.write_text(TIER2_MAIN_AGENT_CONTENT, encoding="utf-8")
-    return main_path
-
-
-def prepare_agent_files(req: AdapterRequest) -> Path | None:
-    """Write custom agent definition files into ``req.workdir`` during ``run()`` preparation."""
-    if req.profile == "format_repair":
-        return write_format_repair_agent_file(req.workdir)
-    if req.profile == "tier2":
-        return write_tier2_agent_files(req.workdir)
-    return None
 
 
 def build_argv(
@@ -208,39 +240,31 @@ def build_argv(
         raise ValueError(f"gemini adapter cannot build argv for player={req.player!r}")
 
     settings_json = json.dumps(build_settings(req.profile), separators=(",", ":"))
-    schema_path = req.raw_dir / "schema.json"
-    log_path = req.raw_dir / "agy_cli.log"
-
     argv: list[str] = [
         "agy",
         "-p",
         req.prompt,
+        "--agent",
+        agent_name(req.profile, subagents_enabled),
         "--model",
         req.model,
         "--effort",
         req.effort,
         "--output-format",
-        "json",
+        "stream-json",
         "--json-schema",
-        str(schema_path),
+        str(req.raw_dir / "schema.json"),
         "--disable-slash-commands",
         "--print-timeout",
         f"{req.timeout_s}s",
         "--sandbox",
         "--log-file",
-        str(log_path),
+        str(req.raw_dir / "agy_cli.log"),
         "--settings",
         settings_json,
     ]
-
-    if req.profile == "format_repair":
-        format_repair_agent_path = req.workdir / FORMAT_REPAIR_AGENT_FILENAME
-        argv.extend(["--agent", str(format_repair_agent_path)])
-    elif req.profile == "tier2" and subagents_enabled:
-        main_agent_path = req.workdir / TIER2_MAIN_AGENT_FILENAME
-        argv.extend(["--agent", str(main_agent_path)])
-
-    return argv
+    # Pages are fetched on Google's servers, but a local fallback cannot be ruled out (PLAN §7.3).
+    return netguard.wrap(argv)
 
 
 def _parse_changelog_version(text: str) -> str | None:
@@ -269,421 +293,117 @@ def cli_version(*, timeout_s: float = 10.0) -> str | None:
     return _parse_changelog_version(proc.stdout)
 
 
-def _find_stdout_file(raw_dir: Path, run_result: RunResult | None) -> Path | None:
-    if run_result is not None and run_result.stdout_path.is_file():
-        return run_result.stdout_path
-    for name in ("stdout.json", "output.json", "response.json", "agy.json", "stdout.txt", "stdout"):
-        candidate = raw_dir / name
-        if candidate.is_file():
-            return candidate
-    if raw_dir.is_dir():
-        for path in sorted(raw_dir.glob("*.json")):
-            if path.name != "schema.json":
-                return path
+# ---------------------------------------------------------------- stream parsing
+
+def read_stream(path: Path) -> tuple[list[dict[str, Any]], list[dict[str, Any]]]:
+    """(events, parse errors) from agy's stream-json stdout."""
+    try:
+        text = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return [], [{"file": path.name, "error": "missing"}]
+    events, errors = [], []
+    for n, line in enumerate(text.splitlines(), 1):
+        if not line.strip():
+            continue
+        try:
+            e = json.loads(line)
+        except ValueError:
+            errors.append({"file": path.name, "line": n, "error": "invalid JSON"})
+            continue
+        if isinstance(e, dict):
+            events.append(e)
+        else:
+            errors.append({"file": path.name, "line": n, "error": "not an object"})
+    return events, errors
+
+
+def tool_steps(events: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Tool steps keyed by step index, merged across updates; ``state`` is the last one seen."""
+    steps: dict[int, dict[str, Any]] = {}
+    for e in events:
+        su = e.get("step_update")
+        if not isinstance(su, dict) or not isinstance(su.get("step_index"), int):
+            continue
+        # finish starts as a "tool" step and completes as step_type "finish" (agy 1.4.12)
+        if su.get("step_type") != "tool" and su["step_index"] not in steps:
+            continue
+        info = su.get("tool_info") if isinstance(su.get("tool_info"), dict) else {}
+        step = steps.setdefault(su["step_index"], {"step": su["step_index"]})
+        step["tool"] = str(info.get("name") or su.get("tool_name") or step.get("tool") or "")
+        step["state"] = su.get("state")
+        if isinstance(info.get("parameters"), dict):
+            step["parameters"] = info["parameters"]
+        err = info.get("error")
+        if isinstance(err, dict) and isinstance(err.get("message"), str):
+            step["error"] = err["message"]
+        if info.get("output") is not None:
+            step["output"] = str(info["output"])
+    return [steps[k] for k in sorted(steps)]
+
+
+def denial_of(message: str | None) -> tuple[str, str, str] | None:
+    """(kind, permission, target) when ``message`` is agy's own permission denial."""
+    if not message:
+        return None
+    m = DENY_RULE_RE.search(message)
+    if m:
+        return "cli_rule", m.group(1), m.group(2)
+    m = SOFT_DENY_RE.search(message)
+    if m:
+        return "cli_soft_deny", m.group(1), m.group(2)
     return None
 
 
-def _find_log_file(raw_dir: Path) -> Path | None:
-    for name in ("agy_cli.log", "cli.log", "agy.log"):
-        candidate = raw_dir / name
-        if candidate.is_file():
-            return candidate
-    if raw_dir.is_dir():
-        for path in sorted(raw_dir.glob("*.log")):
-            return path
-    return None
+CONVERSATION_ID_RE = re.compile(r"^[0-9A-Za-z][0-9A-Za-z_-]{0,127}$")
+# The one parameter that names each web tool's target (agy 1.4.12 tool_info).
+TARGET_PARAM: dict[str, str] = {"view_file": "AbsolutePath", "read_url_content": "Url", "search_web": "query"}
 
 
-def _find_stderr_file(raw_dir: Path, run_result: RunResult | None) -> Path | None:
-    if run_result is not None and run_result.stderr_path.is_file():
-        return run_result.stderr_path
-    for name in ("stderr.txt", "agy.stderr", "stderr"):
-        candidate = raw_dir / name
-        if candidate.is_file():
-            return candidate
-    if raw_dir.is_dir():
-        for path in sorted(raw_dir.glob("*.stderr")):
-            return path
-    return None
+def own_page_file(path: str | None, conversation_id: str | None) -> bool:
+    """True for a file inside this conversation's own brain folder (pages read_url_content saved).
+
+    The conversation ID must be one plain path component, so it cannot point outside brain.
+    """
+    if not path or not conversation_id or not CONVERSATION_ID_RE.match(conversation_id):
+        return False
+    brain = brain_dir()
+    own = Path(os.path.realpath(brain / conversation_id))
+    if own.parent != brain:
+        return False
+    try:
+        return Path(os.path.realpath(path)).is_relative_to(own)
+    except (OSError, ValueError):
+        return False
+
+
+def _params_target(tool: str, params: dict[str, Any] | None) -> str | None:
+    if not isinstance(params, dict):
+        return None
+    key = TARGET_PARAM.get(tool)
+    if key is not None:
+        return params[key] if isinstance(params.get(key), str) else None
+    return next((v for v in params.values() if isinstance(v, str)), None)
+
+
+def _parse_log(log_path: Path) -> tuple[str | None, str | None]:
+    """(cli_version, model_label) from ``agy_cli.log``."""
+    try:
+        content = log_path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return None, None
+    version = model_label = None
+    for line in content.splitlines():
+        if version is None and (m := _LOG_VERSION_RE.search(line)):
+            version = m.group(1)
+        if m := _LOG_MODEL_LABEL_RE.search(line):
+            model_label = m.group(1)
+    return version, model_label
 
 
 def _int_or_none(val: Any) -> int | None:
     if isinstance(val, int) and not isinstance(val, bool):
         return val
     return None
-
-
-def _parse_log(log_path: Path | None) -> tuple[str | None, str | None, list[dict[str, Any]]]:
-    """Extract (cli_version, model_label, log_denials) from ``agy_cli.log``."""
-    if log_path is None or not log_path.is_file():
-        return None, None, []
-
-    try:
-        content = log_path.read_text(encoding="utf-8", errors="replace")
-    except OSError:
-        return None, None, []
-
-    version: str | None = None
-    model_label: str | None = None
-    log_denials: list[dict[str, Any]] = []
-
-    for line in content.splitlines():
-        if version is None:
-            m_ver = _LOG_VERSION_RE.search(line)
-            if m_ver:
-                version = m_ver.group(1)
-
-        m_model = _LOG_MODEL_LABEL_RE.search(line)
-        if m_model:
-            model_label = m_model.group(1)
-
-        m_soft = _LOG_SOFT_DENY_RE.search(line)
-        if m_soft:
-            entry: dict[str, Any] = {
-                "display_name": m_soft.group(1),
-                "source": "cli_log",
-                "evidence_strength": "cli_verified",
-                "reason": "soft_denied_in_print_mode",
-            }
-            if m_soft.group(2) is not None:
-                entry["step"] = int(m_soft.group(2))
-            log_denials.append(entry)
-        elif _LOG_DENY_RULE_RE.search(line):
-            log_denials.append(
-                {
-                    "action": None,
-                    "source": "cli_log",
-                    "evidence_strength": "cli_verified",
-                    "reason": "Matches user-configured deny rule",
-                    "log_line": line.strip(),
-                }
-            )
-
-    return version, model_label, log_denials
-
-
-def _has_non_hypothetical_deny_rule(text: str) -> bool:
-    """Return True if ``text`` reports ``Matches user-configured deny rule`` outside hypothetical quotes."""
-    if not _LOG_DENY_RULE_RE.search(text):
-        return False
-    scrubbed = _HYPOTHETICAL_DENY_RULE_RE.sub("", text)
-    return bool(_LOG_DENY_RULE_RE.search(scrubbed))
-
-
-def _collect_denied_actions(
-    data: dict[str, Any] | None,
-    final_text: str | None,
-    structured: dict[str, Any] | None,
-    log_denials: list[dict[str, Any]],
-) -> list[dict[str, Any]] | None:
-    """Combine ask-rule auto-denials (JSON + log) and deny-rule rejections (model output + log)."""
-    combined: list[dict[str, Any]] = []
-
-    # 1. Ask-rule auto-denials reported in JSON outer frame (`denied_actions`).
-    json_denials_present = False
-    if isinstance(data, dict) and isinstance(data.get("denied_actions"), list):
-        json_denials_present = True
-        for item in data["denied_actions"]:
-            if isinstance(item, dict):
-                entry = dict(item)
-                entry.setdefault("source", "json_denied_actions")
-                entry.setdefault("evidence_strength", "cli_verified")
-                combined.append(entry)
-
-    # 2. Soft-denials or deny-rule entries recorded in `agy_cli.log`.
-    for log_entry in log_denials:
-        matched = False
-        for existing in combined:
-            if (
-                existing.get("source") == "json_denied_actions"
-                and existing.get("display_name") == log_entry.get("display_name")
-                and log_entry.get("display_name") is not None
-            ):
-                if "step" in log_entry:
-                    existing["step"] = log_entry["step"]
-                existing["log_confirmed"] = True
-                matched = True
-                break
-        if not matched:
-            combined.append(log_entry)
-
-    # 3. Deny-rule blocks surfaced to the model ("Matches user-configured deny rule").
-    refused_items: list[str] = []
-    if isinstance(structured, dict) and isinstance(structured.get("refused"), list):
-        refused_items = [str(x) for x in structured["refused"] if x is not None]
-
-    # Check if any refused item itself carries deny-rule text vs non-permission reasons.
-    explicit_deny_items = [
-        item
-        for item in refused_items
-        if _ITEM_DENY_EVIDENCE_RE.search(item) and not _NO_BROWSER_TOOL_RE.search(item)
-    ]
-    non_contradicted_items = [
-        item for item in refused_items if not _NO_BROWSER_TOOL_RE.search(item)
-    ]
-
-    context_texts: list[str] = []
-    if isinstance(structured, dict):
-        for key in ("answer", "error", "note"):
-            val = structured.get(key)
-            if isinstance(val, str):
-                context_texts.append(val)
-        if not context_texts and final_text and "refused" not in structured:
-            context_texts.append(final_text)
-    elif final_text:
-        context_texts.append(final_text)
-
-    has_context_deny_rule = any(_has_non_hypothetical_deny_rule(t) for t in context_texts)
-
-    if explicit_deny_items:
-        for item_str in explicit_deny_items:
-            combined.append(
-                {
-                    "action": item_str,
-                    "reason": "Matches user-configured deny rule",
-                    "source": "model_output_deny_rule",
-                    "evidence_strength": "model_self_report",
-                }
-            )
-    elif has_context_deny_rule:
-        # If structured output is a forecast without a `refused` list and the phrase only
-        # appeared in general reasoning text without any refused items, only record when
-        # there is no contradictory indicator.
-        if refused_items:
-            for item_str in non_contradicted_items:
-                combined.append(
-                    {
-                        "action": item_str,
-                        "reason": "Matches user-configured deny rule",
-                        "source": "model_output_deny_rule",
-                        "evidence_strength": "model_self_report",
-                    }
-                )
-        elif not (isinstance(structured, dict) and "refused" in structured):
-            combined.append(
-                {
-                    "action": None,
-                    "reason": "Matches user-configured deny rule",
-                    "source": "model_output_deny_rule",
-                    "evidence_strength": "model_self_report",
-                }
-            )
-
-    if combined:
-        return combined
-    if json_denials_present:
-        return []
-    return None
-
-
-def _normalize_url_for_match(u: str) -> tuple[str, str, str, str, str] | None:
-    # Nothing but surrounding whitespace is stripped: a trailing "." or ";" can be part of the resource.
-    cleaned = u.strip()
-    try:
-        parts = urlsplit(cleaned)
-    except ValueError:
-        return None
-    if not parts.scheme or not parts.netloc:
-        return None
-    # Only an empty path and "/" are the same resource; "/a/" and "/a" may differ.
-    path = parts.path if parts.path not in ("", "/") else "/"
-    return (parts.scheme.lower(), parts.netloc.lower(), path, parts.query, parts.fragment)
-
-
-def _urls_match(cli_target: str, prose_url: str) -> bool:
-    """Exact CLI target versus a URL taken from model output (which may carry sentence punctuation)."""
-    # Exact resource match only. Trailing "." or ";" may belong to the URL, so nothing is stripped;
-    # a URL quoted with sentence punctuation stays "unknown" rather than being claimed as blocked.
-    norm_c = _normalize_url_for_match(cli_target)
-    norm_t = _normalize_url_for_match(prose_url)
-    if norm_c is None or norm_t is None:
-        return cli_target.strip() == prose_url.strip()
-    return norm_c == norm_t
-
-
-def _iter_entry_strings(val: Any) -> list[str]:
-    if isinstance(val, str):
-        return [val]
-    if isinstance(val, dict):
-        out: list[str] = []
-        for k, v in val.items():
-            if k in ("source", "evidence_strength", "reason", "step", "log_confirmed"):
-                continue
-            out.extend(_iter_entry_strings(v))
-        return out
-    if isinstance(val, (list, tuple)):
-        out = []
-        for item in val:
-            out.extend(_iter_entry_strings(item))
-        return out
-    return []
-
-
-def _cli_entry_matches_url(entry: dict[str, Any], url: str) -> bool:
-    """True iff ``entry`` is a CLI-verified denial of a page read whose own target is ``url``.
-
-    Only the read-URL action's argument (``read_url(<target>)``) or an explicit ``url`` field of a
-    read-URL entry counts; URLs mentioned elsewhere (e.g. inside a denied shell command) do not.
-    """
-    if entry.get("source", "cli_log") not in ("json_denied_actions", "cli_log"):
-        return False
-    if entry.get("evidence_strength", "cli_verified") != "cli_verified":
-        return False
-    action = entry.get("action") if isinstance(entry.get("action"), str) else ""
-    display = entry.get("display_name") if isinstance(entry.get("display_name"), str) else ""
-    targets: list[str] = []
-    m = _READ_URL_ARG_RE.fullmatch(action.strip())
-    if m:
-        targets.append(m.group(1).strip("\"'"))
-    elif action.strip().lower() in ("read_url", "readurl") or display.strip().lower() in ("readurl", "read_url"):
-        if isinstance(entry.get("url"), str):
-            targets.append(entry["url"])
-    for arg in targets:
-        if not arg or arg == "*":
-            continue
-        if arg.startswith(("http://", "https://")):
-            if _urls_match(arg, url):
-                return True
-        elif "/" in arg:
-            if _urls_match(f"https://{arg}", url) or _urls_match(f"http://{arg}", url):
-                return True
-        else:
-            target_h = url_host(url)
-            arg_h = arg.lower().strip(".")
-            if target_h and arg_h and (target_h == arg_h or target_h.endswith("." + arg_h)):
-                return True
-    return False
-
-
-def _has_cli_url_denial(
-    url: str,
-    log_denials: list[dict[str, Any]],
-    denied_actions: list[dict[str, Any]] | None,
-) -> bool:
-    """Return True if CLI log or JSON denied_actions confirms a URL/read_url denial targeting ``url``."""
-    for entry in log_denials:
-        if isinstance(entry, dict) and _cli_entry_matches_url(entry, url):
-            return True
-    if denied_actions:
-        for entry in denied_actions:
-            if isinstance(entry, dict) and _cli_entry_matches_url(entry, url):
-                return True
-    return False
-
-
-def _extract_url_events(
-    structured: dict[str, Any] | None,
-    final_text: str | None = None,
-    log_denials: list[dict[str, Any]] | None = None,
-    denied_actions: list[dict[str, Any]] | None = None,
-) -> list[UrlEvent]:
-    """Extract URL events conservatively from structured output and denial records.
-
-    - ``opened_urls``: recorded as ``state="opened"`` unless contradicted by a missing-browser notice.
-    - ``refused``: recorded as ``state="blocked"`` ONLY when backed by a CLI denial targeting that URL
-      or explicit deny-rule evidence without a missing-tool explanation; otherwise ``state="unknown"``.
-    - ``sources``: citations from search snippets do not prove a page was opened, so URLs
-      present only in ``sources`` are recorded as ``state="unknown"`` with source
-      ``"structured_output.sources:citation_only"``.
-    """
-    events: list[UrlEvent] = []
-    if not isinstance(structured, dict):
-        return events
-
-    log_denials = log_denials or []
-    answer_text = str(structured.get("answer") or "")
-    combined_context = answer_text if answer_text else (final_text or "")
-    context_no_browser = bool(_NO_BROWSER_TOOL_RE.search(combined_context))
-    context_has_deny_rule = _has_non_hypothetical_deny_rule(combined_context)
-
-    seen_opened: set[str] = set()
-
-    opened_urls = structured.get("opened_urls")
-    if isinstance(opened_urls, list):
-        for item in opened_urls:
-            if isinstance(item, str):
-                for url in _URL_RE.findall(item) or ([item] if url_host(item) else []):
-                    if context_no_browser:
-                        events.append(
-                            UrlEvent(
-                                url=url,
-                                host=url_host(url),
-                                state="unknown",
-                                source="structured_output.opened_urls:contradicted_by_no_browser",
-                            )
-                        )
-                    else:
-                        seen_opened.add(url)
-                        events.append(
-                            UrlEvent(
-                                url=url,
-                                host=url_host(url),
-                                state="opened",
-                                source="structured_output.opened_urls:model_report",
-                            )
-                        )
-
-    refused = structured.get("refused")
-    if isinstance(refused, list):
-        # Check if some items have explicit per-item reasons
-        any_item_specific_reason = any(
-            isinstance(x, str)
-            and bool(_ITEM_DENY_EVIDENCE_RE.search(x) or _NO_BROWSER_TOOL_RE.search(x))
-            for x in refused
-        )
-        for item in refused:
-            if not isinstance(item, str):
-                continue
-            item_no_browser = bool(_NO_BROWSER_TOOL_RE.search(item))
-            item_has_deny = bool(_ITEM_DENY_EVIDENCE_RE.search(item))
-            for url in _URL_RE.findall(item):
-                if item_no_browser:
-                    state = "unknown"
-                    src = "structured_output.refused:no_browser_tool"
-                elif _has_cli_url_denial(url, log_denials, denied_actions):
-                    state = "blocked"
-                    src = "structured_output.refused:cli_verified"
-                elif item_has_deny:
-                    state = "blocked"
-                    src = "structured_output.refused:deny_rule_model_report"
-                elif context_no_browser:
-                    state = "unknown"
-                    src = "structured_output.refused:no_browser_tool"
-                elif context_has_deny_rule and not any_item_specific_reason:
-                    state = "blocked"
-                    src = "structured_output.refused:deny_rule_model_report"
-                else:
-                    state = "unknown"
-                    src = "structured_output.refused:unverified_reason"
-
-                events.append(
-                    UrlEvent(
-                        url=url,
-                        host=url_host(url),
-                        state=state,
-                        source=src,
-                    )
-                )
-
-    sources = structured.get("sources")
-    if isinstance(sources, list):
-        for src_item in sources:
-            url_str: str | None = None
-            if isinstance(src_item, str):
-                url_str = src_item
-            elif isinstance(src_item, dict) and isinstance(src_item.get("url"), str):
-                url_str = src_item["url"]
-            if url_str and url_str not in seen_opened:
-                events.append(
-                    UrlEvent(
-                        url=url_str,
-                        host=url_host(url_str),
-                        state="unknown",
-                        source="structured_output.sources:citation_only",
-                    )
-                )
-
-    return events
 
 
 def apply_quota_model_check(result: AdapterResult, quota_check: str) -> AdapterResult:
@@ -711,160 +431,104 @@ def apply_quota_model_check(result: AdapterResult, quota_check: str) -> AdapterR
     return result
 
 
-def parse(req: AdapterRequest, run_result: RunResult | None) -> AdapterResult:
-    """Parse ``agy`` output and log files from ``req.raw_dir`` without invoking the CLI or writing files."""
-    argv = build_argv(req)
-    stdout_path = _find_stdout_file(req.raw_dir, run_result)
-    log_path = _find_log_file(req.raw_dir)
-    stderr_path = _find_stderr_file(req.raw_dir, run_result)
+def parse(req: AdapterRequest, run_result: RunResult | None, *,
+          subagents_enabled: bool = TIER2_SUBAGENTS_ENABLED_DEFAULT) -> GeminiResult:
+    """Parse ``agy`` stream-json output and log from ``req.raw_dir`` without invoking the CLI."""
+    argv = build_argv(req, subagents_enabled=subagents_enabled)
+    stdout_path = run_result.stdout_path if run_result is not None else req.raw_dir / STDOUT_FILENAME
+    events, parse_errors = read_stream(stdout_path)
+    log_version, model_label = _parse_log(req.raw_dir / "agy_cli.log")
+    try:
+        stderr_text = (req.raw_dir / "stderr.txt").read_text(encoding="utf-8", errors="replace").strip()
+    except OSError:
+        stderr_text = ""
 
-    log_version, model_label, log_denials = _parse_log(log_path)
+    init_ev = next((e for e in events if e.get("event") == "init" and isinstance(e.get("init"), dict)), {})
+    init = {"conversation_id": init_ev.get("conversation_id"), **(init_ev.get("init") or {})}
+    result_ev = next((e["result"] for e in reversed(events)
+                      if e.get("event") == "result" and isinstance(e.get("result"), dict)), None)
+    conversation_id = init.get("conversation_id") or (result_ev or {}).get("conversation_id")
+    conversation_id = str(conversation_id) if conversation_id else None
+    steps = tool_steps(events)
+    name = agent_name(req.profile, subagents_enabled)
+    allowed = set(agent_tools(name))
 
-    stderr_text = ""
-    if stderr_path is not None and stderr_path.is_file():
-        try:
-            stderr_text = stderr_path.read_text(encoding="utf-8", errors="replace").strip()
-        except OSError:
-            stderr_text = ""
-
-    raw_stdout_text = ""
-    data: dict[str, Any] | None = None
-    json_parse_error: str | None = None
-
-    if stdout_path is not None and stdout_path.is_file():
-        try:
-            raw_stdout_text = stdout_path.read_text(encoding="utf-8", errors="replace")
-        except OSError as exc:
-            json_parse_error = f"failed to read stdout: {exc}"
-        else:
-            stripped = raw_stdout_text.strip()
-            if stripped:
-                try:
-                    parsed = json.loads(stripped)
-                    if isinstance(parsed, dict):
-                        data = parsed
-                    else:
-                        json_parse_error = "stdout JSON root is not an object"
-                except json.JSONDecodeError as exc:
-                    json_parse_error = f"invalid stdout JSON: {exc}"
+    url_events: list[UrlEvent] = []
+    denied: list[dict[str, Any]] = []
+    violations: list[dict[str, Any]] = []
+    flags: list[str] = []
+    counts: dict[str, int] = {}
+    for s in steps:
+        tool, state = s.get("tool", ""), s.get("state")
+        target = _params_target(tool, s.get("parameters"))
+        counts[tool] = counts.get(tool, 0) + 1
+        den = denial_of(s.get("error"))
+        if den:
+            denied.append({"action": f"{den[1]}({den[2]})", "tool": tool, "step": s["step"], "reason": den[0],
+                           "source": "stream_tool_error", "evidence_strength": "cli_verified"})
+        if tool == "manage_task" and str((s.get("parameters") or {}).get("Action", "")).lower() in INERT_TASK_ACTIONS:
+            flags.append("manage_task_query")
+            continue
+        if tool not in allowed:
+            violations.append({"type": "unexpected_tool", "tool": tool, "step": s["step"], "state": state})
+            continue
+        if tool == "read_url_content" and target:
+            st = "opened" if state == "DONE" else "blocked" if den else "attempted"
+            url_events.append(UrlEvent(url=target, host=url_host(target), state=st,
+                                       source=f"stream.read_url_content:{den[0] if den else state}"))
+            if is_metaculus_host(url_host(target)):
+                flags.append("metaculus_opened" if st == "opened" else "metaculus_attempted")
+        elif tool == "view_file" and not own_page_file(target, conversation_id):
+            if state == "DONE":
+                violations.append({"type": "local_read", "path": target, "step": s["step"]})
             else:
-                json_parse_error = "stdout is empty"
-    else:
-        json_parse_error = "stdout file not found"
+                flags.append("local_read_denied" if den else "local_read_failed")
+    for d in (result_ev or {}).get("denied_actions") or []:
+        if isinstance(d, dict):
+            denied.append({**d, "source": "stream_result_denied_actions", "evidence_strength": "cli_verified"})
 
-    status: str | None = None
-    finished_reason: str | None = None
-    outer_error: str | None = None
-    final_text: str | None = None
-    structured: dict[str, Any] | None = None
-    usage_raw: dict[str, Any] | None = None
-    usage: dict[str, int | None] = {k: None for k in USAGE_KEYS}
-
-    if data is not None:
-        raw_status = data.get("status")
-        status = str(raw_status) if raw_status is not None else None
-
-        raw_finished = data.get("finished_reason")
-        if raw_finished is not None and str(raw_finished).strip():
-            finished_reason = str(raw_finished).strip()
-
-        raw_err = data.get("error")
-        if isinstance(raw_err, str) and raw_err.strip():
-            outer_error = raw_err.strip()
-        elif isinstance(raw_err, dict):
-            outer_error = json.dumps(raw_err, ensure_ascii=False)
-
-        raw_resp = data.get("response")
-        if isinstance(raw_resp, str) and raw_resp != "":
-            final_text = raw_resp
-
-        raw_struct = data.get("structured_output")
-        if isinstance(raw_struct, dict):
-            structured = raw_struct
-
-        raw_usage = data.get("usage")
-        if isinstance(raw_usage, dict):
-            usage_raw = dict(raw_usage)
-            if "num_turns" in data and isinstance(data["num_turns"], int):
-                usage_raw.setdefault("num_turns", data["num_turns"])
-            usage = {
-                "input_tokens": _int_or_none(raw_usage.get("input_tokens")),
-                "output_tokens": _int_or_none(raw_usage.get("output_tokens")),
-                "reasoning_tokens": _int_or_none(raw_usage.get("thinking_tokens")),
-                "cached_tokens": _int_or_none(raw_usage.get("cache_read_tokens")),
-            }
-
-    # Log model label is preserved as auxiliary evidence in `usage_raw` and `reported_model_id`;
-    # adapter itself returns `model_check = "unverified"` until `quota.judge` updates it (PLAN §7.7).
-    aliases = MODEL_LABELS if model_label != req.model else None
-    log_model_check = model_check_from_ids(req.model, model_label, aliases)
+    structured = (result_ev or {}).get("structured_output")
+    structured = structured if isinstance(structured, dict) else None
+    response = (result_ev or {}).get("response")
+    final_text = response if isinstance(response, str) and response else None
+    usage_raw = dict(result_ev["usage"]) if isinstance((result_ev or {}).get("usage"), dict) else None
+    usage = {k: None for k in USAGE_KEYS}
+    if usage_raw is not None:
+        usage_raw["num_turns"] = (result_ev or {}).get("num_turns")
+        usage = {"input_tokens": _int_or_none(usage_raw.get("input_tokens")),
+                 "output_tokens": _int_or_none(usage_raw.get("output_tokens")),
+                 "reasoning_tokens": _int_or_none(usage_raw.get("thinking_tokens")),
+                 "cached_tokens": _int_or_none(usage_raw.get("cache_read_tokens"))}
     if model_label is not None:
-        if usage_raw is None:
-            usage_raw = {}
+        usage_raw = usage_raw or {}
         usage_raw["model_label"] = model_label
-        usage_raw["log_model_check"] = log_model_check
+        aliases = MODEL_LABELS if model_label != req.model else None
+        usage_raw["log_model_check"] = model_check_from_ids(req.model, model_label, aliases)
 
-    model_check = "unverified"
-
-    denied_actions = _collect_denied_actions(data, final_text, structured, log_denials)
-    url_events = _extract_url_events(
-        structured,
-        final_text=final_text,
-        log_denials=log_denials,
-        denied_actions=denied_actions,
-    )
-
-    timed_out = bool(run_result is not None and run_result.timed_out) or (
-        finished_reason == "print_timeout"
-    )
-    exit_ok = run_result is None or (run_result.exit_code == 0 and not run_result.timed_out)
-
-    completed = bool(
-        exit_ok
-        and data is not None
-        and status == "SUCCESS"
-        and not finished_reason
-        and final_text is not None
-        and final_text.strip() != ""
-    )
-
-    error_type: str | None = None
-    error_msg: str | None = None
-
-    combined_error_text = " ".join(
-        part for part in (outer_error, stderr_text, raw_stdout_text if data is None else "") if part
-    )
-
+    timed_out = bool(run_result is not None and run_result.timed_out)
+    exit_ok = run_result is None or (run_result.exit_code == 0 and not timed_out)
+    status = (result_ev or {}).get("status")
+    completed = bool(exit_ok and status == "SUCCESS" and structured is not None and not parse_errors)
+    error_type = error_msg = None
     if timed_out:
-        completed = False
-        error_type = "timeout"
-        error_msg = outer_error or stderr_text or f"timed out (finished_reason={finished_reason!r})"
+        error_type, error_msg = "timeout", stderr_text or "timed out"
     elif not completed:
-        if denied_actions:
-            error_type = "tool_denied"
-            error_msg = outer_error or "tool action denied in non-interactive mode"
-        elif _QUOTA_ERROR_RE.search(combined_error_text):
-            error_type = "quota_exhausted"
-            error_msg = outer_error or stderr_text or "quota exhausted"
-        elif data is not None and exit_ok and status == "SUCCESS" and not finished_reason and not (final_text and final_text.strip()):
-            error_type = "invalid_output"
-            error_msg = "empty response from CLI"
+        text = " ".join(p for p in (stderr_text, json.dumps(result_ev or {}, ensure_ascii=False)) if p)
+        soft = [d for d in denied if d.get("reason") == "cli_soft_deny" or d["source"] == "stream_result_denied_actions"]
+        if soft:
+            error_type, error_msg = "tool_denied", f"agy stopped the run after a soft-denied action: {soft[0].get('action') or soft[0]}"
+        elif _QUOTA_ERROR_RE.search(text):
+            error_type, error_msg = "quota_exhausted", stderr_text or "quota exhausted"
+        elif exit_ok and status == "SUCCESS":
+            error_type, error_msg = "invalid_output", "no structured output in the result event"
         else:
             error_type = "cli_error"
-            error_msg = (
-                outer_error
-                or stderr_text
-                or (f"finished_reason={finished_reason}" if finished_reason else None)
-                or (
-                    f"non-zero exit code ({run_result.exit_code})"
-                    if run_result is not None and run_result.exit_code != 0
-                    else None
-                )
-                or json_parse_error
-                or "CLI execution failed"
-            )
+            error_msg = (stderr_text or (f"status={status}" if status else None)
+                         or (f"non-zero exit code ({run_result.exit_code})" if run_result and run_result.exit_code else None)
+                         or (parse_errors[0]["error"] if parse_errors else None) or "no result event")
 
-    return AdapterResult(
+    path = agent_path(req.workdir, name)
+    return GeminiResult(
         argv=argv,
         run=run_result,
         cli_version=log_version,
@@ -872,15 +536,25 @@ def parse(req: AdapterRequest, run_result: RunResult | None) -> AdapterResult:
         final_text=final_text,
         structured=structured,
         reported_model_id=model_label,
-        model_check=model_check,
+        model_check="unverified",  # set by apply_quota_model_check (PLAN §7.7)
         usage_raw=usage_raw,
         usage=usage,
-        tool_call_counts=None,
+        tool_call_counts=counts,
         url_events=url_events,
-        denied_actions=denied_actions,
+        denied_actions=denied,
         subagent_count=None,
         error_type=error_type,
         error=error_msg,
+        declared={"source": "agent file (config; agy reports no per-agent tool list)", "agent": name,
+                  "tools": list(agent_tools(name)), "always_added": list(ALWAYS_ADDED_TOOLS)},
+        conversation_id=conversation_id,
+        agent=name,
+        agent_sha256=hashlib.sha256(path.read_bytes()).hexdigest() if path.is_file() else None,
+        registry_tools=[str(t) for t in init.get("tools") or []] or None,
+        tool_steps=steps,
+        violations=violations,
+        audit_flags=sorted(set(flags)),
+        parse_errors=parse_errors,
     )
 
 
@@ -888,31 +562,24 @@ def run(
     req: AdapterRequest,
     *,
     subagents_enabled: bool = TIER2_SUBAGENTS_ENABLED_DEFAULT,
-) -> AdapterResult:
+) -> GeminiResult:
     """Write schema/agent files, execute ``agy`` via ``flab.runner.run``, and parse the output."""
     req.raw_dir.mkdir(parents=True, exist_ok=True)
     req.workdir.mkdir(parents=True, exist_ok=True)
-
-    schema_path = req.raw_dir / "schema.json"
-    schema_path.write_text(json.dumps(req.schema, ensure_ascii=False), encoding="utf-8")
-
-    prepare_agent_files(req)
+    (req.raw_dir / "schema.json").write_text(json.dumps(req.schema, ensure_ascii=False), encoding="utf-8")
+    prepare_agent_files(req, subagents_enabled)
 
     argv = build_argv(req, subagents_enabled=subagents_enabled)
-    stdout_path = req.raw_dir / "stdout.json"
-    stderr_path = req.raw_dir / "stderr.txt"
-
     run_result = flab_runner.run(
         argv,
         cwd=req.workdir,
         stdin_text=None,
         timeout_s=req.timeout_s,
-        stdout_path=stdout_path,
-        stderr_path=stderr_path,
+        stdout_path=req.raw_dir / STDOUT_FILENAME,
+        stderr_path=req.raw_dir / "stderr.txt",
         keep_env=KEEP_ENV,
     )
-
-    result = parse(req, run_result)
+    result = parse(req, run_result, subagents_enabled=subagents_enabled)
     result.argv = argv
     if result.cli_version is None:
         result.cli_version = cli_version()

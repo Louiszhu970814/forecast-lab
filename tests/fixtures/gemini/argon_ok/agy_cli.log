@@ -1,5 +1,0 @@
-I1031 15:10:00.000000       1 server.go:1953] Language server version: 1.4.12
-I1031 15:10:00.100000       1 printmode.go:206] Print mode: starting (promptLength=120, model="gemini-4-argon-medium", conversationID="")
-I1031 15:10:01.000000       1 model_resolver.go:107] Resolving model gemini-4-argon-medium
-I1031 15:10:01.000100       1 model_config_manager.go:363] Propagating selected model override to backend: label="Gemini 4 Argon (Medium)"
-I1031 15:14:48.982060     500 server.go:1316] Stream goroutine exited for 00000000-0000-0000-0000-000000000004, sending completion signal

@@ -8,7 +8,9 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 import json
 from pathlib import Path
+import hashlib
 import re
+from urllib.parse import urlsplit
 import subprocess
 from typing import Any
 
@@ -23,7 +25,27 @@ DISABLED_FEATURES = (
     # had functions.exec (code mode) and ran a background script. Disabling these makes the
     # router refuse with "code-mode host is disabled" (PLAN §7.3, D59).
     'code_mode_host', 'in_app_local_automation', 'code_mode_interrupt',
+    # create_goal/get_goal/update_goal were offered at session start in M1 acceptance although
+    # `codex debug prompt-input` does not list them (D60).
+    'goals',
+    # Each gates tools that `codex exec` can add outside the probe (source audit,
+    # docs/tasks/M1-codex-audit.md): six are off by default in 0.166.0; tool_suggest is on but has no
+    # candidates with apps and plugins off. Disabled explicitly so a default change cannot add them.
+    'token_budget', 'memories', 'agent_message_board', 'multi_agent_v2',
+    'guardian_conversation_history_tools', 'multi_env_copy_file', 'tool_suggest',
 )
+# Every codex 0.166.0 model has tool_mode="code_mode_only": all tools, web search included, are
+# reachable only through functions.exec, which also carries apply_patch. Disabling code mode (D59)
+# therefore removed web search as well. Each run passes its own copy of the CLI's model catalog
+# (the official model_catalog_json setting) with the requested model switched to direct tools,
+# no apply_patch tool and node_repl disabled (D60).
+CATALOG_FILENAME = 'model_catalog.json'
+CATALOG_OVERRIDES: dict[str, Any] = {'tool_mode': 'direct', 'node_repl_disabled': True}
+CATALOG_REMOVED_KEYS = ('apply_patch_tool_type',)
+# web.run pages opened inside a call; seen in M1 acceptance as "turn0view0".
+VIEW_REF = re.compile(r'turn\d+view\d+')
+# Result titles codex returns for a page that could not be opened.
+VIEW_ERROR_TITLES = ('Internal Error',)
 # multi_agent=false still declares the collaboration.* tools (spawn_agent, wait_agent, ...);
 # agents.enabled=false removes them. Re-enabled only for an accepted tier2 run.
 AGENTS_DISABLED = 'agents.enabled=false'
@@ -38,6 +60,7 @@ class GptResult(AdapterResult):
     parse_errors: list[dict[str, Any]] = field(default_factory=list)
     audit_required: bool = False
     audit_flags: list[str] = field(default_factory=list)
+    catalog_entry_sha256: str | None = None
 
 
 def build_argv(req: AdapterRequest, *, enable_subagents: bool = False) -> list[str]:
@@ -58,9 +81,47 @@ def build_argv(req: AdapterRequest, *, enable_subagents: bool = False) -> list[s
         argv.extend(['--enable', 'multi_agent'])
     else:
         argv.extend(['-c', AGENTS_DISABLED])
+    argv.extend(['-c', 'model_catalog_json=' + json.dumps(str(raw / CATALOG_FILENAME))])
     return argv + ['-m', req.model, '--skip-git-repo-check', '-C', str(req.workdir.resolve()),
                    '--ephemeral', '--json', '--output-schema', str(raw / 'schema.json'),
                    '--output-last-message', str(raw / 'last.json'), '-']
+
+
+def restricted_catalog(catalog: dict[str, Any], model: str) -> dict[str, Any]:
+    """``catalog`` with ``model`` switched to direct tools and without apply_patch (D60)."""
+    models = catalog.get('models') if isinstance(catalog, dict) else None
+    if not isinstance(models, list) or not all(isinstance(m, dict) and isinstance(m.get('slug'), str) for m in models):
+        raise ValueError('unexpected codex model catalog format')
+    slugs = [m['slug'] for m in models]
+    if len(slugs) != len(set(slugs)):
+        raise ValueError('duplicate model slugs in the codex model catalog')
+    out, found = [], False
+    for entry in models:
+        entry = dict(entry)
+        if entry.get('slug') == model:
+            found = True
+            entry.update(CATALOG_OVERRIDES)
+            for key in CATALOG_REMOVED_KEYS:
+                entry.pop(key, None)
+        out.append(entry)
+    if not found:
+        raise ValueError(f'model {model!r} is not in the codex model catalog')
+    return {**catalog, 'models': out}
+
+
+def catalog_entry_sha256(catalog: dict[str, Any], model: str) -> str:
+    """Fingerprint of the entry a run uses; acceptance records it and a change requires re-acceptance."""
+    entry = next(m for m in catalog['models'] if m.get('slug') == model)
+    return hashlib.sha256(json.dumps(entry, sort_keys=True, ensure_ascii=False).encode('utf-8')).hexdigest()
+
+
+def load_catalog(timeout_s: float = 60) -> dict[str, Any]:
+    """The CLI's own model catalog (``codex debug models`` calls no model)."""
+    result = subprocess.run(['codex', 'debug', 'models'], capture_output=True, text=True,
+                            timeout=timeout_s, check=False, env=runner.scrubbed_env(KEEP_ENV))
+    if result.returncode != 0:
+        raise RuntimeError(f'codex debug models exited {result.returncode}')
+    return json.loads(result.stdout)
 
 
 def cli_version() -> str | None:
@@ -84,6 +145,15 @@ def _urls(value: Any):
         for key, child in value.items():
             if key in ('url', 'urls'):
                 yield from _urls(child)
+
+
+def same_url(a: Any, b: Any) -> bool:
+    """Same scheme, host (case-insensitive), path and query; an empty path equals "/"."""
+    if not isinstance(a, str) or not isinstance(b, str):
+        return False
+    pa, pb = urlsplit(a.strip()), urlsplit(b.strip())
+    return ((pa.scheme.lower(), pa.netloc.lower(), pa.path or '/', pa.query)
+            == (pb.scheme.lower(), pb.netloc.lower(), pb.path or '/', pb.query))
 
 
 def parse(req: AdapterRequest, run_result: runner.RunResult | None = None,
@@ -119,8 +189,8 @@ def parse(req: AdapterRequest, run_result: runner.RunResult | None = None,
                 merged = {**previous, **item}
                 if isinstance(previous.get('action'), dict) and isinstance(item.get('action'), dict):
                     merged['action'] = {**previous['action'], **item['action']}
-                if isinstance(previous.get('results'), list) and isinstance(item.get('results'), list):
-                    merged['results'] = previous['results'] + [r for r in item['results'] if r not in previous['results']]
+                # results are a snapshot: a later event's list replaces the earlier one, as in the
+                # acceptance judge (GPT review 5); action fields are merged.
                 items[key] = merged
                 if kind == 'item.completed':
                     finished_items.add(key)
@@ -150,16 +220,34 @@ def parse(req: AdapterRequest, run_result: runner.RunResult | None = None,
             action = item.get('action')
             action = action if isinstance(action, dict) else {}
             action_kind = action.get('type')
+            # Same success rule as the acceptance judge: a declined or failed item is not a success.
+            ok = (key in finished_items and not item.get('error') and item.get('status') not in ('failed', 'declined')
+                  and not is_denied)
+            results = item.get('results') if isinstance(item.get('results'), list) else []
+            views = [r for r in results if isinstance(r, dict) and VIEW_REF.fullmatch(str(r.get('ref_id', '')))]
+
+            def view_ok(view: dict[str, Any]) -> bool:
+                return bool(view.get('url')) and view.get('title') not in VIEW_ERROR_TITLES
+
             for url in _urls(action):
                 state = 'unknown'
                 if is_denied:
                     state = 'blocked'
                 elif action_kind == 'open_page':
-                    state = 'opened' if key in finished_items and not item.get('error') and item.get('status') != 'failed' else 'attempted'
+                    # Only a valid page result for this same URL is evidence of an open; a result for another
+                    # URL (or a redirect) is recorded under its own URL and does not vouch for this one.
+                    state = 'opened' if ok and any(view_ok(v) and same_url(v.get('url'), url) for v in views) else 'attempted'
                 result.url_events.append(UrlEvent(url, url_host(url), state, 'tool_use'))
-            for url in _urls(item.get('results', [])):
-                result.url_events.append(UrlEvent(url, url_host(url), 'unknown',
-                                                 'search_result' if action_kind == 'search' else 'tool_result'))
+            for entry in results:
+                # web.run can open pages inside a search call; those results carry a "turnNviewM" ref_id.
+                viewed = isinstance(entry, dict) and entry in views
+                for url in _urls(entry):
+                    if viewed:
+                        state = 'blocked' if is_denied else ('opened' if ok and view_ok(entry) else 'attempted')
+                        result.url_events.append(UrlEvent(url, url_host(url), state, 'tool_result'))
+                    else:
+                        result.url_events.append(UrlEvent(url, url_host(url), 'unknown',
+                                                         'search_result' if action_kind == 'search' else 'tool_result'))
     result.tool_call_counts = counts
     result.denied_actions = denied or None
     result.usage_raw = ({'turns': turns} if len(turns) > 1 else turns[0]) if turns else None
@@ -205,15 +293,25 @@ def parse(req: AdapterRequest, run_result: runner.RunResult | None = None,
     return result
 
 
-def run(req: AdapterRequest, *, enable_subagents: bool = False) -> GptResult:
+def run(req: AdapterRequest, *, enable_subagents: bool = False,
+        catalog: dict[str, Any] | None = None) -> GptResult:
+    """``catalog`` lets a caller pin one CLI catalog for several runs (acceptance); default: load it."""
     argv = build_argv(req, enable_subagents=enable_subagents)
     req.raw_dir.mkdir(parents=True, exist_ok=True)
     # Attempts need fresh raw paths; never silently reuse an earlier final answer.
-    for name in ('events.jsonl', 'stderr.txt', 'last.json', 'schema.json'):
+    for name in ('events.jsonl', 'stderr.txt', 'last.json', 'schema.json', CATALOG_FILENAME):
         if (req.raw_dir / name).exists():
             raise FileExistsError(req.raw_dir / name)
     with (req.raw_dir / 'schema.json').open('x', encoding='utf-8') as stream:
         json.dump(req.schema, stream)
+    try:
+        catalog = restricted_catalog(catalog if catalog is not None else load_catalog(), req.model)
+    except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as exc:
+        return GptResult(argv=argv, run=None, cli_version=None, completed=False, final_text=None,
+                         structured=None, reported_model_id=None, model_check='unverified',
+                         usage_raw=None, error_type='cli_error', error=f'model catalog: {exc}')
+    with (req.raw_dir / CATALOG_FILENAME).open('x', encoding='utf-8') as stream:
+        json.dump(catalog, stream)
     version = cli_version()
     try:
         execution = runner.run(argv, cwd=req.workdir.resolve(), stdin_text=req.prompt,
@@ -226,4 +324,5 @@ def run(req: AdapterRequest, *, enable_subagents: bool = False) -> GptResult:
                          error=str(exc))
     result = parse(req, execution, enable_subagents=enable_subagents)
     result.cli_version = version
+    result.catalog_entry_sha256 = catalog_entry_sha256(catalog, req.model)
     return result

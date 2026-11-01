@@ -10,7 +10,7 @@ import re
 import subprocess
 from collections import Counter
 
-from flab import runner
+from flab import netguard, runner
 from adapters.base import AdapterRequest, AdapterResult, UrlEvent, model_check_from_ids, url_host
 
 # Reserved for W3: tool name, inherited restrictions and recursion must all be
@@ -41,7 +41,8 @@ def build_argv(req: AdapterRequest) -> list[str]:
              '--strict-mcp-config', '--disable-slash-commands',
              '--no-session-persistence', '--output-format', 'stream-json',
              '--verbose', '--json-schema', json.dumps(req.schema, ensure_ascii=False)]
-    return argv
+    # WebFetch runs locally and reaches 127.0.0.1 and names resolving to it (M1 acceptance).
+    return netguard.wrap(argv)
 
 
 def cli_version() -> str | None:

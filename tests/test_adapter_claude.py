@@ -8,6 +8,7 @@ import pytest
 
 from adapters import claude
 from adapters.base import AdapterRequest
+from flab import netguard
 from flab.runner import RunResult
 
 FIXTURES = Path(__file__).parent / 'fixtures' / 'claude'
@@ -58,6 +59,7 @@ def test_argv(req, profile):
     assert argv[argv.index('--output-format')+1] == 'stream-json'
     assert json.loads(argv[-1]) == req.schema
     assert req.prompt not in argv
+    assert netguard.is_wrapped(argv) and argv[3] == 'claude'
     assert '--bare' not in argv
 
 

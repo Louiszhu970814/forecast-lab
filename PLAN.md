@@ -1,10 +1,10 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.3（v1.0 凍結後的修訂，見 §16）
+> 版本：v1.4（v1.0 凍結後的修訂，見 §16）
 > 初稿：Claude
 > 本回合整合者：Claude（第 5 回合兩位審查者都沒有 blocking 意見，整合其 non-blocking 補充）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
-> 最後更新：2026-10-31
+> 最後更新：2026-11-01
 > 狀態：M1 進行中（v1.0 於 2026-10-31 經 Louis 核准凍結，D54）
 
 ---
@@ -439,9 +439,9 @@ forecast-lab/
 
 | 選手 | 指令骨架 |
 |---|---|
-| claude | `claude -p --model claude-opus-5-5 --effort <層級設定> --tools "WebSearch,WebFetch" --allowedTools "WebSearch,WebFetch" --disallowedTools "WebFetch(domain:metaculus.com)" "WebFetch(domain:*.metaculus.com)" --restricted --strict-mcp-config --disable-slash-commands --no-session-persistence --output-format stream-json --verbose --json-schema '<schema JSON>'`（prompt 由標準輸入傳入；第 2 層在 `--tools` 加入子代理工具，名稱於 M1 確認；2026-10-31 依實測修正，D58） |
-| gemini | `agy -p "<prompt>" --model <層級模型 ID> --effort <層級設定> --output-format json --json-schema <schema 路徑> --disable-slash-commands --print-timeout <層級上限> --sandbox --log-file <本次 raw_dir>/agy_cli.log --settings '<單次 session 設定 JSON，見 §7.3>'`（不使用 `--mode`；第 2 層以 `--agent` 指定最小自訂 agent，見 §7.3） |
-| gpt | `codex exec --ignore-user-config --strict-config -s read-only -c 'approval_policy="never"' -c 'web_search="live"' -c 'model_reasoning_effort="<層級設定>"' --disable <§7.3 停用清單中的每個功能> -m gpt-6-astra --skip-git-repo-check -C <暫存資料夾絕對路徑> --ephemeral --json --output-schema <schema 絕對路徑> --output-last-message <本次最終輸出絕對路徑> -`（prompt 由標準輸入傳入；停用清單另含 `code_mode_host`、`in_app_local_automation`、`code_mode_interrupt`，並加上 `-c 'agents.enabled=false'`，D59；第 2 層從停用清單移除 `multi_agent`、改以 `--enable multi_agent` 明確啟用，並移除 `agents.enabled=false`，其餘停用項不變） |
+| claude | `/usr/bin/sandbox-exec -p '<loopback 拒絕設定，§7.3>' claude -p --model claude-opus-5-5 --effort <層級設定> --tools "WebSearch,WebFetch" --allowedTools "WebSearch,WebFetch" --disallowedTools "WebFetch(domain:metaculus.com)" "WebFetch(domain:*.metaculus.com)" --restricted --strict-mcp-config --disable-slash-commands --no-session-persistence --output-format stream-json --verbose --json-schema '<schema JSON>'`（prompt 由標準輸入傳入；第 2 層在 `--tools` 加入子代理工具，名稱於 M1 確認；2026-10-31 依實測修正，D58；以 macOS 沙盒包住，D61） |
+| gemini | `/usr/bin/sandbox-exec -p '<loopback 拒絕設定，§7.3>' agy -p "<prompt>" --agent <agent 名稱> --model <層級模型 ID> --effort <層級設定> --output-format stream-json --json-schema <schema 路徑> --disable-slash-commands --print-timeout <層級上限> --sandbox --log-file <本次 raw_dir>/agy_cli.log --settings '<單次 session 設定 JSON，見 §7.3>'`（不使用 `--mode`；agent 定義檔由 adapter 寫入暫存資料夾的 `.agents/agents/`：第 1 層 `flab-forecast`、格式修復 `flab-format-repair`，第 2 層開放子代理時 `flab-tier2-main`；D62） |
+| gpt | `codex exec --ignore-user-config --strict-config -s read-only -c 'approval_policy="never"' -c 'web_search="live"' -c 'model_reasoning_effort="<層級設定>"' --disable <§7.3 停用清單中的每個功能> -m gpt-6-astra --skip-git-repo-check -C <暫存資料夾絕對路徑> --ephemeral --json --output-schema <schema 絕對路徑> --output-last-message <本次最終輸出絕對路徑> -`（prompt 由標準輸入傳入；停用清單另含 `code_mode_host`、`in_app_local_automation`、`code_mode_interrupt`，並加上 `-c 'agents.enabled=false'`，D59；另加 `-c 'model_catalog_json="<本次 raw_dir>/model_catalog.json"'` 與 D60 的停用項；第 2 層從停用清單移除 `multi_agent`、改以 `--enable multi_agent` 明確啟用，並移除 `agents.enabled=false`，其餘停用項不變） |
 
 - codex 的 `--json` 輸出的是事件 JSONL，`--output-schema` 約束的是最後的答案，兩者不可混為同一份 JSON。`-c 'web_search="live"'` 已在 2026-10-31 的本機執行中確認有效。
 - CLI 版本的取得方式：
@@ -631,7 +631,7 @@ token 欄位的對應（D29）：
     - claude：`~/.claude/CLAUDE.md`、`~/.claude/settings.json`、skills、plugins、hooks 與 MCP 設定。
     - codex：`~/.codex/AGENTS.md`、`~/.codex/skills/`（含系統內建 skills；2026-10-31 已觀察到加上 `--ignore-user-config` 仍會載入）、記憶、plugins、hooks 與 MCP 設定；`~/.codex/config.toml` 在執行時會被忽略，但仍要記錄。
     - agy：`~/.gemini/GEMINI.md`、`~/.gemini/AGENTS.md`、`~/.gemini/config/`（含 rules、skills、plugins、`hooks.json`、`mcp_config.json`）、`~/.gemini/antigravity-cli/settings.json`，以及 AI credits 的使用設定與餘額（§7.7）。
-    - 共同：暫存資料夾各層上層目錄中的指示檔，以及管理者設定。
+    - 共同：暫存資料夾各層上層目錄中的指示檔（含 agy 會載入的 `.agents/`、`.agent/`、`_agents/`、`_agent/`），以及管理者設定。
   - 第一次建立基準時，先由人工審查內容：不得含有歷史答案、比賽資訊或可執行的 hook。接著做 §7.6 的自動載入測試，通過後才記錄雜湊值作為基準。自動載入測試要核對實際載入了哪些來源，不能只因輸出中沒有 canary 就推論沒有載入（D43）。
   - 每次執行前，由主程式比對各線的 CLI 版本與基準雜湊。
 - **變更處理**（D21）：
@@ -650,6 +650,10 @@ token 欄位的對應（D29）：
 
   一般的唯讀沙盒不算等價，因為唯讀通常仍能讀檔與執行指令。沒有涵蓋或沒有證據時，停止該線的自動預測。
 - **封鎖網域**（D22、D34）：claude 與 agy 在 CLI 層拒絕開啟 `metaculus.com` 及其子網域；codex 以工具事件中的網址稽核（§3.3）。
+- **本機連線防護**（D61）：claude 的 WebFetch 與 agy 的 `read_url_content` 都會從這台電腦連線到本機位址（M1 實測：claude 2.1.316 連得到 `127.0.0.1` 與解析到本機的網域；agy 1.4.12 對 localhost、`127.0.0.1`、`::1` 在本機撥號）。這兩條線改以 macOS 沙盒啟動：`/usr/bin/sandbox-exec -p '(version 1)(allow default)(deny network-outbound (remote ip "localhost:*"))'`，拒絕 CLI 與其子程序對 loopback（含 IPv6）的所有連線。
+  - 每次驗收以對照實驗證明防護有效：設定檔可載入；沒有防護的 curl 連得到測試伺服器；有防護的 curl 被拒（結束碼 7），伺服器沒有收到連線。核心的拒絕日誌有速率限制，只作輔助。
+  - 沙盒的網路過濾只能指定 localhost，區域網路的其他位址不在防護範圍內（§7.4）。
+  - codex 的網頁在 OpenAI 端抓取，不需要這層防護。
 - **claude**：
   - 以 `--tools "WebSearch,WebFetch"` 限定可用的工具。`--allowedTools` 只是免詢問清單，不會移除其他工具，不能當作限制手段；但無互動模式下沒有它，WebSearch 與 WebFetch 都會被權限檢查擋下，所以兩者都要傳（D58，2026-10-31 以 claude 2.1.316 實測）。
   - 以 `--disallowedTools "WebFetch(domain:metaculus.com)" "WebFetch(domain:*.metaculus.com)"` 封鎖：實測中前者只擋主網域，後者只擋子網域，兩者都要加；拒絕規則優先於 `--allowedTools`（V9 已確認）。WebSearch 的搜尋結果無法以這個規則封鎖。
@@ -657,21 +661,24 @@ token 欄位的對應（D29）：
   - 改用 `--output-format stream-json --verbose`：`json` 只有最後的結果，看不到逐次的工具事件，無法稽核網址。
   - 使用 `--strict-mcp-config` 且不提供 MCP 設定；使用 `--disable-slash-commands`。
   - 不使用 `--bare`：它只接受 `ANTHROPIC_API_KEY`，等於改走 API 計費（D19）。
-- **gemini（agy）**（D28）：
-  - 在暫存資料夾啟動，不加 `--add-dir`；開啟 `--sandbox`（它的說明是終端機限制，不能當作讀檔限制）。
+- **gemini（agy）**（D28、D62）：
+  - 在暫存資料夾啟動，不加 `--add-dir`；開啟 `--sandbox`（它的說明是終端機限制，不能當作讀檔限制）；以 macOS 沙盒包住（D61）。
   - 不使用 `--mode`，改在 `--settings` 中設定 `"agentMode": ""`，覆寫全域設定（Louis 目前的全域設定為 `auto`）。
+  - **最小自訂 agent**（D62，2026-11-01 以 agy 1.4.12 實測）：
+    - 預設的無互動 agent 沒有讀網頁工具，卻有 `schedule` 與 `invoke_subagent`（W3 第一版實測中模型自述兩者都成功；json 模式沒有工具事件可以證實）。因此每次執行由 adapter 把 agent 定義檔寫進暫存資料夾的 `.agents/agents/`（agy 的專案層 agent 位置，不改動全域設定），以 `--agent <名稱>` 選用；`--agent` 只接受名稱，不接受路徑。
+    - 定義檔都設 `excludeDefaultComponents: true`、`inheritCustomizations: false`、`inheritMcp: false`、`agents: []`。第 1 層的工具只列 `search_web`、`read_url_content`、`view_file`、`finish`；格式修復只列 `finish`。`--json-schema` 需要 `finish`，沒列時不會產生結構化輸出。
+    - agy 一定會加入 `manage_task`，連工具清單為空的 agent 也一樣。它只能列出、查看、結束或輸入到本對話的背景任務，而 agent 沒有任何工具能建立背景任務。`list` 與 `status` 視為無作用的查詢，記入稽核旗標；其他動作一律視為違規。
+  - **讀網頁與讀檔**：`read_url_content` 把頁面存到 `~/.gemini/antigravity-cli/brain/<對話 ID>/.system_generated/steps/<n>/content.md`，模型再以 `view_file` 讀取。agy 讓對話讀自己的 brain 資料夾不需要規則；讀其他對話的檔案會被軟拒絕，並立即中止執行。
+    - 一般網址在 Google 端抓取（本機連不到的 Manifold 也讀得到）；localhost 與 loopback 位址在本機撥號，由沙盒擋下。`file://` 由 CLI 回報不支援的協定。
   - 以 `--settings` 注入單次 session 的設定（不影響全域的 `settings.json`）：
-    `{"agentMode":"","useG1Credits":false,"permissions":{"allow":["read_url(*)"],"deny":["command(*)","write_file(*)","read_file(*)","execute_url(*)","mcp(*)","read_url(metaculus.com)"]}}`
-  - 以下事項依 Gemini 第 2～4 回合引用的官方文件與 changelog，尚未在本機驗證，以 §7.6 的驗收結果為準：
-    - 六類動作名稱與 Deny > Ask > Allow 的優先序；
-    - `read_url(<網域>)` 是否涵蓋子網域；
-    - `--settings` 與全域設定的合併方式；
-    - `"agentMode": ""` 的效果；
-    - AI credits 的設定鍵：2026-10-31 實測（agy 1.4.12），`--settings` 遇到不認得的 `use_ai_credits` 會直接失敗並結束；`useG1Credits: false` 可以接受，`/config` 也顯示為生效（V17 部分確認，D58）。
-  - 拒絕的證據來源有兩種（D58）：被 `deny` 規則擋下時，模型收到「Matches user-configured deny rule」，執行照常完成，JSON 中沒有 `denied_actions`，證據要從 log 與模型輸出取得；在無互動模式下因需要詢問而被自動拒絕時，執行會結束，並出現在 `denied_actions`。
-
-    Louis 的全域允許清單含有 `command(agy)`，§7.6 須專門測試 `command(*)` 的拒絕規則能否蓋過它。
-  - 第 1 層：子代理與排程工具（例如 `invoke_subagent`、`define_subagent`、`schedule`）須確認不可用。
+    - `allow`：`read_url(*)`。
+    - `deny`：`command(*)`、`write_file(*)`、`execute_url(*)`、`mcp(*)`、`read_url(metaculus.com)`，以及從 `/` 到 brain 資料夾沿途其他每個項目的 `read_file(<路徑>)`，由 adapter 在執行時列出。agy 以路徑元件比對（`~/.gemini/antigravity` 的規則不涵蓋 `antigravity-cli`），拒絕優先於允許；不使用 `read_file(*)`，因為它也會擋下 brain 資料夾。執行開始後才出現的路徑沒有對應規則，會落到軟拒絕並中止執行。
+    - 格式修復另外拒絕 `read_url(*)` 與 `read_file(*)`。
+    - AI credits 的設定鍵：`--settings` 遇到不認得的 `use_ai_credits` 會直接失敗並結束；`useG1Credits: false` 可以接受（V17 部分確認，D58）。
+  - **輸出與證據**：改用 `--output-format stream-json`。只有這個格式會逐次回報工具呼叫（名稱、參數與 CLI 自己的錯誤訊息）；`json` 只有最後結果。`init` 事件列出的是全部約 60 個註冊工具，不是 agent 的工具，不能當作宣告。
+    - CLI 層的拒絕證據：deny 規則（`Permission denied for <權限>(<目標>). Matches user-configured deny rule.`，執行繼續）、軟拒絕（`user denied permission for <權限>(<目標>)`，執行中止，並出現在結果的 `denied_actions`）、`view_file` 拒絕相對路徑、`read_url_content` 拒絕 `file://`。
+    - 工具宣告只能取自 agent 定義檔（設定）。agy 沒有任何輸出列出 agent 實際取得的工具，也沒有原始碼可以稽核；Louis 接受以「定義檔＋全面的事件監控」作為宣告（D62）：任何不在定義檔中的工具事件，該次答案作廢並停線。agy 版本改變就重新驗收。
+    - Louis 的全域允許清單含有 `command(agy)`；`command(*)` 的拒絕規則與 agent 不提供執行工具，兩者都要在 §7.6 驗收。
   - 嚴禁使用 `--dangerously-skip-permissions`。
 - **gpt（codex）**：
   - 保留 `-s read-only`，但唯讀沙盒仍可以讀檔與執行指令，不能單獨作為限制手段。
@@ -680,16 +687,22 @@ token 欄位的對應（D29）：
     - M1 實測（2026-10-31，codex-cli 0.166.0，D59）：只用上述 13 項時，模型仍有 `functions.exec`（code mode），而且實際執行了一段延遲的背景程式；多代理系列的 `spawn_agent`、`wait_agent` 等工具也仍在宣告中。改為：
       - 另外停用 `code_mode_host`、`in_app_local_automation`、`code_mode_interrupt`：執行程式碼的呼叫改由 CLI 拒絕（`code-mode host is disabled`）。
       - 加上 `-c 'agents.enabled=false'`：移除 collaboration 系列的工具。`--disable multi_agent` 本身移除不了。
-      - `apply_patch` 仍然存在，只靠唯讀沙盒擋下寫檔；這不符合 D26，須在 W3 的驗收中確認它能否透過上述設定一併失效，否則 gpt 線不得通過驗收。
+      - `apply_patch` 仍然存在，只靠唯讀沙盒擋下寫檔，不符合 D26。這由 D60 解決，見下一點。
+    - M1 實測（2026-11-01，D60）：codex 0.166.0 的所有模型都是 `tool_mode="code_mode_only"`，網路搜尋與 `apply_patch` 都經由同一個 `functions.exec` 入口，D59 關掉 code mode 後網路搜尋也一起失效。改為：
+      - 每次執行以官方的 `model_catalog_json` 設定，傳入一份 CLI 模型目錄（`codex debug models`）的複本：所用模型改為 `tool_mode="direct"`、移除 `apply_patch_tool_type`、設 `node_repl_disabled=true`。記錄該條目的 sha256（`catalog_entry_sha256`）；W8 每次執行前比對，變動時重新驗收。
+      - 另外停用 `goals`（session 開始時會加入 create/get/update_goal），以及 7 個會加入工具的功能（6 個預設關閉的擴充功能，加上預設開啟、但在 apps 與 plugins 關閉後沒有候選的核心工具 `tool_suggest`）：`token_budget`、`memories`、`agent_message_board`、`multi_agent_v2`、`guardian_conversation_history_tools`、`multi_env_copy_file`、`tool_suggest`。
+      - 工具宣告的證據：在不含 `config.toml` 與登入檔的 CODEX_HOME 鏡像中執行 `codex debug prompt-input`，只列出 `request_user_input`、`request_user_input_async`、`clock.curr_time`、`clock.sleep`；網路搜尋 `web.run` 在 OpenAI 端執行。
+      - prompt-input 不含擴充模組提供的工具。原始碼稽核（`docs/tasks/M1-codex-audit.md`，tag `rust-v0.166.0`）確認：只由 `codex exec` 安裝、會提供工具的擴充有 7 個，在上述設定下只剩 `web.run`；hosted 工具只會是網路搜尋。Louis 接受以「探測＋原始碼稽核＋全面的事件監控」作為完整的宣告（D60）：任何非網路工具的事件，該次答案作廢並停線；codex 版本改變就重做稽核與驗收。
   - MCP 與 skills 逐一停用，或確認對模型不可用。`--ignore-user-config` 只代表忽略 `config.toml`。
 - **第 2 層的子代理**（D37、D42）：
   - 某條線通過 §7.6 的子代理驗收後，該線才開放子代理；未通過時，第 2 層照常執行，但不開子代理。
   - 通過標準：子代理同樣無法成功行使本機讀寫、執行指令或再次委派的權限，同樣遵守 `metaculus.com` 的封鎖；子代理使用的模型要能記錄下來，記錄不到時記為「未驗證」。
   - 各線的作法（D47）：
     - claude：在 `--tools` 加入子代理工具。子代理可用的工具是否受父代理的 `--tools` 限制，於 V13 確認。
-    - agy：以 `--agent` 指定最小自訂 agent（Gemini 第 4 回合依 changelog 1.1.5～1.3.4 提出，於 M1 驗證）。
-      - 主 agent：`excludeDefaultComponents: true`、`inheritCustomizations: false`、`inheritMcp: false`，工具只列 `search_web`、`read_url_content`、`invoke_subagent`，並以 `agents` 只宣告一個研究用子代理。
-      - 研究用子代理：`excludeDefaultComponents: true`、`subagent: true`、`model: inherit`，工具只列 `search_web`、`read_url_content`。
+    - agy：以 `--agent` 指定最小自訂 agent（Gemini 第 4 回合依 changelog 1.1.5～1.3.4 提出；載入方式於 M1 確認，D62）。
+      - 主 agent `flab-tier2-main`：與第 1 層相同的隔離旗標，工具列 `search_web`、`read_url_content`、`view_file`、`finish`、`invoke_subagent`，並以 `agents` 只宣告一個研究用子代理。
+      - 研究用子代理 `flab-tier2-research`：`excludeDefaultComponents: true`、`subagent: true`、`model: inherit`，工具只列 `search_web`、`read_url_content`、`view_file`。
+      - 子代理驗收尚未進行；未通過前第 2 層使用第 1 層的 agent。
       - `model: inherit` 讓子代理沿用主代理的 Argon 模型，也讓 §7.7 的額度判斷不受子代理干擾。
       - 自訂 agent 的定義檔納入全域基準（§7.2）。
     - codex：第 2 層以 `--enable multi_agent` 啟用，其餘停用項不變；第 1 層與格式修復仍禁止委派。
@@ -706,6 +719,9 @@ token 欄位的對應（D29）：
 - 只能檢查模型回報的來源與 CLI 提供的工具事件，無法完全排除未記錄的 `metaculus.com` 存取。
 - 子代理的行為比主代理更難觀察，次數與使用的模型可能無法完整記錄。
 - 三條線的系統提示與工具實作不同，無法做到完全相同的執行條件。
+- 本機連線防護只涵蓋 loopback（`127.0.0.1`、`::1` 與解析到本機的網域）。區域網路的其他位址（例如路由器的 `192.168.x.x`）不在 macOS 沙盒的網路過濾能指定的範圍內，claude 與 agy 線仍可能連到（D61）。
+- 工具宣告的證據等級各線不同：claude 有 CLI 的 init 宣告；codex 是探測加上原始碼稽核（D60）；agy 只有 agent 定義檔（設定），以全面的事件監控補足（D62）。
+- 家用網路連不到 Manifold、Polymarket、Kalshi（含 API；DNS 被導到封鎖 IP）。claude 的 WebFetch 在本機抓取，讀不到這三個市場；agy 與 codex 在供應商端抓取，不受影響。
 
 ### 7.5 錯誤處理與採用規則
 
@@ -777,6 +793,11 @@ token 欄位的對應（D29）：
   - 「檔案不存在」、網路故障，或模型沒有嘗試，都不算通過。必須有工具未提供的證據（工具宣告與載入設定），或 CLI 層的拒絕紀錄。
   - 保存以下證據：實際提供給模型的工具清單、canary、呼叫與拒絕事件、測試前後的檔案狀態、CLI 版本，以及全域基準的檢查結果。只靠模型自述「沒有權限」不算通過。
   - 全程不得彈出瀏覽器視窗或 GUI 權限對話框。
+  - 證據的等價作法（D63，Louis 於 2026-11-01 接受）：
+    - 重新導向到本機：公開的轉址服務都拒絕轉到 loopback 位址，無法端到端測試。改以兩件事合併證明：CLI 不會自動跟隨跨網域轉址（以轉到 `example.com` 的公開轉址測試），或該次驗收的所有 loopback 測試都由 CLI 或 OS 防護擋下（防護與到達方式無關）。codex 的網頁在 OpenAI 端抓取，轉址到不了本機。
+    - OS 防護：呼叫因 `EPERM`、`ECONNREFUSED`、`EACCES` 或 `connect: operation not permitted` 失敗，而且同一個 port 的對照實驗成立、伺服器有在聽且沒有收到連線，才算 OS 層的拒絕。
+    - CLI 在存取前就拒絕的情形，也算 CLI 層的拒絕：claude 的 `Invalid URL` 與無點主機名稱的拒絕、agy 的相對路徑與 `file://` 拒絕。
+    - 正向測試的 canary 頁面：使用 repo 中固定的 64 行題庫，每次隨機抽一行，網址加上一次性的參數以避開供應商的快取。每次產生全新的值需要每次推送公開頁面，因此不採用。
 - **同時確認**：
   - CLI 回報的模型 ID（§7.7）；
   - token 用量與工具事件的欄位（§5.5）；
@@ -1542,11 +1563,20 @@ view_image                  stable true
 | D57 | 2026-10-31 | M1 期間，每個工作經審查通過後，由協調者直接 commit 並 push（AGENTS.md、§13） | Louis 決定（H11）；擴充 D30 |
 | D58 | 2026-10-31 | 依 M1 實測修正 CLI 規格：claude 加上 `--allowedTools`、兩條 metaculus.com 網域規則、`--restricted`，並改用 `stream-json --verbose`；agy 的 `--settings` 移除 `use_ai_credits`；記錄 agy 兩種拒絕的證據來源（§5.3、§7.3、§12） | 協調者以便宜的模型實測（claude Haiku、agy Flash Low、codex 低推理強度）；原規格中 claude 的網域規則擋不住 `www.metaculus.com`，agy 的雙鍵設定會讓執行失敗 |
 | D59 | 2026-10-31 | codex 的停用清單加上 `code_mode_host`、`in_app_local_automation`、`code_mode_interrupt`，並加上 `-c 'agents.enabled=false'`（§5.3、§7.3） | GPT 審查 W2＋W3 時發現事件中有 `collab_tool_call`；協調者實測確認，原本的 13 項停用清單下，模型仍能以 code mode 執行程式並宣告多代理工具 |
+| D60 | 2026-11-01 | codex 以 `model_catalog_json` 傳入改為 direct 工具模式、移除 `apply_patch` 的模型目錄複本；另外停用 `goals` 與 7 個由擴充模組加入工具的功能；工具宣告以「探測＋原始碼稽核＋全面的事件監控」為證據，codex 版本改變就重做稽核與驗收（§5.3、§7.3、§7.4、`docs/tasks/M1-codex-audit.md`） | 協調者實測：D59 關掉 code mode 後網路搜尋也失效；GPT 第 2 次審查 W2＋W3 指出 prompt-input 不含 session 開始時加入的工具；Louis 選擇先讀原始碼（乙案），稽核後接受 |
+| D61 | 2026-11-01 | claude 與 agy 線以 macOS 沙盒（`sandbox-exec`）啟動，拒絕所有 loopback 連線，並以對照實驗驗證；區域網路的其他位址不在範圍內（§5.3、§7.3、§7.4） | 協調者實測：claude 的 WebFetch 連得到 `127.0.0.1` 與解析到本機的網域，agy 的 `read_url_content` 對本機位址在本機撥號；Louis 接受（決策 2、4） |
+| D62 | 2026-11-01 | agy 線改用 adapter 寫入暫存資料夾 `.agents/agents/` 的最小自訂 agent、`stream-json` 輸出，以及從 `/` 到 brain 資料夾沿途列舉的 `read_file` 拒絕規則；`manage_task` 的 `list`、`status` 視為無作用；工具宣告以 agent 定義檔加全面的事件監控為證據，agy 版本改變就重新驗收（§5.3、§7.3、§7.4） | W3 實測：json 模式沒有工具事件；模型自述預設 agent 沒有讀網頁工具，卻能排程與委派；`--agent` 只接受名稱；Louis 選擇甲案 |
+| D63 | 2026-11-01 | §7.6 的證據等價作法：重新導向以「CLI 不跟隨跨網域轉址」或「所有 loopback 測試都被擋下」證明；OS 防護須有同 port 的對照實驗；CLI 存取前的拒絕算 CLI 層證據；正向測試使用固定的 64 行題庫加一次性網址參數（§7.6） | 公開轉址服務拒絕轉到 loopback；每次產生新 canary 需要每次推送公開頁面；Louis 接受（決策 3、4） |
 
 ---
 
 ## 16. 變更紀錄
 
+- **v1.4**（2026-11-01）：依 W2＋W3 驗收的實測與 GPT 的兩次審查，修正三條線的隔離規格（D60～D63）。
+  - codex：direct 工具模式的模型目錄、停用 `goals` 與 7 個擴充功能、原始碼稽核（§5.3、§7.3）。
+  - claude 與 agy：loopback 連線防護（§5.3、§7.3）。
+  - agy：最小自訂 agent、`stream-json`、讀檔拒絕規則、`manage_task` 的處理；原本依官方文件寫的待驗證事項改為實測結果（§5.3、§7.3）。
+  - 已知限制新增區域網路、各線宣告的證據等級與家用網路連不到的市場（§7.4）；驗收的證據等價作法（§7.6）。
 - **v1.3**（2026-10-31）：codex 的隔離修正（D59）。原本的停用清單擋不住 code mode 的程式執行與多代理工具，由 GPT 的審查與協調者的實測發現；先前的驗收結果已撤回。
 - **v1.2**（2026-10-31）：依 M1 的 CLI 實測修正規格（D58）。
   - claude：加上 `--allowedTools`、兩條 metaculus.com 網域規則與 `--restricted`，改用 `stream-json --verbose`（§5.3、§7.3；V3、V9）。

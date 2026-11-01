@@ -39,6 +39,16 @@ def test_runner_rejects_invalid_argv(tmp_path: Path) -> None:
             )
 
 
+def test_runner_extra_env_is_added_but_never_a_secret(tmp_path: Path) -> None:
+    out = tmp_path / "stdout.txt"
+    res = run([sys.executable, "-c", "import os; print(os.environ.get('CODEX_HOME'))"], cwd=tmp_path,
+              timeout_s=5, stdout_path=out, stderr_path=tmp_path / "e.txt", extra_env={"CODEX_HOME": "/x/mirror"})
+    assert res.exit_code == 0 and out.read_text().strip() == "/x/mirror"
+    with pytest.raises(ValueError):
+        run([sys.executable, "-c", "pass"], cwd=tmp_path, timeout_s=5, stdout_path=out,
+            stderr_path=tmp_path / "e.txt", extra_env={"OPENAI_API_KEY": "k"})
+
+
 def test_runner_writes_stdout_stderr_and_passes_stdin(tmp_path: Path) -> None:
     out = tmp_path / "stdout.txt"
     err = tmp_path / "stderr.txt"
