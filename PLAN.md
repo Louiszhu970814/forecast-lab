@@ -1,6 +1,6 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.13（v1.0 凍結後的修訂，見 §16；M2 自動載入測試工具、M3 離線開發）
+> 版本：v1.14（v1.0 凍結後的修訂，見 §16；M2 自動載入測試工具、M3 離線開發）
 > 初稿：Claude
 > 本回合整合者：Claude（v1.10 起；v1.5～v1.9 由 Codex 整合）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
@@ -1607,6 +1607,9 @@ view_image                  stable true
 
 ## 16. 變更紀錄
 
+- **v1.14**（2026-11-01）：落地 M3-W3 的 `src/coverage_sim.py`（`coverage_sim_v1`，§10 M3 第四項的離線覆蓋率模擬器）與 `docs/coverage_sim.md`。GPT 實作、Claude 審查（D69）。
+  - 模擬設定、時間表內容與引擎時間政策在執行前登記並凍結（D53），同一 ID 不可修改；重用正式的截止時間、p90 估計與排程優先序函式，與正式程式的差異逐項列在 `docs/coverage_sim.md`。不改預測行為。
+  - 模擬器揭露 `cycle_v2` 要等所有執行中的工作結束才送出，可能讓已封存的題目錯過送出截止，不符合 §3.5；修正列為 M3-W7。
 - **v1.13**（2026-11-01）：M3-W6 整合測試（真正的 `cycle.run_cycle` 接上真正的 `submit.Submitter`）發現並修正兩項契約錯誤，送出端升為 `submit_v3`，佇列升為 `continuous_v3`。GPT 實作、Claude 審查（D69）。
   - `submit_v3`：對 `cycle.publish()` 發布的結果（帶 `cycle_version`），以快照範圍重建留言再核對，修正重跑後的合法新結果被誤判為採用來源不符而拒絕。稽核、機率與 hash 的檢查不變。
   - `continuous_v3`：意圖已建立但預測請求尚未開始時遇到修訂，也依重跑／結構判斷作廢舊快照，交由 `submit.py` 記為 `abandoned`，下一輪再以新快照重排；修正來得及重跑時仍送出舊答案的問題（D52）。來不及重跑的純文字修訂維持 D53 的回退。仍接受 `continuous_v2` 的既有政策。
