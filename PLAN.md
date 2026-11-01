@@ -1,8 +1,8 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.4（v1.0 凍結後的修訂，見 §16）
+> 版本：v1.7（v1.0 凍結後的修訂，見 §16；M2 事後稽核影響帳冊）
 > 初稿：Claude
-> 本回合整合者：Claude（第 5 回合兩位審查者都沒有 blocking 意見，整合其 non-blocking 補充）
+> 本回合整合者：Codex（依本輪使用者指示接續 W8 與 M2 離線開發；先前計畫審查整合者為 Claude）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
 > 最後更新：2026-11-01
 > 狀態：M1 進行中（v1.0 於 2026-10-31 經 Louis 核准凍結，D54）
@@ -139,6 +139,7 @@
 
     以受汙染的答案為輸入的後續結果，不會因為重試或整合而變回乾淨。
   - 事後才確認的汙染（例如 `suspected_leak` 判讀為洩漏）：追加一筆受影響的整合與送出清單，不重新挑選答案，也不補送。事後新增的稽核事件要傳播到所有後代，不能只讀嘗試建立當時的標記（D53）。
+    - M2-W2 以 `audit_ledger_v1` 實作離線影響帳冊與供整合使用的標記投影。資料依賴要完整且無循環；父代理啟動子代理另作保守的暴露傳播，子代理結果進入父代理上下文時就會反向影響父代理，不以最終答案有無引用判斷。現有配置仍不啟用子代理，未來 writer 須記錄實際啟動與輸入關係；harness 記錄的 `result_delivered` 必須與父代理的 `input_subagent_ids` 一致。
   - 稽核依賴圖以離線合成事件驗證（§10 M2）。驗證內容：A 線已確認洩漏時，摘要不會傳給 B、C 線；A 線先是疑似、事後才確認時，修復、重試、跨線的第 2 層、整合與送出等所有後代都會追加影響紀錄。
 - 網頁內容一律是資料，不是指令（硬性規則 6）；市場頁面與第 2 層傳入的其他模型文字也一樣。
 
@@ -385,7 +386,9 @@ forecast-lab/
 │   │   ├── gemini.py
 │   │   └── gpt.py
 │   ├── audit.py
+│   ├── audit_ledger.py        事後稽核傳播與追加影響帳冊，不重新送出
 │   ├── aggregate.py
+│   ├── escalate.py           升級候選判斷；不直接執行第 2 層
 │   ├── comment.py
 │   ├── submit.py
 │   ├── advise.py
@@ -510,6 +513,7 @@ forecast-lab/
 | `reported_model_id`、`model_check` | CLI 回報的模型 ID，無法取得時為 `null`；`model_check` 為 `verified`、`unverified`、`mismatch` 或 `undetermined`（§7.7） |
 | `cli_version` | 執行當下的 CLI 版本 |
 | `prompt_version`、`schema_version`、`run_config_version` | 例如 `forecast_v2`、`output_schema_v2`、`run_config_v2` |
+| `pipeline_version` | 流程實作版本；目前 W8 為 `forecast_pipeline_v2`，不回填或混同先前未標版本的紀錄 |
 | `started_at_utc`、`finished_at_utc`、`deadline_utc` | 起訖時間與該題的截止時間 |
 | `probability`、`option_probabilities` | 依題型；失敗時為 `null` |
 | `validation_status` | `valid`、`incomplete`（CLI 未正常完成）、`parse_failed`、`schema_failed`、`semantic_failed`（題號或選項不符、機率不是有限數值、超出範圍，或多選題總和不符）或 `late`（完成時已超過截止時間）；只有 `valid` 可被採用 |
@@ -521,10 +525,13 @@ forecast-lab/
 | `url_events` | 每個網址的 hostname 與狀態，供 §3.3 稽核 |
 | `denied_actions` | CLI 回報被拒絕的工具動作；CLI 未提供時為 `null` |
 | `raw_dir` | 原始輸出資料夾路徑 |
-| `error_type` | `null`、`quota_exhausted`、`timeout`、`invalid_output`、`tool_denied`、`cli_error`、`model_mismatch`、`budget_skipped` 或 `disabled` |
+| `error_type` | `null`、`quota_exhausted`、`timeout`、`invalid_output`、`tool_denied`、`tool_scope_violation`（流程偵測到超出已驗收工具範圍）、`cli_error`、`model_mismatch`、`budget_skipped` 或 `disabled` |
 | `error` | 錯誤訊息，沒有則為 `null` |
 
+- `data/forecast_attempt_starts.jsonl`：呼叫模型 CLI 前先追加並 fsync 啟動紀錄；以 attempt ID 與 `forecasts.jsonl` 的結果對帳。重啟時只有啟動而沒有結果，因安全檢查也未知，`forecast_pipeline_v2` 先停整條線並通知 Louis；該題保持 `interrupted_attempt_unresolved`，不自動重新呼叫或重新取得嘗試額度。只依技術證據處理停線及重新驗收，不由人類逐題看答案決定是否重跑。尚不實作自動復原未完成結果。
+- W8 的 forecast 明細另存 `tool_violations` 與 `nonfinite_fields`；無效輸出的非有限浮點值只在帳冊副本改為 `null` 並記錄欄位路徑，原始 CLI 檔案保留。安全停線寫入 `data/line_status.jsonl`，執行摘要與採用結果寫入 `data/forecast_runs.jsonl`。
 - `data/aggregates.jsonl`：每次整合一行，記錄題號、階段（`tier1` 或 `final`）、整合規則版本、各線採用的 attempt ID、整合結果、升級判斷、觸發條件與強度。
+- `data/audit_impacts.jsonl`：事後稽核的來源登錄與影響紀錄。`dependency_registered`、`audit_registered` 保存不可變來源 hash；`audit_impact` 以稽核事件及受影響節點建立確定的 ID，包含旗標、理由、題目映射及送出原狀態。每次重播只追加缺行，舊事件也會傳到新出現的後代；不覆寫機率、採用或送出回執。錯誤／遺漏來源、循環或損壞帳冊一律停止，詳細契約見 `docs/tasks/M2-W2.md`。
 - `data/submissions.jsonl`：送出狀態機的每一步各追加一行（§3.6），記錄：
   - 送出模式，以及題目對應（`tournament_id`、post ID、question ID、選項識別）；
   - 對應的整合紀錄 ID、送出的機率、留言全文與 hash；
@@ -747,9 +754,11 @@ token 欄位的對應（D29）：
 - **逾時**：第 1 層 10 分鐘、第 2 層 20 分鐘；由主程式終止整個子程序群組，並收集 stdout 與 stderr。
 - **額度不足、逾時、工具被拒或 CLI 錯誤**：在截止時間內最多補跑一次，跨排程執行也一樣。
   - 額度不足時，依 CLI 回報的重置時間（沒有時以固定退避）暫停該線，不在每次輪詢時重新嘗試同一題。
+  - W8 的 `forecast_pipeline_v2` 在尚未完成 V5 重置時間格式實測前使用 30 分鐘固定退避，保存 `quota_retry_at_utc`；不在額度耗盡的同一輪立刻補跑。跨執行與跨題也套用這個暫停，到期後仍受原本最多一次補跑的限制。
   - 各 CLI 額度不足的判斷方式（結束代碼與錯誤訊息），於 M2 實測後寫入 adapter（V5）。
 - **採用規則**：每題、每線、每層固定採用第一個 `validation_status = "valid"` 的嘗試；之後的嘗試只保留紀錄，不參與整合，也不得在多次結果中挑選。
 - **開啟 metaculus.com**（`leak_confirmed`）：保留原始輸出並標記，不重試，該答案不納入整合（§4.2）。同一條線 7 天內出現 2 次以上時，停止該線並通知 Louis。
+  - 停線後須經 Louis 明確恢復；恢復不刪除歷史。新一輪停線判定只計最近一次明確恢復之後、且仍在 7 天內的暴露，避免 resume 已記錄卻仍被同一批舊事件鎖住。錯誤模型與工具違規的停線同樣尊重這個恢復邊界。
 - **模型不符**（`model_mismatch`，§7.7）：答案無效、不納入整合；停止該線並通知 Louis。
 - **CLI 改版與設定改變**：每次執行都記錄 CLI 版本；依 §7.2 的變更處理重新驗收。
 - 所有失敗與重試都追加寫入，不覆寫。
@@ -1567,11 +1576,28 @@ view_image                  stable true
 | D61 | 2026-11-01 | claude 與 agy 線以 macOS 沙盒（`sandbox-exec`）啟動，拒絕所有 loopback 連線，並以對照實驗驗證；區域網路的其他位址不在範圍內（§5.3、§7.3、§7.4） | 協調者實測：claude 的 WebFetch 連得到 `127.0.0.1` 與解析到本機的網域，agy 的 `read_url_content` 對本機位址在本機撥號；Louis 接受（決策 2、4） |
 | D62 | 2026-11-01 | agy 線改用 adapter 寫入暫存資料夾 `.agents/agents/` 的最小自訂 agent、`stream-json` 輸出，以及從 `/` 到 brain 資料夾沿途列舉的 `read_file` 拒絕規則；`manage_task` 的 `list`、`status` 視為無作用；工具宣告以 agent 定義檔加全面的事件監控為證據，agy 版本改變就重新驗收（§5.3、§7.3、§7.4） | W3 實測：json 模式沒有工具事件；模型自述預設 agent 沒有讀網頁工具，卻能排程與委派；`--agent` 只接受名稱；Louis 選擇甲案 |
 | D63 | 2026-11-01 | §7.6 的證據等價作法：重新導向以「CLI 不跟隨跨網域轉址」或「所有 loopback 測試都被擋下」證明；OS 防護須有同 port 的對照實驗；CLI 存取前的拒絕算 CLI 層證據；正向測試使用固定的 64 行題庫加一次性網址參數（§7.6） | 公開轉址服務拒絕轉到 loopback；每次產生新 canary 需要每次推送公開頁面；Louis 接受（決策 3、4） |
+| D64 | 2026-11-01 | Claude 的五小時額度用完期間，由 Codex 暫接現有工作並留下交接紀錄；本輪範圍為 W8 修正與離線驗證，交接入口為 `docs/tasks/HANDOFF.md` | 本輪使用者明確要求接手並讓 Claude 恢復後知道最新狀況；此記錄不代表核准 trial／live，也不代表 W8 已通過獨立複審 |
+| D65 | 2026-11-01 | 使用者要求 Codex 繼續推進，並提出 agy 也可呼叫 Opus 5.5 作為替代。接續實作 M2 的離線整合與升級判斷，並透過官方 agy 的 Opus 5.5 做隔離的程式審查 | 本輪使用者指示；限開發用途。未替換正式 claude 預測線，未改變 Louis 的基準與參賽核准責任；模型、來源 CLI 與額度桶分開記錄 |
+| D66 | 2026-11-01 | 使用者要求繼續下一階段；Codex 接續 M2-W2，完成 D48／D53 的離線稽核傳播與持久影響帳冊，並使用 agy／Opus 做小範圍程式審查 | 本輪「OK 繼續接下來的計劃」；落實既有規則，不啟用預測排程、子代理或送出，也不替代 M1 實機驗收 |
 
 ---
 
 ## 16. 變更紀錄
 
+- **v1.7**（2026-11-01）：新增 M2-W2 的 `audit_ledger.py`（`audit_ledger_v1`），落實事後污染沿修復、重試、跨線第 2 層、子代理、整合與送出狀態傳播的既有要求（D48、D53、D66）。
+  - 影響紀錄追加寫入；確定 ID、來源 hash、檔案鎖與逐行 fsync 支援重播去重及中斷接續。未知／不相容來源、循環、修改歷史或損壞結尾不會被當作乾淨結果。新增後代可接收既有事件。
+  - 子代理記錄啟動者與明確輸入，harness 的 `result_delivered` 必須與父代理輸入一致；區分資料依賴及保守暴露傳播。只是離線契約，未開放任何預測子代理。
+  - `aggregate_pipeline_v2` 保留採用／排除候選及祖先真正相關的稽核事件與來源紀錄，支援完整圖上的單題／快照投影；原本 `agg_v1` 的數學參數不變。
+  - 新增合成回歸與兩程序競爭測試；程式審查及證據範圍見 `docs/tasks/M2-W2.md`。未變更模型、prompt 或升級門檻，未呼叫真實預測題或送出 API。
+- **v1.6**（2026-11-01）：Codex 接續開發，並依使用者提出的替代路徑，使用 agy／Opus 5.5 進行 W8 獨立程式審查（D65）。
+  - W8 升為 `forecast_pipeline_v2`：對所有 JSON 候選的來源判斷確認洩漏，修復不得刪除來源；辨識巢狀物件／列表的衝突估計；額度耗盡後先固定退避 30 分鐘；由帳冊重建遺失的安全停線，未知嘗試結果先停整線。明確恢復之後重新計算暴露停線窗口，保留全部歷史。審查中關於 Python 運算優先序與必須 verified 才採用的意見，經程式實測與現有政策核對後不採納，詳見 W8 紀錄。
+  - 新增 `aggregate.py`（`aggregate_pipeline_v1`）與 `escalate.py`（`escalation_v1`）：實作既有 `agg_v1`、`run_config_v2` 的規則，尚未接入正式流程／排程。保留首次有效採用、分層回退、快照核對、稽核依賴旗標與升級原因；候選仍須後續預算與截止准入。
+  - `docs/tasks/M2.md` 列出交付範圍、測試與剩餘工作；本輪不宣告 M1／M2 或 trial／live 驗收完成。未修改模型參數、權重或升級門檻。
+- **v1.5**（2026-11-01，W8 實作待獨立複審）：Codex 依使用者指示暫接 Claude 的未提交 W8 工作（D64）；補記流程版本 `forecast_pipeline_v1` 與可追溯紀錄（§5.5）。
+  - 保留 Claude 的單線流程與第一輪審查後修正；本輪新增 CLI 呼叫前的啟動帳冊，崩潰後不默默重開嘗試額度。
+  - 落實 §7.3／D60／D62 的事件監控：超出已驗收工具範圍時答案不可採用、不修復、不補跑，保存證據並持久停線。格式修復也檢查實際工具事件。
+  - 無效輸出中的非有限數值不再使帳冊寫入失敗；普通 adapter/parser 例外留下 `cli_error`。格式修復不能刪除市場估計以繞過一致性核對，矛盾的市場價格拒絕修復。
+  - 本輪未修改 prompt 文字、模型參數、篩題設定或送出模式；先前未標流程版本的 E2E 保留原紀錄，不冒充本版驗收。離線合成測試 311 passed，未呼叫三家模型 CLI 或 Metaculus API；詳見 `docs/tasks/M1-W8.md`。
 - **v1.4**（2026-11-01）：依 W2＋W3 驗收的實測與 GPT 的兩次審查，修正三條線的隔離規格（D60～D63）。
   - codex：direct 工具模式的模型目錄、停用 `goals` 與 7 個擴充功能、原始碼稽核（§5.3、§7.3）。
   - claude 與 agy：loopback 連線防護（§5.3、§7.3）。
