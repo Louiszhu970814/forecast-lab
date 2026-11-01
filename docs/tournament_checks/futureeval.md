@@ -74,3 +74,12 @@
 | 不得爬取頁面、不得儲存大量內容 | §3.3、§5.1（D50、D51） |
 | 只能取得自己預測過的題目的結算值 | §3.2、§4.1 |
 | 協助者的同意與規則副本 | §2（D51） |
+
+## 2026-11-01 補記：MiniBench 各輪計分與實戰練習
+
+核對時間：2026-11-01T13:28:24Z，GPT；本次可直接讀取官方頁面，以下補充不改寫前次核對紀錄。
+
+- 官方將 MiniBench 定義為連續舉辦、各有 1,000 美元獎池的兩週比賽；目的包含快速回饋及降低新參賽者門檻。[資源頁](https://www.metaculus.com/notebooks/38928/futureeval-resources-page/)
+- 官方計分以該場比賽題目的加權 Peer score 總和決定排名與獎金。據此，各輪分開計算：上一輪負分不轉入下一輪，也不抵扣下一輪獎金；歷史成績仍保留。MiniBench 與季賽同時發獎，不代表合併各輪分數計獎。[計分 FAQ](https://www.metaculus.com/help/scores-faq/#tournament-scores)、[賽制及發獎時程](https://www.metaculus.com/notebooks/38928/futureeval-resources-page/)
+- 官方允許賽中更新機器人，可用已關閉的比賽題目或合規試驗題測試；仍禁止人工預覽 open/upcoming 輸出後針對性修改、因不喜歡答案重跑，且每題只提交一次。需要反覆提交的功能測試先在允許重送的試驗場地完成。[參賽與更新規則](https://www.metaculus.com/notebooks/38928/futureeval-resources-page/#competition-rules)
+- 「至少先試驗 14 天」是本專案原有的工程門檻，並非上述官方規則的參賽資格。Louis 已決定改為必要技術驗收通過即進 MiniBench；GPT 已記入 PLAN §14.2，待 Claude 整合正文及 §15／§16。此決定沒有取消必要驗收或開放個別預測的人為介入。
