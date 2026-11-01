@@ -1,8 +1,8 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.10（v1.0 凍結後的修訂，見 §16；M2 自動載入測試工具、M3 離線開發）
+> 版本：v1.11（v1.0 凍結後的修訂，見 §16；M2 自動載入測試工具、M3 離線開發）
 > 初稿：Claude
-> 本回合整合者：Claude（v1.10；v1.5～v1.9 由 Codex 整合）
+> 本回合整合者：Claude（v1.10 起；v1.5～v1.9 由 Codex 整合）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
 > 最後更新：2026-11-01
 > 狀態：M1 進行中（v1.0 於 2026-10-31 經 Louis 核准凍結，D54）
@@ -1607,6 +1607,10 @@ view_image                  stable true
 
 ## 16. 變更紀錄
 
+- **v1.11**（2026-11-01）：落地 M3-W1 的 `src/submit.py`（`submit_v2`，§3.6 送出契約與狀態機的離線實作），GPT 實作、Claude 兩輪審查（D69）。
+  - `local` 只寫 `dry_run`，不觸及傳輸層；`trial`／`live` 的每次寫入前，都在所有遠端讀取之後重新檢查送出模式、`STOP_SUBMIT`、核准的機器人 ID 與場地清單。送出目標只取自抓題快照，留言以 `comment_v1` 重建核對。
+  - 狀態：`intent` → `request_started` → `forecast_ok` → `comment_ok`；另有 `unknown`（讀回無法確認，停止該筆後續寫入）、`confirmed_failed`（有明確未受理證據才重試，預測與留言各最多 3 次，用盡為 `forecast_failed`／`comment_failed` 並標記通知 Louis）、`rejected_precheck`（暫時性，相同原因不重複寫入）與 `abandoned`（從未開始請求、因永久性原因放棄，含快照已作廢）。
+  - 讀取 `question_queue.jsonl` 的 `snapshot_invalidated`，不送出已作廢快照的結果。真實傳輸層、帳號與既有預測的欄位、讀回方式都待 V15（M3-W4）；預設傳輸層離線。不改預測行為。
 - **v1.10**（2026-11-01）：落地 M2-W7 的 `src/autoload.py`（§7.6 第 7 項的人工自動載入測試），GPT 實作、Claude 兩輪審查（D69）。
   - 只在 `--approved-by` 與 `--i-understand-this-edits-global-files` 同時提供時才修改全域檔案；備份與追加式 manifest 先寫入，`finally` 還原並逐項驗證 sha256，失敗時印出人工還原指示並以非零碼結束。`flab/runner.py` 在中斷或例外時先終止 CLI 程序群組再拋出。
   - 判定：canary 或 CLI 宣告證明載入為 `loaded`；只有完整的宣告能排除時才是 `not_loaded`；其餘為 `unknown`。依 D43 不以沒有出現 canary 推論沒有載入，`unknown` 保守視為可能載入，與 `loaded` 一起列入 `must_review` 交人工審查，不使測試失敗。`passed` 需三線都完成、全部還原、沒有執行錯誤，且不是 `--cheap`。
