@@ -220,6 +220,11 @@ def validate_quota_policy(data: Any, filename: str = "quota_policy.json") -> dic
     credits_zero = _require_bool(agy, "credits_must_be_zero", filename, agy_path)
     if not credits_zero:
         raise ConfigError(filename, _join(agy_path, "credits_must_be_zero"), "must be true")
+    # D101: optional runaway guard; when present it caps registered weekly attempt caps.
+    if "weekly_attempts_cap" in agy:
+        g_cap = agy["weekly_attempts_cap"]
+        if g_cap is not None and (not _is_int(g_cap) or g_cap < 1):
+            raise ConfigError(filename, _join(agy_path, "weekly_attempts_cap"), "expected positive int or null")
 
     for p in ("claude", "gpt"):
         p_raw, p_path = _require_field(players, p, filename, players_path)

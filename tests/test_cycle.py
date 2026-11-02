@@ -260,6 +260,20 @@ def test_window_and_caps_are_frozen(tmp_path):
         Q.register(tmp_path, cfg, now=lambda: NOW + timedelta(days=8))
 
 
+def test_registered_caps_respect_quota_policy_ceilings(tmp_path):
+    ceilings = {"claude": 130, "gpt": 130, "gemini": 200}
+    for player in ceilings:
+        cfg = policy()
+        cfg["weekly_attempt_caps"] = {**ceilings, player: ceilings[player] + 1}
+        with pytest.raises(ValueError, match="exceeds quota policy"):
+            Q.register(tmp_path, cfg, now=lambda: NOW)
+    assert not (tmp_path / "continuous_campaigns.jsonl").exists()
+    cfg = policy()
+    cfg["weekly_attempt_caps"] = dict(ceilings)
+    Q.register(tmp_path, cfg, now=lambda: NOW)
+    assert len(read_complete(tmp_path / "continuous_campaigns.jsonl")) == 1
+
+
 def test_missing_submit_is_recorded(tmp_path):
     assert C.submit_cli(tmp_path, 1)["status"] == "unavailable"
 

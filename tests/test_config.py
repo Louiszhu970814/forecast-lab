@@ -57,12 +57,13 @@ def test_all_actual_config_files_validate() -> None:
     assert agg_cfg["multiple_choice"]["smoothing_epsilon"] == 0.02
 
     quota_cfg = load_quota_policy()
-    assert quota_cfg["version"] == "quota_policy_v4"
+    assert quota_cfg["version"] == "quota_policy_v5"
     assert quota_cfg["players"]["gemini"]["weekly_cap"] == 1.0
     assert quota_cfg["players"]["gemini"]["tier2_per_question_cap"] == 0.05
     assert quota_cfg["players"]["gemini"]["credits_must_be_zero"] is True
-    assert quota_cfg["players"]["claude"]["weekly_attempts_cap"] is None
-    assert quota_cfg["players"]["gpt"]["weekly_attempts_cap"] is None
+    assert quota_cfg["players"]["claude"]["weekly_attempts_cap"] == 130
+    assert quota_cfg["players"]["gpt"]["weekly_attempts_cap"] == 130
+    assert quota_cfg["players"]["gemini"]["weekly_attempts_cap"] == 200
     assert quota_cfg["token_multiplier_cap"] == 3
     assert quota_cfg["max_concurrency_per_player"] == 1
 
@@ -104,3 +105,20 @@ def test_missing_field_and_wrong_type_report_filename_and_field_path(tmp_path: P
     msg3 = str(exc_info3.value)
     assert "submit_mode.json" in msg3
     assert "mode" in msg3
+
+
+@pytest.mark.parametrize("value", [0, -1, True, 1.5, "200"])
+def test_gemini_runaway_guard_must_be_positive_int(value) -> None:
+    quota = copy.deepcopy(load_quota_policy())
+    quota["players"]["gemini"]["weekly_attempts_cap"] = value
+    with pytest.raises(ConfigError) as exc_info:
+        validate_config("quota_policy.json", quota)
+    assert "players.gemini.weekly_attempts_cap" in str(exc_info.value)
+
+
+def test_gemini_runaway_guard_is_optional_or_null() -> None:
+    quota = copy.deepcopy(load_quota_policy())
+    quota["players"]["gemini"]["weekly_attempts_cap"] = None
+    validate_config("quota_policy.json", quota)
+    del quota["players"]["gemini"]["weekly_attempts_cap"]
+    validate_config("quota_policy.json", quota)

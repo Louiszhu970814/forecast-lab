@@ -1,5 +1,5 @@
 {
-  "version": "quota_policy_v4",
+  "version": "quota_policy_v5",
   "max_concurrency_per_player": 1,
   "token_multiplier_cap": 3,
   "priority_order": [
@@ -20,23 +20,24 @@
   "players": {
     "gemini": {
       "weekly_cap": 1.0,
+      "weekly_attempts_cap": 200,
       "tier2_per_question_cap": 0.05,
       "window_estimate_multiplier": 3,
       "window_min_calls": 5,
       "credits_must_be_zero": true
     },
     "claude": {
-      "weekly_attempts_cap": null,
+      "weekly_attempts_cap": 130,
       "token_multiplier_cap": 3
     },
     "gpt": {
-      "weekly_attempts_cap": null,
+      "weekly_attempts_cap": 130,
       "token_multiplier_cap": 3
     }
   },
   "_notes": {
-    "version": "quota_policy_v4：依 PLAN D97，Gemini 的 /usage 讀數不一致（D96），單次前後差值不當成本。准入估計改用重置窗口內所有讀數的最小值推算總用量，除以窗口內 Gemini 呼叫數，乘上 window_estimate_multiplier；第 2 層再乘上 token_multiplier_cap。呼叫數少於 window_min_calls 或沒有觀測到用量時，退回 tier2_per_question_cap。tier2_per_question_cap 改為估計值的上限與備用值，不再是每題第 2 層的額度上限；Gemini 第 2 層改由共用的 token 熔斷限制。v3 起 weekly_cap 為 1.0（D74），Ultra 檢查共用週桶與五小時桶（D75）",
-    "weekly_attempts_cap": "暫定：claude 與 gpt 的 weekly_attempts_cap 初始為 null，於 M2 量測後設定（PLAN §9）",
+    "version": "quota_policy_v5：依 PLAN D101，Claude 與 GPT 的 weekly_attempts_cap 設為 130，Gemini 設 weekly_attempts_cap 200 作為防失控上限（D97 起 Gemini 不設額度比例限制）。這三個值是每週預算窗口的次數上限，含兩層、格式修復、補跑與驗收；登記 continuous 預算窗口時，各線的 weekly_attempt_caps 不得超過這裡的值。D92 時間表的正式覆蓋率情境 d101_formal_c130_c130_g200_o300_n10 支援題覆蓋 100%。v4 起：Gemini 的 /usage 讀數不一致（D96），准入估計改用重置窗口內所有讀數的最小值推算總用量，除以窗口內 Gemini 呼叫數，乘上 window_estimate_multiplier；第 2 層再乘上 token_multiplier_cap。呼叫數少於 window_min_calls 或沒有觀測到用量時，退回 tier2_per_question_cap。tier2_per_question_cap 為估計值的上限與備用值；Gemini 第 2 層由共用的 token 熔斷限制。v3 起 weekly_cap 為 1.0（D74），Ultra 檢查共用週桶與五小時桶（D75）",
+    "weekly_attempts_cap": "D101：claude 130、gpt 130、gemini 200（防失控）。M2 期間曾為 null",
     "priority_identifiers": "暫定：priority_order 與 admission_reserve_order 的代號字串為暫定，對應 PLAN §9 的優先序與准入順序"
   }
 }

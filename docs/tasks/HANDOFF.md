@@ -1,5 +1,14 @@
 # 給下一個對話的接手紀錄
 
+## 2026-11-02：D100 未執行、D101 已完成、D102 待核准（最新，UTC 約 11:40）
+
+**PLAN v1.48，模式 local；沒有背景程序、排程或平台寫入。** Claude 主持。Louis 在桌面對話核准 D100 與 D101（D101 照建議）。
+
+1. D100：UTC 11:00 切到 trial 做唯讀前檢，bot testing area 開放中的是非題只剩原 V15 用過的 43332，不能加第三次留言或換題，因此沒有執行；11:02 回 local。只有 GET，沒有 POST。見 `M3-PROBE-CAPS-D100-D101.md`。
+2. D101：`quota_policy_v5`，Claude／GPT 每週 130、Gemini 200（防失控）；`continuous.register()` 會拒絕超過上限的窗口。事前登記的正式覆蓋率情境 `d101_formal_c130_c130_g200_o300_n10` 支援題 100%。隔離完整 1627 passed；Gemini 審查 PASS。
+3. **待 Louis**：D102（改用 bot testing area 唯一未用過的多選題 46450 做有界驗收：均勻 synthetic 預測 1 次加私人留言 1 次，不重試）。規格 `M3-MC-PROBE-D102.md`；離線實作交給 GPT（沙箱），審查 Claude 與 Gemini。**實際送出要等 Louis 核准 D102。**
+4. GPT 另外在修 TG（Louis 指派）：`docs/telegram.md`、`src/flab/team_chat.py`、`src/flab/team_runner.py`、`src/project_control.py`、`src/telegram_bot.py`、`tests/test_team_chat.py` 是 GPT 未提交的修改，**不要覆蓋或代為提交**。隔離測試時把這些檔案換回 HEAD。
+
 ## 2026-11-02：D99 多選題讀回已完成（最新，UTC 約 05:55）
 
 **PLAN v1.47，模式 local；沒有背景程序、排程或平台寫入。**

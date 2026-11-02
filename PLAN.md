@@ -1,6 +1,6 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.47（v1.0 凍結後的修訂，見 §16；Claude 依 D95 主持，D99 多選題讀回不依賴歷史選項順序）
+> 版本：v1.48（v1.0 凍結後的修訂，見 §16；Claude 依 D95 主持，D101 每週次數上限）
 > 初稿：Claude
 > 本回合整合者：Claude（D95；GPT 已完成 D82／D84～D94 的主持與交接）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
@@ -934,9 +934,9 @@ M2 執行時透過官方 API 發現已允許試驗場地類型的數字 ID，不
     - 依 D74，舊 M2 題集結束後個人保留線降為 0%，`weekly_cap` 為 1.0；Ultra 的實際判斷使用共用 Gemini 週桶與五小時桶（D75），仍須扣除本次預估消耗。舊題集保留原本 80%／20% 的政策雜湊與紀錄（D71）。
     - D97（`quota_policy_v4`、`budget_v4`）：Louis 決定 Ultra 額度充足，Gemini 不再設額度上的限制。本次預估消耗改用窗口層級估計：同一重置窗口內所有 `/usage` 讀數的最小值推算總用量，除以窗口內 Gemini 呼叫數，乘以 3；第 2 層再乘以 `token_multiplier_cap`。窗口內呼叫少於 5 次或沒有觀測到用量時，退回 0.05；估計值一律不超過 0.05。人工隔離驗收與 autoload 的門檻同樣改為「保留線 + 這個估計」。
     - 取消第 2 層每題 5% 的額度上限與 `weekly_tier2_argon_breaker`；agy 第 2 層改由與 claude、codex 共用的 token 熔斷限制（§5.3）。D97 前已寫入的熔斷紀錄照舊生效到原定的重置時間，不追溯解除。
-    - 保留的安全檢查：`remaining_credits` 必須為 0（避免付費額度，D54）；每次執行前以 `/usage` 檢查，週桶剩餘低於「保留線 + 本次預估消耗」就暫停該線，五小時桶不足就等到重置（§7.7）；同一線同時只執行 1 個工作。持續模式的每週次數上限對 Gemini 只作為防止程式失控的保護，數值於建立持續題集時設定。
+    - 保留的安全檢查：`remaining_credits` 必須為 0（避免付費額度，D54）；每次執行前以 `/usage` 檢查，週桶剩餘低於「保留線 + 本次預估消耗」就暫停該線，五小時桶不足就等到重置（§7.7）；同一線同時只執行 1 個工作。持續模式的每週次數上限對 Gemini 只作為防止程式失控的保護：D101 定為每週 200 次（`quota_policy_v5` 的 `players.gemini.weekly_attempts_cap`），登記持續題集的預算窗口時不得超過。
   - claude 與 codex：
-    - 在 V14 找到可靠的額度查詢方式之前，以每週嘗試次數的上限控制，上限於 M2 量測後設定；嘗試次數包含兩層、格式修復、補跑與驗收。
+    - 在 V14 找到可靠的額度查詢方式之前，以每週嘗試次數的上限控制；嘗試次數包含兩層、格式修復、補跑與驗收。D101 依 Louis 決定設為每線每週 130 次（`quota_policy_v5`）；登記持續題集的預算窗口時，各線的 `weekly_attempt_caps` 不得超過此值。事前登記的正式覆蓋率情境 `d101_formal_c130_c130_g200_o300_n10`（D92 的 10/5～10/19 時間表、104 題／支援 67 題）支援題準時覆蓋 100%（20 次重複的第 10 百分位），第一週單線最多用到 116 次。
     - CLI 回報額度用完時，暫停該線並記為 `quota_exhausted`，依 §7.5 退避後再試。
   - 三人平常的使用優先。任何人覺得額度不夠，都可以在 `config/players_enabled.json` 暫停自己的線。
 - **電源**：題目在隨機時段開出，每題只開放 3 小時（§3.1），所以電腦須全天開機、插電、不睡眠。排程包裝腳本以 `caffeinate -i` 執行；蓋上螢幕仍會睡眠。無法全天開機時，漏答會反映在覆蓋率上；替代方案（例如另一台常開的電腦）另外決定。
@@ -1720,10 +1720,14 @@ view_image                  stable true
 | D97 | 2026-11-02 | Louis 對 D96-QUOTA 選擇 A（「我覺得都改」），並表示 Gemini 使用 Ultra、額度很多，不需要再設定限制。採用：M2 的 Gemini 成本門檻改為窗口層級估計（`gemini_window_cost_estimate`），單次成本照實列為無法觀測；取消 Gemini 第 2 層每題 5% 額度上限與 `weekly_tier2_argon_breaker`，第 2 層改由共用 token 熔斷限制；准入估計改用窗口層級平均 × 3（第 2 層再 × token 上限倍數），不超過原 0.05 | `quota_policy_v4`、`budget_v4`、`m2_report_v5`、`quota_window_estimate_v1`。保留 credits 必須為 0、週桶／五小時桶真正不足時暫停或等待、同線並行 1、token 熔斷；持續模式的 Gemini 每週次數上限只作防失控保護。D97 前已寫入的熔斷（Gemini 至 UTC 11/8 12:11:16）照舊生效，不追溯解除；GPT 第 2 層熔斷不受影響。舊 21 筆、D92、D94 紀錄不改寫。M3 與 live 核准不變 |
 | D98 | 2026-11-02 | Louis 指示：「可以繼續找繞開跟官方寄信溝通的方法，我偏向叫 gemini 繼續海巡各大論壇、github 上其他開源的參賽者的模型之類的應該都會有線索」。Claude 直接核對官方客戶端與後端原始碼，並請 Gemini（Argon high，只搜尋與讀網頁）搜尋論壇、GitHub 與其他參賽者；依結果對所有正式 API 請求加上間隔（`api_backoff_v2`） | 沒有寄信、沒有平台寫入、沒有讀開放題內容。Gemini 沒找到可採信的第三方案例，有用結論都來自官方原始碼並經 Claude 逐行核對；不採用「full_clean 強制 150,000 字元」。多選題讀回改用不依賴順序的核對與 bulk 端點屬後續提案；新的有界私人留言驗收屬平台寫入，須 Louis 核准。原 V15 probe 不加第三次留言 |
 | D99 | 2026-11-02 | 依 Louis「研究回來之後有一定答案了就直接開始繼續 M3，中間的 coding 還有審查你們三個可以輪流做」，以 D98 核對的官方原始碼為據：多選題在歷史選項順序被閘道遮罩為 null 時，不再於 POST 前拒絕；讀回改以身分、時間、非 None 個數與機率值多重集合的精確核對確認，收據記 `option_order_verified` | `api_transport_v5`。GPT（gpt-6-astra high，開發沙箱）實作，Claude 審查並收緊為只有 null 歷史才用多重集合；Gemini 審查指出 POST 前檢查需與讀回規則一致並已修正。歷史存在但異常的題目在 POST 前拒絕；是非題、已知歷史的逐位置比對、留言、退避／間隔、POST 次數上限、unknown 與預測永不重送規則不變。不是多選題實機驗收 |
+| D100 | 2026-11-02 | Louis 核准 D100-PROBE：加上請求間隔（D98）後做一次有界私人留言驗收（trial、bot testing area 另一個未用過的是非題、synthetic 50%、最多 1 次預測加 1 次私人留言、不重試、結束立即回 local）。UTC 11:00 切到 trial 執行唯讀前檢，bot testing area 開放中的是非題只剩原 V15 probe 用過的 43332，依規定不加第三次留言、不換題，因此無法執行；11:02 回 local。只有唯讀 GET，沒有任何寫入。開放中的支援題型只剩 1 題多選題，改用多選題需另行核准（D102） | 本輪指示；D84／D88 的原 probe 界線不變 |
+| D101 | 2026-11-02 | Louis 對 D101-CAPS 選 A（照建議）：Claude 與 GPT 每週嘗試次數上限各 130，Gemini 每週 200 次作為防失控上限。`quota_policy_v4` → `quota_policy_v5`；`config.py` 驗證 Gemini 的選填上限。正式覆蓋率情境事前登記後才執行，通過標準為支援題覆蓋率第 10 百分位 ≥ 90%；結果 100% | 本輪指示；Gemini（Argon high）獨立審查 PASS；不啟用排程 |
 
 ---
 
 ## 16. 變更紀錄
+
+- **v1.48**（2026-11-02）：D100、D101。§9 填入 Claude／GPT 每週 130 次與 Gemini 200 次的防失控上限；`quota_policy_v4` → `quota_policy_v5`（`players.gemini.weekly_attempts_cap` 為選填正整數或 null，`continuous.register()` 既有的上限檢查因此也套用到 Gemini）。事前登記並執行正式覆蓋率情境 `d101_formal_c130_c130_g200_o300_n10`（支援題 100%）。D100 有界驗收因 bot testing area 沒有未用過的是非題而未執行，只有唯讀 GET。`quota_policy` 雜湊改變，已登記的舊題集不能再執行（本來就不得重啟）。隔離完整 1627 passed；Gemini 審查 PASS。
 
 - **v1.47**（2026-11-02）：D99，`api_transport_v4` → `api_transport_v5`：`can_reconcile_forecast()` 對多選題在目前選項有效且（歷史可用或歷史為 null）時放行；`serialized_forecast_receipt()` 在歷史為 null 時改用不依賴順序的精確多重集合核對，並在收據記 `option_order_verified`；歷史存在但異常維持拒絕。只改傳輸層與測試，送出 payload 建法不變。規格 `docs/tasks/M3-MC-READBACK-D99.md`。隔離完整 1620 passed；Gemini（`gemini-4-argon-high`）獨立審查第 1 輪指出 POST 前檢查與讀回規則不一致（blocking，已修正並補測試），第 2 輪 PASS。
 
