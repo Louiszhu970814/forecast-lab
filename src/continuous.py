@@ -397,25 +397,34 @@ def committed_questions(root: Path) -> set[int]:
 
 class Queue:
     refresh_after_job = True
+    refresh_version = "queue_refresh_v2"
 
     def __init__(self, root: Path, campaign: dict, poller, *, now=utc_now):
         self.root, self.campaign, self.poller, self.now = root, campaign, poller, now
         self.lock = threading.RLock()
         self.cached = None
+        self._refresh_generation = 0
         self.checked = None
         self.new, self.revised = set(), set()
         self.fallbacks = {}
         self.invalidated = set()
 
     def __call__(self, *, force=False):
+        generation = self._refresh_generation
         with self.lock:
-            if not force and self.cached is not None and (self.now() - self.checked).total_seconds() < 30:
+            # A caller queued behind a successful refresh shares that fresh result,
+            # even when forced. Sequential force calls still perform a new refresh.
+            # This avoids serial network scans starving pre-CLI quota admission.
+            fresh = self.cached is not None and 0 <= (self.now() - self.checked).total_seconds() < 30
+            if fresh and (not force or generation != self._refresh_generation):
                 return copy.deepcopy(self.cached)
+            self.cached = None  # A failed forced refresh must invalidate the older cache.
             current = self.poller()  # Never use stale cached safety data on a failed refresh.
             result = self.update(current)
-            self.cached, self.checked = result, self.now()
             self.campaign["questions"] = [{"question_id": q, "ground": s["ground"], "priority": s["priority"]}
                                           for q, s in result.items()]
+            self.cached, self.checked = result, self.now()
+            self._refresh_generation += 1
             return copy.deepcopy(result)
 
     def update(self, current):

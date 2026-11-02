@@ -1,5 +1,31 @@
 # 給下一個對話的接手紀錄
 
+## 2026-11-02：D111 自動讀回修正已套用（UTC 15:15）
+
+**PLAN v1.60；trial。** `submit_v10` 為已受理回執補做 GET，獨立證據寫 `data/submission_readbacks.jsonl`，不更改送出／重試狀態；`cycle_v7` 將送出程序上限從 120 延長至 300 秒，模型時限和 600 秒排程不變。完整隔離 2055 passed、Gemini 900 秒上限的獨立審查 PASS；15:15:41 在互斥鎖保護下套用。詳細驗證與限制見 [M3-READBACK-D111.md](M3-READBACK-D111.md)。
+
+套用時 41219／41418 已預測對帳並留言成功、unknown 0；四題 Gemini 第 1 層完成，兩題尚有升級工作。端到端與 A2 尚未完成，MiniBench 送出白名單仍 false。主持人持有審查鎖與自建 STOP_SUBMIT，文件檢查完即恢復既有 launchd；恢復證據另補。執行中兩份 config 不提交。
+
+## 2026-11-02：第一題讀回完成，MiniBench 發現已實機核對（UTC 14:50）
+
+**PLAN v1.59；trial；原窗口與 600 秒排程保持不變。** 41219 預測由 launchd 自動對帳成功，留言已成功；主持人另做 GET-only 留言讀回 `found`（14:48:52），證據在 `data/e2e_readbacks.jsonl`。41418 預測只 POST 一次，目前 unknown 等自動對帳；41628／42336 尚待 Gemini。沒有重送未知請求，A2 尚未開始。
+
+MiniBench 官方 API（14:50:17）：alias 33135；已開始的 ongoing IDs 33132／33135；排除集合 33121／33132／33135；系列送出白名單仍 false。證據 `data/m3_discovery_checks.jsonl`，只有 GET。更新監督文件時已撤回原交接每輪新增 130 筆／每天 1.9 萬的錯誤推算，並修正 launchd README 的保護上限說明為實際 4330 秒。
+
+## 2026-11-02：跨週期監看已啟動（UTC 14:35）
+
+**PLAN v1.59 D110；trial；STOP_SUBMIT 不存在。** D109 修正已有實機證據：Gemini 准入讀數年齡 54.108 秒，14:09:10 真正啟動、14:14:10 完成並 selected。第一題 41219 預測 POST 一次，14:21:07 為 unknown（回執格式未識別），等既有流程讀回，**不得重送**。完整端到端與 A2 尚未完成。
+
+有界監看 `src/cycle_monitor.py` 通過新增九個案例、完整隔離 2038 passed、Claude 審查 PASS；已於 UTC 14:35:32.087 啟動（本對話執行 session 72155），初始狀態 monitoring／hazards=[]／unknown_requests=1；以 `data/cycle_monitor.jsonl` 為狀態證據，程序存活可用 `lsof -n data/cycle_monitor.lock` 查核。它只看 ID／狀態、寫本地進度、必要時建立 STOP_SUBMIT，不會呼叫模型／API／送出／A2。不是桌面 GPT 持續在線。操作與退出條件見 [M3-E2E-D105-MONITOR.md](M3-E2E-D105-MONITOR.md)。原交接的「每天新增 1.9 萬筆」已更正：送出器已有拒絕紀錄去重，沒有這個累積證據。
+
+## 2026-11-02：GPT 已接手，修正排隊刷新，待續驗（UTC 14:05）
+
+**PLAN v1.58，D109；模式 trial，原 D105 窗口不變。** 監督細節見 [M3-E2E-D105-MONITOR.md](M3-E2E-D105-MONITOR.md)，600 秒排程評估與修正證據見 [LAUNCHD-INTERVAL-D108.md](LAUNCHD-INTERVAL-D108.md)。
+
+第二輪三線預檢全 ready，但 Gemini 的額度讀數在排隊刷新時過期（106.720 秒 > 90），尚未啟動模型；Claude／GPT 各完成 3 次第 1 層，沒有新增平台 POST。GPT 先 STOP_SUBMIT、待週期自然結束後取得互斥鎖，完成 `queue_refresh_v2`／`cycle_v6`：隔離完整 2029 passed、Gemini 第二輪審查 PASS（第一輪逾時不算）。UTC 14:05:33 已套用；接續時只移除 GPT 本輪建立的 STOP_SUBMIT 並釋放互斥鎖，既有 launchd 沿用原窗口。端到端與 A2 仍未完成。後續開發審查上限依 Louis 指示放寬為 15 分鐘，預測 timeout 不變。
+
+程式／文件修改尚未 commit；執行中的 `config/submit_mode.json`／`config/cycle_campaign.json` 不要一起提交。沒有讀取開放題的預測內容。
+
 ## 2026-11-02：監督交給 GPT，Claude 待命（最新，UTC 13:40）
 
 **PLAN v1.57，模式 trial；launchd 週期運作中。** Louis 指示 D105 端到端的監督交給 GPT，之後由 GPT 主持並分配工作（D108）。完整交接、驗收目標、監督守則、已知待修與後續工作見 [M3-E2E-D105-MONITOR.md](M3-E2E-D105-MONITOR.md)；下一段為交接前的細節。Claude 的背景監看已停止，等 GPT 分配工作。
@@ -529,3 +555,5 @@ V5：本輪實際看到 Claude `quota_exhausted`，原始 result 為 `You've hit
 4. W8 複審通過且證據齊備後，由協調者依 D57 commit／push；依 PLAN §10 核對 M1 是否完成，再安排 M2 三線、整合與分層。
 
 不需要重做 W1～W7，也不要把這次的 311 個單元測試視為三線實機驗收或 trial／live 核准。本輪未建立排程或通知服務；本檔與 CLAUDE.md 的閱讀指引供恢復工作時接續。
+
+D111 恢復證據：UTC 15:19:48 只移除 GPT 本次自建 STOP_SUBMIT，審查鎖已釋放；15:19:53 狀態監看重新啟動（session 7274），unknown 0／hazards=[]。主持人以既有 launchd 的 kickstart 接續同一個凍結窗口，未重裝或改間隔；這次啟動為修正後恢復，不列入自然排程間距估計。尚待新週期的實機讀回。

@@ -1,4 +1,4 @@
-"""One bounded continuous polling/forecast/submission cycle (cycle_v5).
+"""One bounded continuous polling/forecast/submission cycle (cycle_v6).
 
 Usage: .venv/bin/python src/cycle.py --campaign config/cycle_campaign.json
 The campaign is explicit and finite; no implicit quota increases or launchd installation.
@@ -29,11 +29,11 @@ from flab.ledger import read_complete, transaction
 from flab.timeutil import parse_iso, to_iso, utc_now
 from flab.workdir import PROJECT_ROOT
 
-VERSION = "cycle_v5"
+VERSION = "cycle_v7"
 INTERVAL_S = 600
 SAFETY_S = 30
 ADMISSION_WINDOW_S = INTERVAL_S - SAFETY_S - 60
-SUBMIT_TIMEOUT_S = 120
+SUBMIT_TIMEOUT_S = 300
 CLEANUP_RESERVE_S = 10
 
 
@@ -139,7 +139,8 @@ def run_cycle(root: Path, campaign: dict, poller, *, project: Path = PROJECT_ROO
     started = started_at or now()
     deadline = deadline or started + timedelta(seconds=ADMISSION_WINDOW_S)
     limits = timing_limits(load_run_config(), (deadline - started).total_seconds())
-    rec = {"type": "cycle", "version": VERSION, "cycle_id": cycle_id or new_id("cycle"),
+    rec = {"type": "cycle", "version": VERSION, "queue_refresh_version": Q.Queue.refresh_version,
+           "cycle_id": cycle_id or new_id("cycle"),
            "started_at": to_iso(started), "deadline": to_iso(deadline),
            "admission_deadline": to_iso(deadline), "timing_limits": limits,
            "steps": {s: {"status": "pending"} for s in ("lock", "switches", "policy", "poll", "queue", "preflight", "scheduler", "publish", "submit")},

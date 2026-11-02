@@ -29,7 +29,7 @@ from validate import submit_deadline
 from project_policy import trial_membership_error
 from submit_contract import ConfirmedFailure, Readback
 
-VERSION = "submit_v9"
+VERSION = "submit_v10"
 BUSY_EXIT_CODE = 75
 FORECAST_PATH = "/api/questions/forecast/"
 COMMENT_PATH = "/api/comments/create/"
@@ -545,6 +545,52 @@ class Submitter:
                 if operation == "forecast" or last["status"] == "comment_failed":
                     return
 
+    def _verify_accepted(self, intent):
+        """GET-only confirmation of acknowledged writes; never changes retry state.
+
+        A missing or contradictory read cannot undo an accepted write receipt.
+        Keep this evidence separate so it cannot authorize another platform write.
+        """
+        if load_submit_mode(self.config_dir)["mode"] == "local":
+            return
+        log = self.root / "submission_readbacks.jsonl"
+        for operation in ("forecast", "comment"):
+            last = self._last_operation(intent, operation)
+            if not last or last["status"] != operation + "_ok" or last.get("reconciled") is True:
+                continue
+            request_id = last["request_id"]
+            started = next(r for r in self._history(intent) if r["status"] == "request_started"
+                           and r.get("request_id") == request_id and r.get("operation") == operation)
+            lookup = {**copy.deepcopy(intent),
+                      "request_started_at": started.get("request_started_at_precise", started["at"]),
+                      "request_forecast_baseline": started.get("forecast_readback_baseline")}
+            digest = hash_obj({"bot_id": intent["bot_id"], "post_id": intent["post_id"],
+                "question_id": intent["question_id"], "payload": intent[f"{operation}_payload"],
+                "started_at": lookup["request_started_at"], "baseline": lookup["request_forecast_baseline"]})
+            with transaction(self.root):
+                previous = read_complete(log)
+            if any(r.get("intent_id") == intent["intent_id"] and r.get("request_id") == request_id
+                   and r.get("operation") == operation and r.get("lookup_sha256") == digest
+                   and r.get("outcome") == "found" for r in previous):
+                continue
+            outcome, remote_id, error_type = "unknown", None, None
+            try:
+                self._identity(intent)
+                result = self.transport.readback(operation, lookup, request_id=request_id)
+                if result.request_id == request_id and result.outcome == "found" \
+                        and self._receipt_matches(operation, intent, result.record):
+                    outcome = "found"
+                    if type(result.record["id"]) is int:
+                        remote_id = result.record["id"]
+            except Exception as exc:
+                error_type = type(exc).__name__
+            with transaction(self.root):
+                append_record(log, {"type": "submission_readback", "version": VERSION,
+                    "at": to_iso(self.now()), "intent_id": intent["intent_id"],
+                    "question_id": intent["question_id"], "post_id": intent["post_id"],
+                    "request_id": request_id, "operation": operation, "lookup_sha256": digest,
+                    "outcome": outcome, "remote_id": remote_id, "error_type": error_type})
+
     def _load_inputs(self):
         with transaction(self.root):
             aggregates = _unique(read_complete(self.root / "aggregates.jsonl"), "record_id")
@@ -558,7 +604,7 @@ class Submitter:
         # Arbitrary transport exceptions can contain credentials or remote bodies.
         return str(exc) if isinstance(exc, (PrecheckError, C.CommentError)) else f"precheck unavailable: {type(exc).__name__}"
 
-    def run(self, *, reconcile_only=False):
+    def run(self, *, reconcile_only=False, verify_accepted=False):
         lock = Lock(self.root / "submit.lock")
         try:
             lock.__enter__()
@@ -569,6 +615,8 @@ class Submitter:
             intents = [r for r in rows if r["status"] == "intent"]
             for intent in intents:
                 self._resume(intent, reconcile_only=reconcile_only)
+                if verify_accepted:
+                    self._verify_accepted(intent)
             if not reconcile_only:
                 aggregates, comments, snapshots = self._load_inputs()
                 for aggregate in aggregates.values():
@@ -595,6 +643,8 @@ class Submitter:
                     row = self._event(candidate, "intent")
                     intents.append(row)
                     self._resume(row)
+                    if verify_accepted:
+                        self._verify_accepted(row)
             new_rows = self._rows()[len(rows):]
             return {"events": len(new_rows), "statuses": {s: sum(r["status"] == s for r in new_rows)
                     for s in sorted({r["status"] for r in new_rows})}}
@@ -607,7 +657,8 @@ def main(argv=None):
     parser.add_argument("command", choices=("run", "reconcile"))
     args = parser.parse_args(argv)
     transport = cli_transport(PROJECT_ROOT)
-    result = Submitter(PROJECT_ROOT / "data", transport=transport).run(reconcile_only=args.command == "reconcile")
+    result = Submitter(PROJECT_ROOT / "data", transport=transport).run(
+        reconcile_only=args.command == "reconcile", verify_accepted=True)
     print(json.dumps({"events": result["events"], "statuses": result["statuses"]}, sort_keys=True))
     return BUSY_EXIT_CODE if result.get("status") == "busy" else 0
 

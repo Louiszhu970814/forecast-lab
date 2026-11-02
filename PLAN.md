@@ -1,6 +1,6 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.57（v1.0 凍結後的修訂，見 §16；D108 起由 GPT 主持，Claude 待命）
+> 版本：v1.60（v1.0 凍結後的修訂，見 §16；D108 起由 GPT 主持，Claude 待命）
 > 初稿：Claude
 > 本回合整合者：GPT（D108；Claude 依 D95 主持至 D107，交接見 `docs/tasks/M3-E2E-D105-MONITOR.md`）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
@@ -421,6 +421,8 @@ forecast-lab/
 
 手機工作對話（`telegram_ops_v4`、`team_chat_v2`，D91 取代 D73 的手機開發入口，D103 修正決策接手；操作見 `docs/telegram.md`）：
 
+D110 的 `src/cycle_monitor.py`（`cycle_monitor_v1`）是桌面主持人啟動的有界狀態監看工具，不是手機續作或模型 agent。只投影已選題的 ID／狀態／計數至 `data/cycle_monitor.jsonl`，並更新本地進度板；不讀出預測正文、不呼叫模型或 API、不送出、不重試、不啟動 A2、不解除停送。遇寫到選題外、重複／超額請求、確認失敗、多筆 unknown、請求開始後超過 180 秒沒有結果或連續三次帳冊不可讀時建立 STOP_SUBMIT。模式／窗口變更、既有停送、窗口結束或全部送出紀錄齊全時結束；最後一項仍標為待主持人核對獨立讀回，不代表 M3 通過。後來的主持人進度不被監看程式覆寫。
+
 - 沿用配對的私人 Telegram 帳號，拒絕群組、轉傳、bot 與代發；提問／決定超過 10 分鐘不執行。由 Louis 主動查進度，不定期推播；舊 DevWorker 與定期報告在此服務停用，歷史保留。
 - 三家共享主持人發布的開發進度、來源、UTC 時間與待決／續作狀態。`進度`、`待決事項` 與營運計數不呼叫模型；不讀取或傳送個別預測、理由、機率、原始輸出或憑證。超過一小時的進度標示過時風險，不冒充即時桌面對話。
 - 以 GPT／Claude／Gemini 點名問答，每問只叫一家，未點名預設 GPT。官方 CLI 使用 `gpt-6-sol`／low、`claude-sonnet-5-5`／low、`gemini-3.8-flash-low`／low；只影響開發進度問答，不改預測模型。專案外空白暫存、乾淨環境、無工具／網頁／MCP／子代理，僅允許結構化回傳功能。最多同時一項、排隊五問、UTC 每日六十問、模型執行 120 秒，沒有自動重試或換模型；與預測／成本量測鎖互斥。
@@ -562,6 +564,7 @@ forecast-lab/
 - `data/audit_impacts.jsonl`：事後稽核的來源登錄與影響紀錄。`dependency_registered`、`audit_registered` 保存不可變來源 hash；`audit_impact` 以稽核事件及受影響節點建立確定的 ID，包含旗標、理由、題目映射及送出原狀態。每次重播只追加缺行，舊事件也會傳到新出現的後代；不覆寫機率、採用或送出回執。錯誤／遺漏來源、循環或損壞帳冊一律停止，詳細契約見 `docs/tasks/M2-W2.md`。
 - `data/reconciliation_inputs.jsonl`：每線每題的匿名輸入在 CLI 開始前先凍結並追加，保存輸入 ID、A／B／C 排列、prompt、快照／設定／來源／稽核事件 hash 及主程式比較基準。重試和重啟沿用同一排列與 prompt；來源失去資格或內容改變時停止，不改挑答案。作者、模型、attempt ID 與比較基準只在 host 紀錄，不注入模型摘要。
 - `data/reconciliation_runs.jsonl`：第 2 層本地執行與每次准入決定的追加紀錄；`reconciliation_pipeline_v1` 每次 CLI 呼叫（含修復／重試）皆要求排程器提供准入決定，保存 attempt ID，並追加已啟動或未啟動釋放的結果。額度查詢後再次檢查輸入資格，沒有准入政策就不呼叫模型。前後整合結果及 W2 事後影響一併留存；W3 單線完成時的混合整合標為 `status=provisional`、`submission_eligible=false`，由未來排程器判定全題完成，不能憑 `stage=final` 送出。
+- `data/submission_readbacks.jsonl`（D111，`submit_v10`）：正式送出 CLI 對已有成功回執而未讀回的操作補做 GET，僅記 ID、時間、查詢雜湊、found／unknown 與錯誤類型；已由正式狀態機對帳的成功不重查。讀回未確認不推翻已受理回執、不授權重送；local 不做查詢。只有同一 request 的 `reconciled=true` 或此帳冊 found 才作為自動讀回證據。
 - `data/submissions.jsonl`：送出狀態機的每一步各追加一行（§3.6），記錄：
   - 送出模式，以及題目對應（`tournament_id`、post ID、question ID、選項識別）；
   - 對應的整合紀錄 ID、送出的機率、留言全文與 hash；
@@ -924,6 +927,7 @@ M2 執行時透過官方 API 發現已允許試驗場地類型的數字 ID，不
   - 每完成一個工作就重新查詢新題目。
   - 同一優先級內，截止時間最早的先做。
   - 並行度：三條線平行，每條線同時只執行 1 個工作（初始值，寫在 `config/quota_policy.json`；§10 M3 的模擬也採用這個設定，D53）。
+  - D109：`queue_refresh_v2` 合併同時等待刷新鎖的請求；只有等待期間已完成較新刷新、且結果年齡介於 0～30 秒（不含 30）時共用結果。稍後獨立呼叫的強制刷新仍重新查詢；任何刷新失敗立即使舊快取失效。`cycle_v6` 在週期紀錄標記刷新版本，既有 90 秒額度新鮮度與凍結窗口不變。600 秒排程先維持，尚未實機證明為最佳值；評估與證據見 `docs/tasks/LAUNCHD-INTERVAL-D108.md`。
 - **優先序**（先廣後深）：主賽第 1 層 > MiniBench 第 1 層 > 主賽第 2 層 > MiniBench 第 2 層 > 人類賽輔助。
   - 例外：MiniBench 題目即將截止、而主賽題目還有充足時間時，先處理 MiniBench，並記錄例外原因。
   - 因為預算而跳過的題目記為 `budget_skipped`。
@@ -1740,11 +1744,19 @@ view_image                  stable true
 | D106 | 2026-11-02 | Louis 於桌面對話核准 FutureEval 主賽與 MiniBench 的規則核對（§3.7，`docs/tournament_checks/futureeval.md`），滿足 §10 M3 第七項的規則核准部分。主持人另提醒：使用條款要求不要讓 AI 寄信給 Metaculus，D89 經官網 Contact Us 由 AI 代送的詢問已送出、不撤回、不重寄，之後與 Metaculus 的聯絡一律由 Louis 本人處理。該詢問的回信寄到 Louis 本人帳號的登記信箱，Louis 目前無法查看；其中多選題讀回與留言 429 已由 D99／D102 實測解決，只剩留言長度上限 | 本輪指示。送出白名單仍全為 false；切換 `live` 仍須 M3 全部通過並經 Louis 另行核准（§3.6） |
 | D107 | 2026-11-02 | Louis 指示開發階段全力衝刺，放寬專案自訂、只影響試驗場地與開發流程的限制（A1～A4；女友同意 A3 對 GPT 線額度的影響）。A1：`trial` 模式、試驗場地、機器人 311763 的有界寫入改為常設授權，主持人可直接執行：事先在凍結的計畫中固定請求上限，遵守請求間隔，遇 4xx／429 即停，unknown 只對帳不重送，結束回 `local`，事後在交接檔與 TG 回報；不再逐次請 Louis 核准（取代 D100／D102 的作法）。A2：bot testing area 允許重送，取消原 V15 probe 不加第三次留言、46450 不再寫入等自訂限制，用於留言長度上限、只補送留言與重複送出的實測（以新 probe 版本實作）。A3：提前解除 GPT 與 Gemini 第 2 層的週期熔斷（原至 UTC 11/8），以追加式解除紀錄實作，不刪歷史；D101 每週次數上限、每題 token 上限與其他保護不變。A4：審查分級，只有送出、讀回、預算、權限隔離相關的改動需要 Gemini 獨立審查，文件、報表、工具與測試由 Claude 審查 | 本輪指示。六條硬性規則、不在主賽／MiniBench 題目作答、正式參賽後不得人為介入、Cup 排除（D79）、Metaculus 使用條款，以及 launchd 安裝時 Louis 在場（D78）都不在放寬範圍 |
 | D108 | 2026-11-02 | Louis 於 UTC 13:29 親自安裝 `org.forecast-lab.cycle`，D105 端到端開始（窗口 `d105_e2e_20261102T1303Z`）。第一個週期選題完成，但三線因 launchd 的 PATH 沒有 `~/.local/bin` 而預檢被擋，沒有模型呼叫或寫入；`launchd/run.sh` 已補 PATH。Louis 指示端到端的監督交給 GPT，之後由 GPT 主持並分配工作；Claude 完成交接後待命 | 本輪指示。交接 `docs/tasks/M3-E2E-D105-MONITOR.md`；授權範圍與既有規則不變（D78、D105、D107） |
+| D109 | 2026-11-02 | 依 D108 接手監督並評估 600 秒間隔。第二輪預檢三線 ready，但 Gemini 的額度讀數等到准入時已過 106.720 秒，被既有 90 秒門檻擋下，沒有 Gemini 模型呼叫或新增 POST。GPT 先建立 STOP_SUBMIT、待週期自然結束，依 D107 A4 在隔離副本修正重複排隊刷新的等待（`queue_refresh_v2`／`cycle_v6`），完整 2029 passed，Gemini 第二輪獨立審查 PASS；第一輪逾時不算通過。600 秒先維持，原窗口、題數、預算、prompt、模型與送出規則不變。Louis 另指示開發審查時限可以放寬，主持人將後續開發審查上限設為 15 分鐘；預測 timeout 不變 | 本輪監督授權內的技術修正與 Louis 的審查時限指示；`docs/tasks/LAUNCHD-INTERVAL-D108.md`。Claude 已審查排程評估，相關意見與一手文件核對記於該檔；端到端與 A2 仍須實機證據，不以離線測試替代 |
+
+| D110 | 2026-11-02 | 依 D108 接手監督的授權，GPT 加入只讀狀態的有界監看 `cycle_monitor_v1`，讓既有 launchd 跨週期執行時仍能記錄進度並在異常時建立 STOP_SUBMIT。只在已選滿、剩餘不超過 24 小時的主站試驗窗口執行，模式／窗口改變或期限到即結束；沒有模型呼叫、API、送出、重送、解除停送或 A2 能力，送出紀錄齊全仍待主持人核對讀回 | D107 A4 工具類由 Claude 審查：PASS；九個新增案例，完整隔離 2038 passed。原窗口與 600 秒排程不變，不宣稱桌面 GPT 持續在線；操作與限制見 `docs/tasks/M3-E2E-D105-MONITOR.md` |
+| D111 | 2026-11-02 | D108 監督發現有效留言回執會被既有流程略過，未必有自動 GET 讀回；另有 120 秒送出上限中斷正常前檢。GPT 依 D107 A4 完成隔離 `submit_v10`／`cycle_v7`：官方 CLI 補做已受理操作的獨立讀回，另存中繼資料，不改成功或重試狀態；送出子程序上限改為 300 秒，模型時限、510 秒准入、600 秒排程與凍結窗口不變。完整隔離 2055 passed，Gemini Argon high（900 秒審查上限）PASS、無 blocking | 技術修正依既有監督與開發授權；尚待兩題型完整實機讀回與 A2，沒有 live 核准。MiniBench alias 33135、ongoing 33132／33135 已 GET-only 核對，白名單仍 false。證據與限制見 `docs/tasks/M3-READBACK-D111.md` |
 
 ---
 
 ## 16. 變更紀錄
 
+- **v1.60**（2026-11-02）：D111，`submit_v10` 的官方 CLI 增加成功回執的 GET-only 驗證帳冊，未知／矛盾讀回不能導致重送。`cycle_v7` 的送出上限由 120 改 300 秒，依既有公式的 handoff／worker／supervisor 為 4770／5100／5110 秒；覆蓋率模擬凍結政策隨版本更新。新增 16 個讀回與 1 個模擬案例，完整隔離 2055 passed，Gemini 獨立審查 PASS；Claude 文件複核 PASS。預測設定與排程間隔保持不變，實機端到端仍待完成。
+- **v1.59**（2026-11-02）：D110，新增 `cycle_monitor_v1` 與九個合成測試；完整隔離 2038 passed，Claude 靜態審查 PASS。延續 D108 的監督授權，為本次已選滿的有界 trial 窗口提供狀態監看與保守停送；沒有模型／API／預測重試能力，也沒有自動 A2 或自動 M3 驗收。原預測與送出程式不因監看工具而修改。
+
+- **v1.58**（2026-11-02）：D109，`queue_refresh_v2`／`cycle_v6`。同時排隊的刷新共享等待期間完成、且不足 30 秒的新結果，避免相同網路刷新串行累積；順序強制刷新仍查網路，失敗或時鐘倒退時拒用舊快取。新增六個離線案例，相關 134 passed、完整隔離 2029 passed；Gemini 獨立審查 PASS。GPT 只看 ID／狀態／時間進行監督，沒有查看開放題的答案；預算新鮮度門檻、窗口與 prompt／模型保持不變。後續開發審查上限 900 秒，預測 timeout 不變。
 - **v1.57**（2026-11-02）：D108。`launchd/run.sh` 在啟動工作前設定 PATH（含 `~/.local/bin`），修正 launchd 下找不到官方 CLI；launchd 每次重新執行該腳本，不需重裝。主持改由 GPT 接手，Claude 待命。預測行為、prompt、模型、整合與預算不變。
 
 - **v1.56**（2026-11-02）：D107 A2 實作，`v15_probe_v3` → `v15_probe_v4`，CLI 加 `--scenario`（預設 `single`，即原 v3 行為，v1～v3 計畫規則不變）。三個 bot testing area 重送情境，計畫帶 `reuse_authorization: "PLAN D107 A2"` 與固定上限，一次執行、不可續跑：`comment_length`（不送預測，私人留言 2000／10000／50000／150000 字元 ASCII 合成文字，每則讀回核對全文雜湊與長度，遇拒絕、unknown 或截斷即停，最多 4 次；只選已有自身預測且已被 probe 保留的題目）、`duplicate_forecast`（同題兩次合成預測，以送出前基準辨認新紀錄並記錄平台歷史筆數，最多 2 次）、`comment_retry`（預測 1 次；第一次留言在任何網路 I/O 前以本地注入的確認失敗結束並明確標記，之後由未修改的 `Submitter` 狀態機與 `COMMENT_ATTEMPTS=3` 退避最多送 2 次真實留言；使用獨立資料根目錄與標記 synthetic 的合成輸入，不寫正式送出帳冊，去重仍唯讀沿用正式帳冊）。重用題目時，先前 probe 在該題若有沒有終局結果的請求就不選；同一請求之後已 found 或有拒絕證據者視為已解決。正式 `submit.py`、`submit_transport.py` 未修改。GPT 兩輪實作（第一輪 needs_input 由 Claude 決定不改正式送出程式、真實留言上限 2 次），Claude 審查未修改，完整 2023 passed；Gemini（Argon high）獨立審查 PASS、無發現。規格 `docs/tasks/D107-A2-BTA-REUSE-PROBE.md`。

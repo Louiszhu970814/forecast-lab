@@ -264,10 +264,17 @@ def test_tail_after_observation_end_is_not_censored(tmp_path):
 
 def test_submission_timeout_is_miss_not_success(tmp_path):
     cfg = settings()
-    cfg["submission"]["submit_s"] = 200
+    cfg["submission"]["submit_s"] = 400
     result = replay(tmp_path, cfg=cfg)
     assert result["miss_reasons"] == {"timeout": 1}
     assert result["questions"][0]["submitted_at"] is None
+
+
+def test_submission_within_extended_bound_can_finish(tmp_path):
+    cfg = settings()
+    cfg["submission"]["submit_s"] = 200
+    result = replay(tmp_path, cfg=cfg)
+    assert result["covered"] == 1 and result["questions"][0]["submitted_at"] == at(264)
 
 
 def test_submission_waits_for_cycle_and_can_be_late(tmp_path):
@@ -423,10 +430,10 @@ def test_submission_budget_defers_unstarted_questions(tmp_path):
     cfg = settings()
     cfg["submission_policy"] = "cycle_end"
     cfg["submission"] = {"comment_s": 20, "precheck_s": 20, "submit_s": 20}
-    result = replay(tmp_path, [question(i) for i in range(1, 4)], cfg)
-    assert result["covered"] == 3
-    assert result["questions"][-1]["submitted_at"] == at(660)
-    assert len(result["attempts"]) == 9
+    result = replay(tmp_path, [question(i) for i in range(1, 7)], cfg)
+    assert result["covered"] == 6
+    assert result["questions"][-1]["submitted_at"] == at(1260)
+    assert len(result["attempts"]) == 18
 
 
 def test_changed_engine_policy_rejected(tmp_path, monkeypatch):
@@ -548,7 +555,7 @@ def test_idle_simulator_handoff_releases_before_next_tick(tmp_path):
     cfg['players']['gemini']['stops'] = [{'start': at(0), 'end': at(20000), 'reason': 'preflight_blocked'}]
     # A continuous stream of known deadlines keeps this otherwise idle worker alive
     # until its handoff. Each question already has a completed first-layer answer.
-    deadlines = list(range(700, 4200, 500)) + [4171]
+    deadlines = list(range(700, 4800, 500)) + [4771]
     record = CS.register(tmp_path, cfg, [question(i + 1, closing=d + 1500) for i, d in enumerate(deadlines)])
     sim = CS.Simulation(record['frozen'], cfg['seed'])
     for q in sim.questions.values():
@@ -558,10 +565,10 @@ def test_idle_simulator_handoff_releases_before_next_tick(tmp_path):
     sim.next_tick = NOW + timedelta(seconds=600)
     sim.run_cycle()
     cycle = sim.cycles[-1]
-    assert cycle['handoff'] and cycle['finished_at'] == at(4170)
-    assert sim.next_tick == NOW + timedelta(seconds=4200)
+    assert cycle['handoff'] and cycle['finished_at'] == at(4770)
+    assert sim.next_tick == NOW + timedelta(seconds=4800)
     assert not sim.questions[len(deadlines)]['sealed']
     sim.now = sim.next_tick
     sim.next_tick += timedelta(seconds=600)
     sim.run_cycle()
-    assert sim.questions[len(deadlines)]['submitted'] <= NOW + timedelta(seconds=4171 + 60)
+    assert sim.questions[len(deadlines)]['submitted'] <= NOW + timedelta(seconds=4771 + 60)

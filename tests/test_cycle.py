@@ -496,7 +496,7 @@ def test_supervisor_recovers_progress_into_one_cycle_summary(tmp_path, monkeypat
             "active_step": "scheduler", "summary": {"type": "cycle", "cycle_id": cycle_id,
             "started_at": to_iso(NOW), "steps": {"poll": {"status": "ok"}},
             "new_question_ids": [100], "revised_question_ids": [], "errors": []}})
-        assert kw["timeout_s"] == 4320
+        assert kw["timeout_s"] == 5100
         return 124, True
     monkeypatch.setattr(C, "supervise", supervise)
     assert C.main(["--campaign", str(tmp_path / "fake.json")]) == 124
@@ -504,7 +504,7 @@ def test_supervisor_recovers_progress_into_one_cycle_summary(tmp_path, monkeypat
     assert len(rows) == 1 and rows[0]["status"] == "timeout"
     assert rows[0]["new_question_ids"] == [100]
     assert rows[0]["steps"]["scheduler"]["status"] == "interrupted"
-    assert rows[0]["timing_limits"]["supervisor_timeout_s"] == 4330
+    assert rows[0]["timing_limits"]["supervisor_timeout_s"] == 5110
 
 
 def test_tree_cleanup_failure_still_kills_stopped_worker(monkeypatch):
@@ -593,9 +593,9 @@ def test_supervisor_limit_uses_configured_full_chain(timeouts):
     cfg = {**F.load_run_config(), 'timeouts_s': timeouts}
     limits = C.timing_limits(cfg)
     assert limits['worst_job_s'] == 2 * (max(timeouts['tier1'], timeouts['tier2']) + timeouts['repair']) + 8 * F.QUOTA_QUERY_S
-    assert limits['handoff_s'] >= 510 + limits['worst_job_s'] + 240
+    assert limits['handoff_s'] >= 510 + limits['worst_job_s'] + 600
     assert (limits['handoff_s'] + 30) % C.INTERVAL_S == 0
-    assert limits['supervisor_timeout_s'] == limits['handoff_s'] + 30 + 120 + 10
+    assert limits['supervisor_timeout_s'] == limits['handoff_s'] + 30 + 300 + 10
     assert limits['worker_timeout_s'] == limits['supervisor_timeout_s'] - 10
 
 
@@ -721,7 +721,7 @@ def test_finalized_submit_failure_is_recorded_and_cycle_continues(setup_cycle, t
         return {"status": "ok"}
     result = run(submit=submit)
     assert result["status"] == "complete" and len(tracker["calls"]) == 1
-    assert calls == [120, 120]
+    assert calls == [300, 300]
     hook = result["steps"]["on_finalized"]
     assert hook["count"] == 1
     call, = hook["calls"]
