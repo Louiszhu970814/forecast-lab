@@ -1714,7 +1714,7 @@ view_image                  stable true
 
 ## 16. 變更紀錄
 
-- **v1.42**（2026-11-02）：D94，`m2_supplement_v2` 新增具名且一次性的後續授權契約；D92 v1 界線保留，D94 僅 1 題／2 次／1800 秒，承接原預算、正式 preflight 與既有整樹清理。要求 D92 已完成及核對版本為 `quota_model_verification_v2`。模型、prompt、正式篩題規則、整合、原題集、歷史成本與 local 模式不變。研究、審查、測試與實機結果另記 `docs/tasks/M2-VERIFY-D94.md`；尚未以新資料宣告 M2／M3 完成。
+- **v1.42**（2026-11-02）：D94，`m2_supplement_v2` 新增具名且一次性的後續授權契約；D92 v1 界線保留，D94 僅 1 題／2 次／1800 秒，承接原預算、正式 preflight 與既有整樹清理。要求 D92 已完成及核對版本為 `quota_model_verification_v2`；每次實際呼叫准入檢查既有成本，避免同題修復／補跑跨過不確定停止條件。模型、prompt、正式篩題規則、整合、原題集、歷史成本與 local 模式不變。完整隔離 1527 passed、Gemini 最終複審 PASS；實機只用 1 次呼叫，前後 Gemini 兩桶無可觀察下降，保留 undetermined，沒有補跑或 POST。原 M2 仍 13／14。研究、審查、測試與實機結果見 `docs/tasks/M2-VERIFY-D94.md`；官方來源及依 Louis 追加指示的 GitHub 佐證見 `docs/tasks/METACULUS-RESEARCH-D94.md`。尚未宣告 M2／M3 完成。
 
 - **v1.41**（2026-11-02）：D93，新增 `quota_model_verification_v2`，修正已知未使用第三方桶的未來 reset 占位滑動導致的過度拒絕；只接受精確全滿、有序觀測、未跨舊 reset、5 秒內符合對應固定窗口的形狀，其他情況照舊拒絕。新 Gemini attempt 附核對版本；模型／prompt／整合／預算／停線／歷史紀錄與 local 模式不變。新增 20 個合成回歸，相關 216 passed; full suite 1518 passed，Gemini 獨立審查 PASS；證據與限制見 `docs/tasks/QUOTA-VERIFICATION-D93.md`。本輪真實預測共 1 次，沒有 API POST、未知啟動或自動重跑；六組容量分析為診斷用途，非 M3 正式通過。
 

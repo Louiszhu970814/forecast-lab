@@ -33,3 +33,20 @@ GPT 再從官方 GitHub 取得本輪 HEAD `6922ad077753da7d80dbe3ae76959e5ffbe10
 Gemini 初稿把 TextField 的 full_clean 解讀為強制 MaxLengthValidator，也把一般 project grant、gateway 歸因與 Retry-After 的語氣說得過滿。GPT 依上列一手來源修正；Gemini 後續兩次審查接受 TextField 與具體存取 schema 的修正。這份整合結論優先於保留於 reports 的未校正模型初稿。
 
 已送出的官方詢問不重寄。等待平台回答可集中在：（a）MC 可用的映射／讀取權限；（b）本帳號兩次留言拒絕及限流規則；（c）部署的字元／bytes 上限。三問已有較精確的依據，但私人留言與 MC 實機 gate 尚未通過。M2 額度驗證獨立進行，不需等待這封詢問。
+
+## Louis 追加 GitHub 論壇查詢後的發現
+
+正式成本量測及 idle 查詢結束後，Gemini Flash Medium 另做 8 次明確限定 GitHub 的搜尋，包含 Issues、Discussions、PR 與官方／第三方客戶端。一個查詢回傳沒有摘要，該輪沒有開啟新頁面。Gemini 初稿聲稱「完全沒有相關討論」，這超過搜尋證據，**不採用**；沒有逐一核實的第三方 pmxt 說法也不採用。
+
+GPT 改以無登入、唯讀的 GitHub Search API 交叉查詢，取得以下真正存在的官方紀錄，再交 Gemini 讀頁核對。搜尋結果不是所有 GitHub 討論的完整清單，也不從檢索未命中推論某討論不存在。
+
+| 官方紀錄 | 狀態／日期 | 對本專案的意義 |
+|---|---|---|
+| [Metaculus #5261](https://github.com/Metaculus/metaculus/pull/5261) | 2026-10-17 合併 | 直接解釋閉源 gateway、null 遮蔽、存取層級與歷史欄位限制；排除「只因客戶端漏解析」的假設。仍需平台提供本 bot 可用的 MC 映射或受支持權限方案。 |
+| [Metaculus #3799](https://github.com/Metaculus/metaculus/issues/3799) | 已關閉，最後更新 2026-01-24 | 多選題開放期間新增／刪除選項的正式功能追蹤，包含 options_history 工作項目；支持不能假設當前選項等同完整歷史。不是存取解鎖方案。 |
+| [forecasting-tools #370](https://github.com/Metaculus/forecasting-tools/pull/370) | 2026-10-14 合併 | 官方客戶端修正其他 4xx 立即失敗、429 仍可依重試策略處理；是客戶端行為證據，不提供留言配額數字，也不允許突破本專案已固定的 POST 上限。 |
+| [Metaculus #5282](https://github.com/Metaculus/metaculus/pull/5282) | 2026-10-29 合併 | 官方新增 FutureEval／MiniBench 漏留言提醒，說明留言要求與漏發風險。提醒的 5 篇／50% 條件只是偵測門檻，不是可漏發一半的比賽規則；合併不代表通知功能已啟用。 |
+
+留言 150,000 的部署上限仍沒有新增可驗證結論；前述 Django／serializer 分析保留。GitHub 搜尋有找出具體且有用的官方佐證，但沒有直接解除本帳號的 429 或提供可讀 MC 映射，不因此重送 V15。
+
+Gemini 最後於 UTC **04:18:11** 完成四頁實讀與四次自有頁面閱讀，沒有讀取錯誤；已明確更正先前檢索不存在的過度結論，接受上述證據分級。這段結果不是僅由 GPT 提供摘要後冒充 Gemini 已讀來源。
