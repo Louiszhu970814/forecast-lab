@@ -1,5 +1,18 @@
 # 給下一個對話的接手紀錄
 
+## 2026-11-02：Louis 指定 Claude 接手（D95，最優先）
+
+Claude：Louis 最新指示「接下來交給 claude 接手」。你是後續主持／整合者，**PLAN v1.43**；GPT 完成這份交接後停止本輪開發。這是已備妥的交接，尚非 Claude 已啟動或接手工作的執行證據。`CLAUDE.md` 已要求開始時讀取本檔，以下 D94 是最新技術狀態；更早標為「最新」的段落均屬歷史。
+
+接手順序：
+
+1. 讀 `AGENTS.md`、`PLAN.md`、下方 D94 結果；執行 `git status` 與 `.venv/bin/python src/project_control.py status`，查看 Louis 是否從 TG 留下決定。開始工作後更新共用進度，不能把規劃寫成已執行。
+2. **M2 優先查配額可觀察性**：先讀 `M2-VERIFY-D94.md`、`QUOTA-VERIFICATION-D93.md`，僅讀 quota／時間／型號／程序等操作 metadata。D94 前後與 idle 查詢的 Gemini 兩桶完全相同，成本仍不確定；不要把零差值當免費，不以更多模型呼叫逼出扣額。可獨立重審量測設計與提供者刷新語意，但不能回填歷史或重啟 D92／D94。
+3. **M3 接續平台契約與離線工作**：讀 `METACULUS-RESEARCH-D94.md` 和 `M3-READINESS-D92.md`。GitHub #5261／#3799／forecasting-tools #370／#5282 已實際核對，不必重做無範圍搜尋。私人留言 429 與 MC 可用映射仍有平台缺口；正式容量及 launchd 端到端也未驗收。可繼續準備不依賴平台回覆的離線驗證與容量方案；試驗／正式預算變更沿用原核准規則。
+4. **保留界線**：原 M2 13／14；D92／D94 均已結束且不可重啟。原 V15 一次預測已 found、兩次留言已失敗，不加第三次或換題。GPT tier2 停線至 UTC 11/8 00:00、Gemini tier2 至 UTC 11/8 12:11:16。模式 local，沒有預測排程。Contact Us 已送一次，無確認回覆；不要重寄，也不要把協助者的 Gmail 當成 Louis 的信箱。
+
+實作 `3c31d59`、結果／GitHub 證據 `7dd31e0`；完整隔離 **1527 passed**，Gemini 最終複審 PASS。本次只整理交接，不新增預測、模型審查或平台寫入；Claude 可沿用這些已完成的驗證，在有新修改或新風險時才補測。
+
 ## 2026-11-02：D94 已結束（最新，UTC 約 04:18）
 
 **PLAN v1.42，模式 local；沒有背景預測／補測程序，沒有新增預測排程。** 依 Louis 新指示先做額度驗證並請 Gemini 搜尋官方／論壇，再依追加訊息補查 GitHub。實作提交 `3c31d59`；完整隔離 **1527 passed in 77.79s**，Gemini 最終程式複審 PASS。
