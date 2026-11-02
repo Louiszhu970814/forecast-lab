@@ -91,3 +91,16 @@
 - probe 的留言屬性核對同樣加上 `is_private=true`。
 - 新測試用接近後端行為的假伺服器：私人留言只在帶旗標時列出、永遠附 `next`。
 - Gemini（Argon high）第 1 輪 PASS，兩項 non-blocking（逐筆核對 `is_private`；補公開留言 found 的測試），已採納；第 2 輪定點複查 PASS。隔離完整 **1718 passed**。
+
+### 唯讀對帳（`api_transport_v6`，提交 `212a1f3` 之後）
+
+- UTC 11:48:47～11:49:00，模式維持 local，執行 `v15_probe.py run --probe-id v15_1793618837390_110f6deb`（不帶復原旗標）。預測已 found 而跳過；留言已有 `request_started`，因此只走讀回，不可能寫入（寫入路徑另需 trial 檢查）。
+- 留言讀回 **found**（留言 1250911，同一 request_id），屬性核對 `verified: true`、`included_forecast_order_verified: true`，結果 `complete`。
+- 本 probe 的平台寫入總數：預測 POST 1 次、留言 POST 1 次；沒有 4xx／429，冷卻帳冊沒有新紀錄。
+
+## 結論
+
+- 私人留言：加上請求間隔（D98）後成功發布，D87／D88 的拒絕與 429 沒有重現（單一樣本，不能證明限流數值）。
+- 多選題：歷史選項順序為 null 時，以目前選項標籤為鍵送出、以多重集合讀回（D99），在真實平台上 found，順序也相符。
+- unknown 對帳：讀回失敗時不重送，修正讀回後唯讀對帳成功，與 §3.6 的設計一致。
+- 這是合成元件證據；M3 仍需 launchd 週期的無人介入端到端驗收、留言長度上限與只補送留言的真實路徑。
