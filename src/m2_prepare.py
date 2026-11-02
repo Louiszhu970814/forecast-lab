@@ -21,7 +21,7 @@ from metaculus import MetaculusClient
 from poll_questions import (poll, TournamentIndex, latest_snapshots, snapshot_from_post,
                             is_synced_copy, record_snapshots)
 
-PREPARATION_VERSION = "m2_prepare_v4"
+PREPARATION_VERSION = "m2_prepare_v5"
 MAX_MAIN_PAGES = 20
 
 
@@ -44,14 +44,19 @@ def main_site_pages(client):
             page = client._get_url(nxt)
 
 
-def prepare(attempt_cap: int):
+def prepare(attempt_cap: int, *, question_count=20, parent_campaign=None):
+    if type(question_count) is not int or not 1 <= question_count <= 20:
+        raise ValueError("invalid bounded question count")
     root = PROJECT_ROOT / "data"
     client = MetaculusClient(get_secret("METACULUS_TOKEN", PROJECT_ROOT / ".env"))
     cfg = current_tournaments(client, configured=load_tournaments())
     project_ids = set(cfg["excluded_project_ids"])
     index = TournamentIndex.from_polls(poll(client, i, metadata_only=True) for i in sorted(project_ids))
     with transaction(root):
-        previous = {r.get("question_id") for r in read_complete(root / "forecasts.jsonl")}
+        previous = {r.get("question_id") for name in ("forecasts.jsonl", "forecast_attempt_starts.jsonl")
+                    for r in read_complete(root / name)}
+        previous.update(q["question_id"] for r in read_complete(root / "campaigns.jsonl")
+                        for q in r.get("campaign", {}).get("questions", []))
     now, rcfg, chosen = utc_now(), load_run_config(), []
     for ground in ("main_site_questions",):
         project = cfg["tournaments"][ground]["id"]
@@ -92,16 +97,16 @@ def prepare(attempt_cap: int):
                     skipped.append({"post_id": snap["post_id"], "reason": reason or "decision deadline unavailable"})
                 else:
                     pool[snap["question_id"]] = {**snap, "ground": ground}
-            chosen = sorted(pool.values(), key=lambda s: (F.decision_deadline(s, rcfg), s["question_id"]))[:20]
+            chosen = sorted(pool.values(), key=lambda s: (F.decision_deadline(s, rcfg), s["question_id"]))[:question_count]
             append_record(root / "poll_log.jsonl", {"type": "m2_preparation_page", "record_id": new_id("m2page"),
                 "version": PREPARATION_VERSION, "polled_at": to_iso(utc_now()), "tournament_id": project,
                 "page_number": page_number, "n_posts": len(posts), "eligible_candidates": len(pool), "skipped": skipped})
-            if len(chosen) == 20:
+            if len(chosen) == question_count:
                 break
-        if len(chosen) == 20:
+        if len(chosen) == question_count:
             break
-    if len(chosen) < 20:
-        raise SystemExit(f"Fewer than 20 eligible, unforecast, nonsynchronized trial questions: {len(chosen)}")
+    if len(chosen) < question_count:
+        raise SystemExit(f"Fewer than {question_count} eligible, unforecast, nonsynchronized trial questions: {len(chosen)}")
     start = now.replace(hour=0, minute=0, second=0, microsecond=0)
     campaign = {"version": "m2_campaign_v1", "campaign_id": new_id("m2"),
         "preparation_version": PREPARATION_VERSION,
@@ -110,11 +115,15 @@ def prepare(attempt_cap: int):
         "weekly_attempt_caps": dict.fromkeys(("claude", "gemini", "gpt"), attempt_cap),
         "expected_new_questions": 0, "repair_reserve": 2, "urgent_slack_s": 120,
         "run_config_sha256": hash_obj(rcfg), "quota_policy_sha256": hash_obj(load_quota_policy())}
+    if parent_campaign is not None:
+        for key in ("budget_window_start", "budget_window_end", "weekly_attempt_caps"):
+            campaign[key] = parent_campaign[key]
+        campaign["supplement_parent_id"] = parent_campaign["campaign_id"]
     verified = SafeSnapshots(client, root, campaign, tournaments=cfg)()
     if any(trial_membership_error(client.get_post(s["post_id"]), cfg["tournaments"]["bot_testing_area"]["id"])
            for s in verified.values()):
         raise SystemExit("Project membership changed during preparation; no campaign file written")
-    if len(verified) != 20:
+    if len(verified) != question_count:
         raise SystemExit("Selection changed during preparation; no campaign file written")
     path = root / "campaigns" / (campaign["campaign_id"] + ".json")
     path.parent.mkdir(exist_ok=True)

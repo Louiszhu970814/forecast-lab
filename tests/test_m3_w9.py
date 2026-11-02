@@ -614,7 +614,7 @@ def test_new_m2_campaign_rechecks_membership_without_changing_frozen_campaigns(t
     else:
         path = M.prepare(64)
         campaign = json.loads(path.read_text())
-        assert campaign['preparation_version'] == 'm2_prepare_v4'
+        assert campaign['preparation_version'] == 'm2_prepare_v5'
         assert campaign['version'] == 'm2_campaign_v1' and len(campaign['questions']) == 20
         assert all(q['ground'] == 'main_site_questions' for q in campaign['questions'])
     records = read_complete(root / 'poll_log.jsonl')
