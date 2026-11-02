@@ -1,4 +1,4 @@
-"""Authenticated API transport, api_transport_v3. No write retries; V15 checks below.
+"""Authenticated API transport, api_transport_v4. No write retries; V15 checks below.
 
 Only normalized allowlisted receipts leave this boundary. Remote bodies and exception
 messages may contain credentials and are never used as diagnostics or ledger evidence.
@@ -14,6 +14,7 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from http import HTTPStatus
+from api_backoff import Backoff, Deferred, DEFAULT_PATH
 
 from continuous import current_tournaments
 from flab.ids import sha256_hex
@@ -25,7 +26,7 @@ from submit_contract import ConfirmedFailure, Readback, own_forecast_records
 FORECAST_PATH = "/api/questions/forecast/"
 COMMENT_PATH = "/api/comments/create/"
 
-VERSION = "api_transport_v3"
+VERSION = "api_transport_v4"
 # V15: verify every endpoint, field and query on bot testing area before live.
 ACCOUNT_PATH = "users/me/"
 ACCOUNT_ID, ACCOUNT_IS_BOT = "id", "is_bot"
@@ -108,8 +109,8 @@ def serialized_forecast_receipt(question, row, intent, payload, started):
 
 
 class TransportError(RuntimeError):
-    def __init__(self, status=None, summary="API transport unavailable"):
-        self.status = status
+    def __init__(self, status=None, summary="API transport unavailable", *, retry_at=None):
+        self.status, self.retry_at = status, retry_at
         super().__init__(f"HTTP {status}: {summary}" if status is not None else summary)
 
 
@@ -129,18 +130,21 @@ class SafeReadClient(MetaculusClient):
             APITransport._check_url(url)
             return super()._get_url(url)
         except Exception as exc:
-            raise TransportError(getattr(exc, "status", None), "API read unavailable") from None
+            raise TransportError(getattr(exc, "status", None), "API read unavailable",
+                retry_at=getattr(exc, "retry_at", None)) from None
 
 
 class APITransport:
-    def __init__(self, token, *, opener=default_opener, timeout=30.0, poll_log=None):
+    def __init__(self, token, *, opener=default_opener, timeout=30.0, poll_log=None, backoff=None):
         if not isinstance(token, str) or not token:
             raise ValueError("Metaculus token required")
         self._token, self._open, self._timeout = token, opener, timeout
+        self._backoff = backoff or Backoff(DEFAULT_PATH if opener is default_opener else None)
         self._bot_id = None
         self._poll_log = POLL_LOG if poll_log is None else poll_log
         # The same host/redirect/error boundary protects authenticated GET pagination.
-        self.client = SafeReadClient(token, opener=self._safe_open, timeout=timeout)
+        self.client = SafeReadClient(token, opener=self._safe_open, timeout=timeout,
+            backoff=self._backoff, manage_backoff=False)
 
     @staticmethod
     def _check_url(url):
@@ -152,7 +156,7 @@ class APITransport:
     def _safe_open(self, req, timeout):
         self._check_url(req.full_url)
         try:
-            response = self._open(req, timeout)
+            response = self._backoff.open(self._open, req, timeout)
             status = getattr(response, "status", 200)
             if not isinstance(status, int):
                 raise TransportError(summary="unrecognized HTTP status")
@@ -166,8 +170,13 @@ class APITransport:
         except urllib.error.HTTPError as exc:
             # Use a local status summary, never the error body/reason (even on 4xx).
             status = exc.code
+            retry_at = getattr(exc, "retry_at", None)
             exc.close()
-            raise urllib.error.HTTPError(req.full_url, status, "API request failed", {}, None) from None
+            clean = urllib.error.HTTPError(req.full_url, status, "API request failed", {}, None)
+            clean.retry_at = retry_at
+            raise clean from None
+        except Deferred as exc:
+            raise TransportError(exc.status, "API cooldown active", retry_at=exc.retry_at) from None
         except Exception:
             raise TransportError(summary="API connection or response unavailable") from None
 
@@ -233,8 +242,11 @@ class APITransport:
                 summary = HTTPStatus(status).phrase if status in HTTPStatus._value2member_map_ else "Request rejected"
                 failure = ConfirmedFailure(f"HTTP {status}: {summary}")
                 failure.status = status
+                failure.retry_at = getattr(exc, "retry_at", None)
                 raise failure from None
-            raise TransportError(status, "write outcome unknown") from None
+            raise TransportError(status, "write outcome unknown", retry_at=getattr(exc, "retry_at", None)) from None
+        except TransportError:
+            raise  # Preserve sanitized cooldown status/deadline; callers still never resend unknown writes.
         except Exception:
             raise TransportError(summary="write outcome unknown") from None
         operation = "forecast" if path == FORECAST_PATH else "comment"

@@ -1,0 +1,133 @@
+"""Credential-free, append-only API cooldown shared by reads and writes.
+
+Production clients share a project-wide ledger. Mock openers use private in-memory
+state unless a path is supplied. No request is issued while a cooldown is active.
+"""
+from __future__ import annotations
+
+import fcntl
+import threading
+import urllib.error
+from contextlib import contextmanager
+from datetime import datetime, timedelta, timezone
+from email.utils import parsedate_to_datetime
+from pathlib import Path
+
+from flab.jsonl import append_record
+from flab.ledger import read_complete
+from flab.timeutil import parse_iso, to_iso, utc_now
+
+VERSION = "api_backoff_v1"
+DEFAULT_PATH = Path(__file__).resolve().parents[1] / "data/api_cooldowns.jsonl"
+MAX_DATE = datetime(9999, 12, 31, 23, 59, 59, tzinfo=timezone.utc)
+DEFAULT_429_SECONDS = 60
+
+
+def retry_deadline(headers, now):
+    """Parse RFC 9110 delay-seconds/HTTP-date; never return remote strings."""
+    value = headers.get("Retry-After") if headers else None
+    if not isinstance(value, str):
+        return None
+    value = value.strip()
+    if value and value.isascii() and value.isdecimal():
+        # Arbitrarily large integer values must not shorten a server's delay.
+        if len(value.lstrip("0")) > 12:
+            return MAX_DATE
+        try:
+            return min(MAX_DATE, now + timedelta(seconds=int(value)))
+        except (OverflowError, ValueError):
+            return MAX_DATE
+    if len(value) > 128 or any(c in value for c in "\r\n"):
+        return None
+    try:
+        result = parsedate_to_datetime(value)
+        if result.tzinfo is None:
+            result = result.replace(tzinfo=timezone.utc)  # obsolete HTTP asctime date
+        return max(now, result.astimezone(timezone.utc))
+    except (TypeError, ValueError, OverflowError):
+        return None
+
+
+class Deferred(RuntimeError):
+    def __init__(self, retry_at, status=None):
+        self.retry_at, self.status = retry_at, status
+        super().__init__("API cooldown active")
+
+
+class Backoff:
+    def __init__(self, path=None, *, now=utc_now):
+        self.path = Path(path) if path is not None else None
+        self.now = now
+        self._records = []
+        self._lock = threading.Lock()
+
+    @contextmanager
+    def _locked(self):
+        with self._lock:
+            if self.path is None:
+                yield
+                return
+            self.path.parent.mkdir(parents=True, exist_ok=True)
+            with self.path.with_suffix(".lock").open("a") as lock:
+                fcntl.flock(lock, fcntl.LOCK_EX)
+                try:
+                    yield
+                finally:
+                    fcntl.flock(lock, fcntl.LOCK_UN)
+
+    def _check(self):
+        records = read_complete(self.path) if self.path else self._records
+        active = [r for r in records if parse_iso(r["not_before"]) > self.now()]
+        if active:
+            latest = max(active, key=lambda r: parse_iso(r["not_before"]))
+            raise Deferred(latest["not_before"], latest["http_status"])
+
+    def _observe(self, status, headers):
+        now = self.now()
+        until = retry_deadline(headers, now)
+        if status == 429 and (until is None or until <= now):
+            until = now + timedelta(seconds=DEFAULT_429_SECONDS)
+        if until is None:
+            return None
+        # Millisecond ISO output rounds down: round the deadline UP first.
+        if until.microsecond % 1000:
+            until += timedelta(microseconds=1000 - until.microsecond % 1000)
+        record = {"type": "api_cooldown", "version": VERSION, "at": to_iso(now),
+                  "http_status": status, "not_before": to_iso(until)}
+        if self.path:
+            append_record(self.path, record)
+        else:
+            self._records.append(record)
+        return record["not_before"]
+
+    def open(self, opener, req, timeout):
+        # Lock through response headers so concurrent clients cannot slip past a 429.
+        with self._locked():
+            self._check()
+            try:
+                response = opener(req, timeout)
+            except urllib.error.HTTPError as exc:
+                status = exc.code
+                if type(status) is not int or not 100 <= status <= 599:
+                    exc.close()
+                    raise RuntimeError("unrecognized HTTP status") from None
+                try:
+                    retry_at = self._observe(status, exc.headers)
+                finally:
+                    exc.close()
+                clean = urllib.error.HTTPError(req.full_url, status, "API request failed", {}, None)
+                clean.retry_at = retry_at
+                raise clean from None
+            status = getattr(response, "status", 200)
+            if type(status) is not int or not 100 <= status <= 599:
+                response.close()
+                raise RuntimeError("unrecognized HTTP status")
+            if not 200 <= status < 300:
+                try:
+                    retry_at = self._observe(status, getattr(response, "headers", None))
+                finally:
+                    response.close()
+                clean = urllib.error.HTTPError(req.full_url, status, "API request failed", {}, None)
+                clean.retry_at = retry_at
+                raise clean
+            return response

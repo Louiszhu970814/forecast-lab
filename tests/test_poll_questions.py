@@ -174,7 +174,13 @@ def test_retry_after_and_max_pages() -> None:
             raise urllib.error.HTTPError(req.full_url, 429, "Too Many Requests", {"Retry-After": "7"}, None)
         return FakeResponse(json.dumps({"results": POSTS[:1], "next": "https://www.metaculus.com/api/posts/?offset=1"}).encode())
 
-    client = MetaculusClient(TOKEN, opener=opener, sleep=sleeps.append)
+    from api_backoff import Backoff
+    from datetime import datetime, timedelta, timezone
+    clock = [datetime(2026, 11, 2, tzinfo=timezone.utc)]
+    def sleep(seconds):
+        sleeps.append(seconds)
+        clock[0] += timedelta(seconds=seconds)
+    client = MetaculusClient(TOKEN, opener=opener, sleep=sleep, backoff=Backoff(now=lambda: clock[0]))
     with pytest.raises(MetaculusError):
         list(client.list_posts(32977, max_pages=3))
     assert sleeps == [7.0] and len(calls) == 4

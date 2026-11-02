@@ -13,7 +13,11 @@ import urllib.error
 import urllib.parse
 import urllib.request
 from http import HTTPStatus
+from api_backoff import Backoff, Deferred, DEFAULT_PATH
+from flab.timeutil import parse_iso
 from typing import Any, Callable, Iterator
+
+VERSION = "metaculus_read_v1"
 
 API_BASE = "https://www.metaculus.com/api"
 USER_AGENT = "forecast-lab/0.1 (+https://github.com/Louiszhu970814/forecast-lab)"
@@ -42,7 +46,8 @@ def _default_opener(req: urllib.request.Request, timeout: float) -> Any:
 
 class MetaculusClient:
     def __init__(self, token: str, *, base: str = API_BASE, timeout: float = 30.0, max_retries: int = 3,
-                 opener: Opener = _default_opener, sleep: Callable[[float], None] = time.sleep) -> None:
+                 opener: Opener = _default_opener, sleep: Callable[[float], None] = time.sleep,
+                 backoff: Backoff | None = None, manage_backoff: bool = True) -> None:
         if not token:
             raise ValueError("a Metaculus token is required")
         self._token = token
@@ -52,6 +57,9 @@ class MetaculusClient:
         self._max_retries = max_retries
         self._open = opener
         self._sleep = sleep
+        self._backoff = backoff or Backoff(DEFAULT_PATH if opener is _default_opener else None)
+        if manage_backoff:
+            self._open = lambda req, timeout: self._backoff.open(opener, req, timeout)
 
     def __repr__(self) -> str:  # never expose the token
         return f"MetaculusClient(base={self._base!r})"
@@ -72,13 +80,21 @@ class MetaculusClient:
                     return json.loads(resp.read().decode("utf-8"))
             except urllib.error.HTTPError as exc:
                 if exc.code in RETRY_STATUSES and attempt < self._max_retries:
-                    retry_after = exc.headers.get("Retry-After") if exc.headers else None
-                    delay = float(retry_after) if retry_after and retry_after.isdigit() else 2.0 ** attempt
-                    self._sleep(min(delay, 60.0))
+                    retry_at = getattr(exc, "retry_at", None)
+                    delay = max(2.0 ** attempt, (parse_iso(retry_at) - self._backoff.now()).total_seconds()) if retry_at else 2.0 ** attempt
+                    if delay > 60:
+                        failure = MetaculusError(exc.code, "read", "API cooldown deferred")
+                        failure.retry_at = retry_at
+                        raise failure from None
+                    self._sleep(delay)
                     attempt += 1
                     continue
                 summary = HTTPStatus(exc.code).phrase if exc.code in HTTPStatus._value2member_map_ else "Request rejected"
                 raise MetaculusError(exc.code, "read", summary) from None
+            except Deferred as exc:
+                failure = MetaculusError(exc.status, "read", "API cooldown active")
+                failure.retry_at = exc.retry_at
+                raise failure from None
             except (urllib.error.URLError, TimeoutError) as exc:
                 if attempt < self._max_retries:
                     self._sleep(2.0 ** attempt)

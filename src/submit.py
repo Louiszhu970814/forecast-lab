@@ -29,7 +29,7 @@ from validate import submit_deadline
 from project_policy import trial_membership_error
 from submit_contract import ConfirmedFailure, Readback
 
-VERSION = "submit_v8"
+VERSION = "submit_v9"
 BUSY_EXIT_CODE = 75
 FORECAST_PATH = "/api/questions/forecast/"
 COMMENT_PATH = "/api/comments/create/"
@@ -418,13 +418,16 @@ class Submitter:
             reason = f"readback unavailable: {type(exc).__name__}"
         self._event(intent, "unknown", operation=operation, request_id=request_id, reason=reason)
 
-    def _failed(self, intent, operation, request_id, evidence):
+    def _failed(self, intent, operation, request_id, evidence, *, retry_at=None):
         with transaction(self.root):
             count = sum(r["status"] == "request_started" and r.get("operation") == operation for r in self._history(intent))
             exhausted = count >= (COMMENT_ATTEMPTS if operation == "comment" else FORECAST_ATTEMPTS)
+            next_retry = self.now() + timedelta(seconds=2 ** max(0, count - 1))
+            if retry_at is not None:
+                next_retry = max(next_retry, parse_iso(retry_at))
             self._event(intent, operation + "_failed" if exhausted else "confirmed_failed", operation=operation,
                         request_id=request_id, evidence=evidence, notify_louis=exhausted,
-                        next_retry_at=to_iso(self.now() + timedelta(seconds=2 ** max(0, count - 1))))
+                        next_retry_at=to_iso(next_retry))
 
     def _last_operation(self, intent, operation):
         return next((r for r in reversed(self._history(intent)) if r.get("operation") == operation), None)
@@ -476,7 +479,8 @@ class Submitter:
             path = FORECAST_PATH if operation == "forecast" else COMMENT_PATH
             response = self.transport.write(path, copy.deepcopy(intent[f"{operation}_payload"]), request_id=request_id)
         except ConfirmedFailure as exc:
-            self._failed(intent, operation, request_id, str(exc) or "transport confirmed nonacceptance")
+            self._failed(intent, operation, request_id, str(exc) or "transport confirmed nonacceptance",
+                retry_at=getattr(exc, "retry_at", None))
             return True
         except Exception as exc:
             self._event(intent, "unknown", operation=operation, request_id=request_id,
@@ -527,6 +531,8 @@ class Submitter:
             while True:
                 if last and last["status"] == "confirmed_failed":
                     delay = (parse_iso(last["next_retry_at"]) - self.now()).total_seconds()
+                    if delay > 60:
+                        return  # Preserve the deadline; let the next scheduler invocation resume.
                     if delay > 0:
                         self.sleep(delay)
                         if self.now() < parse_iso(last["next_retry_at"]):
@@ -612,8 +618,10 @@ def cli_transport(root):
         return OfflineTransport()
     from flab.envfile import get_secret
     from submit_transport import APITransport
+    from api_backoff import Backoff
     return APITransport(get_secret("METACULUS_TOKEN", root / ".env"),
-                        poll_log=root / "data" / "poll_log.jsonl")
+                        poll_log=root / "data" / "poll_log.jsonl",
+                        backoff=Backoff(root / "data" / "api_cooldowns.jsonl"))
 
 
 if __name__ == "__main__":
