@@ -32,6 +32,10 @@ class ProbeHTTP(HTTP):
         self.wrong_user = False
         self.fail_write = False
         self.fail_comment = False
+        self.failure_status = 400
+        self.mc_values = [.333333, None, .333333, .333334]
+        self.comment_values = [.333333, None, .333333, .333334]
+        self.comment_changes = {}
 
     def __call__(self, req, timeout):
         path = urllib.parse.urlsplit(req.full_url).path
@@ -44,15 +48,21 @@ class ProbeHTTP(HTTP):
         if req.method == 'POST':
             self.calls.append(req)
             if self.fail_write or (self.fail_comment and path.endswith('/comments/create/')):
-                raise urllib.error.HTTPError(req.full_url, 400, TOKEN, {}, None)
+                raise urllib.error.HTTPError(req.full_url, self.failure_status, TOKEN, {}, None)
             data = json.loads(req.data)
             if path.endswith('/forecast/'):
                 row = {'question_id':7,'author_id':V.BOT_ID,'start_time':(NOW+timedelta(seconds=.1)).timestamp(),
-                    'forecast_values':[.5,.5]}
+                    'forecast_values':(self.mc_values if self.post['question']['type'] == 'multiple_choice' else [.5,.5])}
                 self.post['question']['my_forecasts'] = {'history':[row],'latest':row}
             else:
                 self.comments.append({'id':100,'author':{'id':V.BOT_ID},'on_post':17,
                     'created_at':to_iso(NOW+timedelta(seconds=.2)), 'text':data['text'], 'is_private':data['is_private'], 'included_forecast':{'probability_yes':.5, 'question_type':'binary'}})
+                if self.post['question']['type'] == 'multiple_choice':
+                    self.comments[-1]['included_forecast'] = {
+                        'question_type': 'multiple_choice',
+                        'options': self.post['question']['options'],
+                        'probability_yes_per_category': self.comment_values}
+                self.comments[-1].update(self.comment_changes)
             if self.after_write_error:
                 raise TimeoutError(TOKEN)
             return Response({})
@@ -80,6 +90,36 @@ def probe(tmp_path, monkeypatch):
     obj = V.Probe(project, t, now=lambda: NOW)
     yield obj, http, project
     assert all(TOKEN not in p.read_text() for p in (project/'data').glob('*.jsonl'))
+
+
+@pytest.fixture
+def mc_probe(probe):
+    obj, http, project = probe
+    http.post['question'].update(type='multiple_choice', options=['a', 'b', 'c'], all_options_ever=None)
+    return probe
+
+
+def rewrite_plan(obj, change, *, version=None):
+    """Synthetic ledger mutation for legacy compatibility and tamper tests only."""
+    rows = obj.rows()
+    prepared = next(r for r in rows if r['state'] == 'prepared')
+    change(prepared['plan'])
+    prepared['plan_sha256'] = hash_obj(prepared['plan'])
+    if version:
+        prepared['version'] = version
+    obj.log.write_text('\n'.join(json.dumps(r) for r in rows) + '\n')
+
+
+@pytest.fixture
+def legacy_probe(probe, monkeypatch):
+    obj, _, _ = probe
+    prepare = obj.prepare
+    def legacy_prepare():
+        result = prepare()
+        rewrite_plan(obj, lambda p: p.pop('max_comment_requests'), version='v15_probe_v2')
+        return result
+    monkeypatch.setattr(obj, 'prepare', legacy_prepare)
+    return probe
 
 
 def test_full_precheck_write_readback_and_restart_never_duplicate(probe):
@@ -293,8 +333,8 @@ def test_prepare_rejects_detail_identity_change(probe,monkeypatch):
     assert not obj.rows() and not http.writes()
 
 
-def test_one_explicit_confirmed_comment_recovery_preserves_forecast_and_payload(probe):
-    obj,http,_=probe
+def test_one_explicit_confirmed_comment_recovery_preserves_forecast_and_payload(legacy_probe):
+    obj,http,_=legacy_probe
     pid=obj.prepare()['probe_id'];http.fail_comment=True
     assert obj.run(pid)['status']=='confirmed_failed'
     rejected=next(r for r in obj.rows() if r['state']=='confirmed_failed')
@@ -308,8 +348,8 @@ def test_one_explicit_confirmed_comment_recovery_preserves_forecast_and_payload(
     assert obj.run(pid,retry_confirmed_comment=True)['status']=='complete' and len(http.writes())==3
 
 
-def test_second_comment_rejection_is_terminal_even_with_recovery_flag(probe):
-    obj,http,_=probe
+def test_second_comment_rejection_is_terminal_even_with_recovery_flag(legacy_probe):
+    obj,http,_=legacy_probe
     pid=obj.prepare()['probe_id'];http.fail_comment=True
     assert obj.run(pid)['status']=='confirmed_failed'
     assert obj.run(pid,retry_confirmed_comment=True)['status']=='confirmed_failed'
@@ -317,17 +357,17 @@ def test_second_comment_rejection_is_terminal_even_with_recovery_flag(probe):
     assert len(http.writes())==3
 
 
-def test_forecast_rejection_never_retried_by_comment_recovery(probe):
-    obj,http,_=probe
+def test_forecast_rejection_never_retried_by_comment_recovery(legacy_probe):
+    obj,http,_=legacy_probe
     pid=obj.prepare()['probe_id'];http.fail_write=True
     assert obj.run(pid,retry_confirmed_comment=True)['status']=='confirmed_failed'
     assert obj.run(pid,retry_confirmed_comment=True)['status']=='confirmed_failed'
     assert len(http.writes())==1
 
 
-def test_unknown_recovery_comment_only_reads_back_even_with_flag(probe,monkeypatch):
+def test_unknown_recovery_comment_only_reads_back_even_with_flag(legacy_probe,monkeypatch):
     from submit_contract import Readback
-    obj,http,_=probe
+    obj,http,_=legacy_probe
     pid=obj.prepare()['probe_id'];http.fail_comment=True
     assert obj.run(pid)['status']=='confirmed_failed'
     http.fail_comment=False;original=obj.transport.readback
@@ -343,8 +383,8 @@ def test_unknown_recovery_comment_only_reads_back_even_with_flag(probe,monkeypat
 
 
 @pytest.mark.parametrize('status,version,allowed',[(None,'v15_probe_v1',True),(None,'v15_probe_v2',False),(500,'v15_probe_v2',False),(True,'v15_probe_v2',False)])
-def test_recovery_requires_proven_rejection_or_unchanged_legacy_contract(probe,status,version,allowed):
-    obj,http,_=probe
+def test_recovery_requires_proven_rejection_or_unchanged_legacy_contract(legacy_probe,status,version,allowed):
+    obj,http,_=legacy_probe
     pid=obj.prepare()['probe_id'];http.fail_comment=True
     assert obj.run(pid)['status']=='confirmed_failed'
     rows=obj.rows();r=next(r for r in rows if r['state']=='confirmed_failed');r['http_status']=status;r['version']=version
@@ -354,9 +394,9 @@ def test_recovery_requires_proven_rejection_or_unchanged_legacy_contract(probe,s
     assert len(http.writes())==(3 if allowed else 2)
 
 
-def test_first_unknown_comment_is_never_retried_by_recovery_flag(probe,monkeypatch):
+def test_first_unknown_comment_is_never_retried_by_recovery_flag(legacy_probe,monkeypatch):
     from submit_contract import Readback
-    obj,http,_=probe
+    obj,http,_=legacy_probe
     pid=obj.prepare()['probe_id'];original=obj.transport.readback
     def readback(op,intent,request_id):
         return Readback(request_id=request_id) if op=='comment' else original(op,intent,request_id=request_id)
@@ -366,8 +406,8 @@ def test_first_unknown_comment_is_never_retried_by_recovery_flag(probe,monkeypat
     assert len(http.writes())==2
 
 
-def test_orphan_operation_failure_cannot_be_used_to_create_request(probe):
-    obj,http,_=probe
+def test_orphan_operation_failure_cannot_be_used_to_create_request(legacy_probe):
+    obj,http,_=legacy_probe
     pid=obj.prepare()['probe_id']
     obj.event(pid,'confirmed_failed',operation='forecast',request_id='orphan',error_type='ConfirmedFailure',http_status=400)
     with pytest.raises(S.PrecheckError,match='without unique request'):obj.run(pid,retry_confirmed_comment=True)
@@ -375,8 +415,8 @@ def test_orphan_operation_failure_cannot_be_used_to_create_request(probe):
 
 
 @pytest.mark.parametrize('state',['unknown','write_returned','write_unconfirmed'])
-def test_mixed_rejection_and_ambiguous_history_cannot_authorize_recovery(probe,state):
-    obj,http,_=probe
+def test_mixed_rejection_and_ambiguous_history_cannot_authorize_recovery(legacy_probe,state):
+    obj,http,_=legacy_probe
     pid=obj.prepare()['probe_id'];http.fail_comment=True
     assert obj.run(pid)['status']=='confirmed_failed'
     first=next(r for r in obj.rows() if r.get('operation')=='comment' and r['state']=='request_started')
@@ -386,9 +426,9 @@ def test_mixed_rejection_and_ambiguous_history_cannot_authorize_recovery(probe,s
 
 
 @pytest.mark.parametrize('broken',['no_recovery_event','invalid_first_rejection'])
-def test_resumed_second_request_requires_valid_first_rejection_and_recovery_event(probe,monkeypatch,broken):
+def test_resumed_second_request_requires_valid_first_rejection_and_recovery_event(legacy_probe,monkeypatch,broken):
     from submit_contract import Readback
-    obj,http,_=probe
+    obj,http,_=legacy_probe
     pid=obj.prepare()['probe_id'];http.fail_comment=True
     assert obj.run(pid)['status']=='confirmed_failed'
     http.fail_comment=False
@@ -400,3 +440,286 @@ def test_resumed_second_request_requires_valid_first_rejection_and_recovery_even
     obj.log.write_text('\n'.join(json.dumps(r) for r in rows)+'\n')
     with pytest.raises(S.PrecheckError,match='invalid comment recovery'):obj.run(pid,retry_confirmed_comment=True)
     assert len(http.writes())==3
+
+
+def test_mc_prepare_uses_uniform_submission_rounding_and_bounded_plan(mc_probe):
+    obj, http, project = mc_probe
+    with pytest.raises(S.PrecheckError, match='no eligible'):
+        obj.prepare()
+    result = obj.prepare(question_type='multiple_choice')
+    plan = obj.plan(result['probe_id'])
+    assert result['writes'] == 0 and not http.writes()
+    assert plan['forecast_payload'] == [{'question': 7, 'probability_yes_per_category':
+        {'a': .333333, 'b': .333333, 'c': .333334}}]
+    assert plan['max_comment_requests'] == 1
+    assert plan['comment_payload'] == {'on_post': 17, 'is_private': True, 'included_forecast': True,
+        'text': f"Forecast Lab API component check {result['probe_id']}. Synthetic uniform test; not a research forecast."}
+    queries = [urllib.parse.parse_qs(urllib.parse.urlsplit(r.full_url).query)
+        for r in http.calls if urllib.parse.urlsplit(r.full_url).path == '/api/posts/']
+    assert queries[-1]['forecast_type'] == ['multiple_choice']
+    assert obj.rows()[0]['version'] == 'v15_probe_v3'
+    assert 'UNIQUE-QUESTION-TEXT' not in obj.log.read_text()
+    assert not (project/'data/forecasts.jsonl').exists()
+    assert not (project/'data/aggregates.jsonl').exists()
+
+
+@pytest.mark.parametrize('forecast_order', [True, False])
+@pytest.mark.parametrize('comment_order', [True, False])
+def test_mc_null_history_completes_with_exact_multisets(mc_probe, forecast_order, comment_order):
+    obj, http, _ = mc_probe
+    if not forecast_order:
+        http.mc_values = [None, .333334, .333333, None, .333333]
+    if not comment_order:
+        http.comment_values = [.333334, None, .333333, .333333]
+    pid = obj.prepare(question_type='multiple_choice')['probe_id']
+    assert obj.run(pid)['status'] == 'complete'
+    assert obj.run(pid)['status'] == 'complete'
+    assert len(http.writes()) == 2
+    forecast = next(r for r in obj.rows() if r['state'] == 'found' and r['operation'] == 'forecast')
+    assert forecast['receipt']['option_order_verified'] is forecast_order
+    checked = obj.rows()[-1]
+    assert checked['state'] == 'comment_properties_checked' and checked['verified'] is True
+    assert checked['included_forecast_order_verified'] is comment_order
+    assert json.loads(http.writes()[1].data)['is_private'] is True
+
+
+@pytest.mark.parametrize('field,value', [
+    ('question_type', 'binary'), ('options', ['a', 'c', 'b']), ('options', ['a', 'b', 'd']),
+    ('probability_yes_per_category', {'a': .333333, 'b': .333333, 'c': .333334}),
+    ('probability_yes_per_category', None),
+    ('probability_yes_per_category', [.333333, .333333, .333333]),
+    ('probability_yes_per_category', [.333333, None, .333334]),
+    ('probability_yes_per_category', [.333333, .333333, .333334, .333334]),
+    ('probability_yes_per_category', [True, .333333, .333334]),
+    ('probability_yes_per_category', ['0.333333', .333333, .333334]),
+    ('probability_yes_per_category', [float('nan'), .333333, .333334]),
+    ('probability_yes_per_category', [float('inf'), .333333, .333334]),
+    ('probability_yes_per_category', [-.1, .333333, .333334]),
+    ('probability_yes_per_category', [1.1, .333333, .333334]),
+    ('probability_yes_per_category', [10**400, .333333, .333334]),
+])
+def test_mc_invalid_included_forecast_stays_unknown_without_extra_posts(mc_probe, field, value):
+    obj, http, _ = mc_probe
+    included = {'question_type': 'multiple_choice', 'options': ['a', 'b', 'c'],
+        'probability_yes_per_category': http.comment_values}
+    included[field] = value
+    http.comment_changes = {'included_forecast': included}
+    pid = obj.prepare(question_type='multiple_choice')['probe_id']
+    for _ in range(2):
+        assert obj.run(pid)['status'] == 'comment_properties_unknown'
+    assert len(http.writes()) == 2
+    assert obj.rows()[-1]['verified'] is False
+    assert obj.rows()[-1]['included_forecast_order_verified'] is False
+
+
+@pytest.mark.parametrize('field,value', [
+    ('id', True), ('author', {'id': 42}), ('on_post', True), ('is_private', False),
+    ('text', 'changed'), ('included_forecast', None),
+])
+def test_mc_comment_identity_and_properties_still_required(mc_probe, field, value):
+    obj, http, _ = mc_probe
+    pid = obj.prepare(question_type='multiple_choice')['probe_id']
+    assert obj.run(pid)['status'] == 'complete'
+    http.comments[0][field] = value
+    assert obj.run(pid)['status'] == 'comment_properties_unknown'
+    assert len(http.writes()) == 2
+
+
+@pytest.mark.parametrize('question_type', ['binary', 'multiple_choice'])
+@pytest.mark.parametrize('status', [400, 429])
+def test_v3_comment_rejection_never_allows_recovery(probe, question_type, status):
+    obj, http, _ = probe
+    if question_type == 'multiple_choice':
+        http.post['question'].update(type=question_type, options=['a', 'b', 'c'], all_options_ever=None)
+    pid = obj.prepare(question_type=question_type)['probe_id']
+    http.fail_comment, http.failure_status = True, status
+    assert obj.run(pid)['status'] == 'confirmed_failed'
+    assert obj.rows()[-1]['http_status'] == status
+    calls = len(http.calls)
+    with pytest.raises(S.PrecheckError, match='forbids comment recovery'):
+        obj.run(pid, retry_confirmed_comment=True)
+    assert obj.run(pid)['status'] == 'confirmed_failed'
+    assert len(http.calls) == calls and len(http.writes()) == 2
+
+
+def test_v3_recovery_flag_refused_before_any_request(probe):
+    obj, http, _ = probe
+    pid = obj.prepare()['probe_id']
+    calls = len(http.calls)
+    with pytest.raises(S.PrecheckError, match='forbids comment recovery'):
+        obj.run(pid, retry_confirmed_comment=True)
+    assert len(http.calls) == calls and not http.writes()
+    assert len(obj.rows()) == 1
+
+
+@pytest.mark.parametrize('failure', ['400', '429', 'unknown'])
+def test_mc_forecast_failure_stops_without_comment_or_resend(mc_probe, failure):
+    obj, http, _ = mc_probe
+    pid = obj.prepare(question_type='multiple_choice')['probe_id']
+    if failure == 'unknown':
+        http.hide_readback = True
+    else:
+        http.fail_write, http.failure_status = True, int(failure)
+    for _ in range(2):
+        assert obj.run(pid)['status'] == ('unknown' if failure == 'unknown' else 'confirmed_failed')
+    assert len(http.writes()) == 1
+    assert not any(r.get('operation') == 'comment' for r in obj.rows())
+
+
+def test_mc_unknown_comment_only_reconciles_without_resend(mc_probe, monkeypatch):
+    from submit_contract import Readback
+    obj, http, _ = mc_probe
+    original = obj.transport.readback
+    def readback(operation, intent, request_id):
+        return Readback(request_id=request_id) if operation == 'comment' else original(operation, intent, request_id=request_id)
+    monkeypatch.setattr(obj.transport, 'readback', readback)
+    pid = obj.prepare(question_type='multiple_choice')['probe_id']
+    for _ in range(2):
+        assert obj.run(pid)['status'] == 'unknown'
+    assert len(http.writes()) == 2
+    monkeypatch.setattr(obj.transport, 'readback', original)
+    assert obj.run(pid)['status'] == 'complete' and len(http.writes()) == 2
+
+
+@pytest.mark.parametrize('change', ['nonuniform', 'options', 'limit', 'bool_limit', 'hash'])
+def test_mc_tampered_plan_refused(mc_probe, change):
+    obj, http, _ = mc_probe
+    pid = obj.prepare(question_type='multiple_choice')['probe_id']
+    def mutate(p):
+        if change == 'nonuniform':
+            p['forecast_payload'][0]['probability_yes_per_category'] = {'a': .2, 'b': .3, 'c': .5}
+        elif change == 'options':
+            p['snapshot']['options'] = ['a', 'b', 'd']
+        else:
+            p['max_comment_requests'] = True if change == 'bool_limit' else 2
+    if change == 'hash':
+        rows = obj.rows()
+        rows[0]['plan_sha256'] = 'changed'
+        obj.log.write_text(json.dumps(rows[0]) + '\n')
+    else:
+        rewrite_plan(obj, mutate)
+    calls = len(http.calls)
+    with pytest.raises(S.PrecheckError):
+        obj.run(pid)
+    assert len(http.calls) == calls and not http.writes()
+
+
+@pytest.mark.parametrize('options', [None, [], ['a'], ['a', 'a'], ['a', 1]])
+def test_mc_invalid_current_options_not_selected(mc_probe, options):
+    obj, http, _ = mc_probe
+    http.post['question']['options'] = options
+    with pytest.raises(S.PrecheckError):
+        obj.prepare(question_type='multiple_choice')
+    assert not obj.rows() and not http.writes()
+
+
+def test_mc_unreconcilable_history_not_selected(mc_probe):
+    obj, http, _ = mc_probe
+    http.post['question']['all_options_ever'] = ['a', 'b']
+    with pytest.raises(S.PrecheckError, match='no eligible'):
+        obj.prepare(question_type='multiple_choice')
+    assert not obj.rows() and not http.writes()
+
+
+def test_mc_uniform_payload_enforces_submission_probability_bounds(mc_probe):
+    obj, http, _ = mc_probe
+    http.post['question']['options'] = [str(i) for i in range(1001)]
+    with pytest.raises(S.PrecheckError, match='uniform payload'):
+        obj.prepare(question_type='multiple_choice')
+    assert not obj.rows() and not http.writes()
+
+
+def test_mc_previous_probe_reserves_question_even_after_rejection(mc_probe):
+    obj, http, _ = mc_probe
+    pid = obj.prepare(question_type='multiple_choice')['probe_id']
+    http.fail_write = True
+    assert obj.run(pid)['status'] == 'confirmed_failed'
+    with pytest.raises(S.PrecheckError, match='reserved by API component'):
+        obj.sub._duplicate({'intent_id': 'normal', 'bot_id': V.BOT_ID, 'question_id': 7})
+    post = copy.deepcopy(http.post)
+    post['id'], post['question']['id'] = 18, 8
+    http.posts[BOT].append(post)
+    assert obj.prepare(question_type='multiple_choice')['question_id'] == 8
+    assert len(http.writes()) == 1
+
+
+@pytest.mark.parametrize('change', ['options', 'history', 'own_forecast', 'closed'])
+def test_mc_run_rechecks_current_question_before_write(mc_probe, change):
+    obj, http, _ = mc_probe
+    pid = obj.prepare(question_type='multiple_choice')['probe_id']
+    if change == 'options':
+        http.post['question']['options'] = ['a', 'c', 'b']
+    elif change == 'history':
+        http.post['question']['all_options_ever'] = ['a']
+    elif change == 'own_forecast':
+        http.post['question']['my_forecasts'] = {'history': [{'question_id': 7}], 'latest': None}
+    else:
+        http.post['question']['status'] = 'closed'
+    with pytest.raises(S.PrecheckError):
+        obj.run(pid)
+    assert not http.writes()
+
+
+@pytest.mark.parametrize('args,expected', [([], 'binary'), (['--question-type', 'multiple_choice'], 'multiple_choice')])
+def test_cli_passes_question_type_without_real_credentials_or_http(probe, monkeypatch, capsys, args, expected):
+    import flab.envfile
+    obj, http, _ = probe
+    calls = []
+    monkeypatch.setattr(flab.envfile, 'get_secret', lambda *a: TOKEN)
+    monkeypatch.setattr(V, 'APITransport', lambda token: obj.transport)
+    monkeypatch.setattr(V, 'Probe', lambda *a: obj)
+    def prepare(question_type):
+        calls.append(question_type)
+        return {'writes': 0}
+    monkeypatch.setattr(obj, 'prepare', prepare)
+    assert V.main(['prepare', *args]) == 0
+    assert calls == [expected] and not http.calls
+    assert json.loads(capsys.readouterr().out) == {'writes': 0}
+
+
+def test_comment_properties_use_documented_own_comment_list(mc_probe):
+    obj, http, _ = mc_probe
+    pid = obj.prepare(question_type='multiple_choice')['probe_id']
+    assert obj.run(pid)['status'] == 'complete'
+    paths = [urllib.parse.urlsplit(r.full_url).path for r in http.calls]
+    assert '/api/comments/100/' not in paths
+    last = [r for r in http.calls if urllib.parse.urlsplit(r.full_url).path == '/api/comments/'][-1]
+    query = urllib.parse.parse_qs(urllib.parse.urlsplit(last.full_url).query)
+    assert query['author'] == [str(V.BOT_ID)] and query['post'] == ['17']
+
+
+@pytest.mark.parametrize('change', ['duplicate', 'missing'])
+def test_ambiguous_or_missing_comment_row_stays_unverified(mc_probe, change):
+    obj, http, _ = mc_probe
+    pid = obj.prepare(question_type='multiple_choice')['probe_id']
+    assert obj.run(pid)['status'] == 'complete'
+    if change == 'duplicate':
+        http.comments.append(copy.deepcopy(http.comments[0]))
+    else:
+        http.comments.clear()
+    assert obj.run(pid)['status'] == 'comment_properties_unknown'
+    assert obj.rows()[-1]['verified'] is False and len(http.writes()) == 2
+
+
+@pytest.mark.parametrize('question_type', ['binary', 'multiple_choice'])
+def test_v3_plan_cannot_drop_comment_bound_to_regain_recovery(probe, question_type):
+    obj, http, _ = probe
+    if question_type == 'multiple_choice':
+        http.post['question'].update(type=question_type, options=['a', 'b', 'c'], all_options_ever=None)
+    pid = obj.prepare(question_type=question_type)['probe_id']
+    rewrite_plan(obj, lambda p: p.pop('max_comment_requests'))
+    calls = len(http.calls)
+    with pytest.raises(S.PrecheckError, match='invalid synthetic probe plan'):
+        obj.run(pid, retry_confirmed_comment=True)
+    with pytest.raises(S.PrecheckError, match='invalid synthetic probe plan'):
+        obj.run(pid)
+    assert len(http.calls) == calls and not http.writes()
+
+
+def test_legacy_label_cannot_unbound_multiple_choice_plan(mc_probe):
+    obj, http, _ = mc_probe
+    pid = obj.prepare(question_type='multiple_choice')['probe_id']
+    rewrite_plan(obj, lambda p: p.pop('max_comment_requests'), version='v15_probe_v2')
+    with pytest.raises(S.PrecheckError, match='invalid synthetic probe plan'):
+        obj.run(pid)
+    assert not http.writes()

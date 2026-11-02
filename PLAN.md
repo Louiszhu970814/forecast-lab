@@ -1,6 +1,6 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.49（v1.0 凍結後的修訂，見 §16；Claude 依 D95 主持，D103 TG 決策接手修正）
+> 版本：v1.50（v1.0 凍結後的修訂，見 §16；Claude 依 D95 主持，D102 多選題有界驗收）
 > 初稿：Claude
 > 本回合整合者：Claude（D95；GPT 已完成 D82／D84～D94 的主持與交接）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
@@ -1728,11 +1728,14 @@ view_image                  stable true
 | D99 | 2026-11-02 | 依 Louis「研究回來之後有一定答案了就直接開始繼續 M3，中間的 coding 還有審查你們三個可以輪流做」，以 D98 核對的官方原始碼為據：多選題在歷史選項順序被閘道遮罩為 null 時，不再於 POST 前拒絕；讀回改以身分、時間、非 None 個數與機率值多重集合的精確核對確認，收據記 `option_order_verified` | `api_transport_v5`。GPT（gpt-6-astra high，開發沙箱）實作，Claude 審查並收緊為只有 null 歷史才用多重集合；Gemini 審查指出 POST 前檢查需與讀回規則一致並已修正。歷史存在但異常的題目在 POST 前拒絕；是非題、已知歷史的逐位置比對、留言、退避／間隔、POST 次數上限、unknown 與預測永不重送規則不變。不是多選題實機驗收 |
 | D100 | 2026-11-02 | Louis 核准 D100-PROBE：加上請求間隔（D98）後做一次有界私人留言驗收（trial、bot testing area 另一個未用過的是非題、synthetic 50%、最多 1 次預測加 1 次私人留言、不重試、結束立即回 local）。UTC 11:00 切到 trial 執行唯讀前檢，bot testing area 開放中的是非題只剩原 V15 probe 用過的 43332，依規定不加第三次留言、不換題，因此無法執行；11:02 回 local。只有唯讀 GET，沒有任何寫入。開放中的支援題型只剩 1 題多選題，改用多選題需另行核准（D102） | 本輪指示；D84／D88 的原 probe 界線不變 |
 | D101 | 2026-11-02 | Louis 對 D101-CAPS 選 A（照建議）：Claude 與 GPT 每週嘗試次數上限各 130，Gemini 每週 200 次作為防失控上限。`quota_policy_v4` → `quota_policy_v5`；`config.py` 驗證 Gemini 的選填上限。正式覆蓋率情境事前登記後才執行，通過標準為支援題覆蓋率第 10 百分位 ≥ 90%；結果 100% | 本輪指示；Gemini（Argon high）獨立審查 PASS；不啟用排程 |
+| D102 | 2026-11-02 | Louis 於桌面對話核准 D102（照建議 A）：改在 bot testing area 唯一未用過、系統支援的多選題（question 46450）做有界驗收，trial、均勻 synthetic 預測最多 1 次、私人留言最多 1 次、不重試，遇 4xx／429／unknown 即停，結束立即回 local；同時驗證請求間隔後的私人留言（D98）與歷史選項順序為 null 時的多選題送出／讀回（D99）。`v15_probe_v2` → `v15_probe_v3` | 本輪指示；GPT 實作、Claude 審查（留言屬性核對改走文件允許的列表端點）、Gemini（Argon high）審查 PASS 並修正一項 non-blocking |
 | D103 | 2026-11-02 | Louis 回報 TG 決策問題並指派 GPT 修正（D100／D101 交由 Claude 執行）。根因：D100／D101 只記錄了選項，沒有登記續作，程式也沒有喚醒桌面對話的機制；TG 常駐服務本身正常。GPT 實作 `telegram_ops_v4`／`team_chat_v2`（§5.2）。Louis 另表示多數決定在 Claude Code 對話做出，TG 只在他從 TG 詢問時用於決策 | 本輪指示；Gemini（Argon medium）審查兩項 non-blocking 修正後複查 PASS；GPT 隔離完整 1641 passed；服務已重載 |
 
 ---
 
 ## 16. 變更紀錄
+
+- **v1.50**（2026-11-02）：D102，`v15_probe_v2` → `v15_probe_v3`：`prepare --question-type multiple_choice`（預設 binary）；多選題的 synthetic 預測為均勻分布，直接用 `submit.forecast_payload()` 的捨入；新計畫帶 `max_comment_requests: 1`，拒絕留言復原旗標，只有 v1／v2 的是非題舊計畫保留 D84／D88 的復原規則；多選題留言的 `included_forecast` 以精確多重集合核對並記 `included_forecast_order_verified`；留言屬性改由 `comments/?post=&author=<自己>` 列表讀取（只接受恰好一筆相同 ID）。規格 `docs/tasks/M3-MC-PROBE-D102.md`。
 
 - **v1.49**（2026-11-02）：D103，TG 決策接手修正。`telegram_ops_v3` → `telegram_ops_v4`、`team_chat_v1` → `team_chat_v2`：未開始決策可改選、版本核對的 `claim`、選項條件與 `milestone` 通知、最新決策優先、問答資料截點、心跳、長訊息分段（§5.2）。實作與審查 GPT／Gemini，見 `docs/tasks/TELEGRAM-HANDOFF.md`；§5.2 補記決定以桌面對話為主。預測、預算、prompt 不變。
 

@@ -51,3 +51,11 @@
 2. 等約 10 分鐘，期間沒有其他 Metaculus API 活動。
 3. `v15_probe.py run --probe-id <id>`，不帶 `--retry-confirmed-comment`。
 4. 不論結果，立即改回 local；記錄數字狀態碼與 Retry-After（如有），不換題、不重試。
+
+## 實作與審查（2026-11-02）
+
+- Louis 於桌面對話核准 D102（照建議 A）。
+- GPT（`gpt-6-astra` high）在專案外的開發沙箱完成實作，任務 `claudedev_1793617967687_6bf25683`；只改 `src/v15_probe.py` 與 `tests/test_v15_probe.py`。沙箱內指定測試 250 passed；完整測試的 62 個失敗都是沙箱目錄限制。
+- Claude 審查：範圍符合規格。修改一處：最後的留言屬性核對原本讀 `comments/<id>/` 詳細頁，該端點不在公開閘道文件中（文件說部分網站專用端點回 403），改為讀文件明確允許的 `comments/?post=<post>&author=<自己>&limit=100`，只接受恰好一筆相同 ID 的紀錄，否則記為未核對。補 3 個測試。官方後端的列表與詳細頁都用 `serialize_comment_many`，欄位相同。
+- Gemini（Argon high）第 1 輪 PASS，一項 non-blocking：新計畫若被刪掉 `max_comment_requests` 並重算雜湊，會回到舊的復原規則。已修正：只有 v1／v2 版本的是非題計畫算舊計畫，其他計畫一律要有 `max_comment_requests == 1`；補 3 個測試；真實帳冊中的原 V15 計畫仍可驗證。第 2 輪定點複查 PASS。
+- 隔離完整 **1708 passed**（含 D103 的 TG 修改）。
