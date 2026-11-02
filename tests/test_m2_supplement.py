@@ -23,7 +23,7 @@ def registered(tmp_path, monkeypatch):
     child['campaign_id'] = 'child'
     child['questions'] = [{**q, 'question_id': q['question_id'] + 50} for q in child['questions']]
     S.register(tmp_path, child, now=NOW)
-    append_record(tmp_path / 'm2_supplements.jsonl', {'type': 'supplement_registered', 'version': M.VERSION,
+    append_record(tmp_path / 'm2_supplements.jsonl', {'type': 'supplement_registered', **M.CONTRACTS['D92'],
         'supplement_id': 'child', 'parent_id': 'parent', 'campaign_sha256': hash_obj(child),
         'max_calls': 6, 'max_seconds': 3600, 'runtime_fingerprint': F.runtime_fingerprint('gemini')})
     return parent, child
@@ -131,7 +131,7 @@ def test_started_supplement_never_resumes(tmp_path, monkeypatch):
 
 
 def test_supervisor_reuses_descendant_cleanup_and_reserved_time(tmp_path, monkeypatch):
-    cfg=campaign(); path=tmp_path/'c.json';path.write_text(json.dumps(cfg))
+    _, cfg=registered(tmp_path, monkeypatch); path=tmp_path/'c.json';path.write_text(json.dumps(cfg))
     monkeypatch.setattr(F,'DATA',tmp_path)
     calls=[]
     monkeypatch.setattr(M,'supervise',lambda argv,**kw: (calls.append((argv,kw)) or (124,True)))
@@ -139,3 +139,99 @@ def test_supervisor_reuses_descendant_cleanup_and_reserved_time(tmp_path, monkey
     assert calls[0][1]['timeout_s']==3600-M.CLEANUP_RESERVE_S
     row=read_complete(tmp_path/'m2_supplements.jsonl')[-1]
     assert row['timed_out'] and not row['automatic_retry']
+
+
+def d94(tmp_path, monkeypatch):
+    parent, old = registered(tmp_path, monkeypatch)
+    append_record(tmp_path/'m2_supplements.jsonl', {'type':'supplement_finished','supplement_id':old['campaign_id']})
+    new = campaign(1)
+    new['campaign_id'] = 'd94-new'
+    new['questions'][0]['question_id'] += 100
+    path = tmp_path/'d94.json'; path.write_text(json.dumps(new))
+    def prepare(cap, *, question_count, parent_campaign):
+        assert question_count == 1 and parent_campaign == parent
+        assert cap == parent['weekly_attempt_caps']['gemini']
+        return path
+    monkeypatch.setattr(M.m2_prepare, 'prepare', prepare)
+    M.prepare(tmp_path, parent, authorization='D94')
+    return parent, new, path
+
+
+def test_new_user_authorization_is_separate_and_cannot_repeat(tmp_path, monkeypatch):
+    parent, new, _ = d94(tmp_path, monkeypatch)
+    rec, _ = M.registration(tmp_path, new)
+    assert rec['max_calls'] == 2 and rec['max_seconds'] == 1800 and rec['max_questions'] == 1
+    assert rec['quota_model_verification_version'] == 'quota_model_verification_v2'
+    assert new['budget_window_start'] == parent['budget_window_start']
+    assert new['weekly_attempt_caps'] == parent['weekly_attempt_caps']
+    with pytest.raises(ValueError, match='already registered'):
+        M.prepare(tmp_path, parent, authorization='D94')
+    with pytest.raises(ValueError, match='already registered'):
+        M.prepare(tmp_path, parent)
+
+
+def test_d94_cannot_skip_unfinished_predecessor_or_invent_authorization(tmp_path, monkeypatch):
+    parent, _ = registered(tmp_path, monkeypatch)
+    monkeypatch.setattr(M.m2_prepare, 'prepare', lambda *a, **k: pytest.fail('must not query'))
+    with pytest.raises(ValueError, match='completed D92'):
+        M.prepare(tmp_path, parent, authorization='D94')
+    with pytest.raises(ValueError, match='unknown supplement authorization'):
+        M.prepare(tmp_path, parent, authorization='D95')
+
+
+def test_d94_cap_counts_failed_repair_and_rerun_starts(tmp_path, monkeypatch):
+    _, cfg, _ = d94(tmp_path, monkeypatch)
+    for kind in ('initial','format_repair'):
+        append_record(tmp_path/'forecast_attempt_starts.jsonl', {'attempt_id':kind,'question_id':200})
+    monkeypatch.setattr(M.B.Budget, 'reserve', lambda *a, **k: pytest.fail('base reached'))
+    with pytest.raises(F.QuestionDone, match='actual-call cap'):
+        M.BoundedBudget(tmp_path, cfg, {}, 'r', max_calls=2).reserve({'player':'gemini','tier':1,'question_id':200})
+
+
+def test_d94_supervisor_bound_and_no_restart(tmp_path, monkeypatch):
+    _, cfg, path = d94(tmp_path, monkeypatch)
+    monkeypatch.setattr(F, 'DATA', tmp_path)
+    calls=[]
+    monkeypatch.setattr(M, 'supervise', lambda argv, **kw: (calls.append(kw) or (124,True)))
+    assert M.main(['run','--campaign',str(path)]) == 124
+    assert calls[0]['timeout_s'] == 1800-M.CLEANUP_RESERVE_S
+    append_record(tmp_path/'m2_supplements.jsonl', {'type':'supplement_started','supplement_id':cfg['campaign_id']})
+    with pytest.raises(ValueError, match='one-shot'):
+        M.worker(tmp_path, cfg)
+
+
+def test_d94_verifier_drift_rejected(tmp_path, monkeypatch):
+    _, cfg, _ = d94(tmp_path, monkeypatch)
+    monkeypatch.setattr(M.quota, 'MODEL_VERIFICATION_VERSION', 'unreviewed')
+    with pytest.raises(ValueError, match='verifier version changed'):
+        M.registration(tmp_path, cfg)
+
+
+@pytest.mark.parametrize('kind', ['repair', 'rerun'])
+@pytest.mark.parametrize('trusted', [False, True])
+def test_same_job_followup_requires_trusted_initial_cost(environment, monkeypatch, kind, trusted):
+    from test_scheduler import Adapter
+    engine, _, tracker, _ = environment(1)
+    engine.__class__ = M.SupplementScheduler
+    engine.budget.__class__ = M.BoundedBudget
+    engine.budget.max_calls = 2
+    monkeypatch.setattr(M.quota, 'detect_agy_activity', lambda: ({}, None))
+    monkeypatch.setattr(F.quota, 'judge', lambda a, b: 'verified' if trusted else 'undetermined')
+    original = Adapter.run
+    def run(self, req, **kwargs):
+        result = original(self, req, **kwargs)
+        if len(tracker['calls']) == 1:
+            result.structured = None
+            if kind == 'repair':
+                result.final_text = 'the probability is 0.8 https://example.com/a'
+            else:
+                result.completed = False
+                result.error_type = 'cli_error'
+        return result
+    monkeypatch.setattr(Adapter, 'run', run)
+    engine.run(max_jobs=1, paused_players=('gpt','claude'))
+    assert len(tracker['calls']) == (2 if trusted else 1)
+    rows = read_complete(engine.root/'forecasts.jsonl')
+    assert len(rows) == (2 if trusted else 1)
+    if kind == 'repair':
+        assert rows[0]['repair_basis'] is not None

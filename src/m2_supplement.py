@@ -26,9 +26,19 @@ from m2_campaign import SafeSnapshots
 from metaculus import MetaculusClient
 from project_policy import trial_membership_error
 
-VERSION = 'm2_supplement_v1'
+VERSION = 'm2_supplement_v2'
 MAX_CALLS = 6
 MAX_SECONDS = 3600
+CONTRACTS = {
+    'D92': {'version': 'm2_supplement_v1', 'max_questions': 3, 'max_calls': 6, 'max_seconds': 3600},
+    'D94': {'version': VERSION, 'max_questions': 1, 'max_calls': 2, 'max_seconds': 1800},
+}
+
+
+def contract(authorization):
+    if authorization not in CONTRACTS:
+        raise ValueError('unknown supplement authorization')
+    return CONTRACTS[authorization]
 
 
 def parent_check(root, parent):
@@ -45,23 +55,36 @@ def parent_check(root, parent):
         raise ValueError('original budget window is inactive')
 
 
-def prepare(root, parent):
+def prepare(root, parent, *, authorization='D92'):
+    limits = contract(authorization)
     if load_submit_mode()['mode'] != 'local':
         raise ValueError('supplement requires local mode')
     with F.Lock(root / 'scheduler.lock'):
         parent_check(root, parent)
-        if any(r.get('type') == 'supplement_registered' and r['parent_id'] == parent['campaign_id']
-               for r in read_complete(root / 'm2_supplements.jsonl')):
+        rows = read_complete(root / 'm2_supplements.jsonl')
+        existing = [r for r in rows if r.get('type') == 'supplement_registered']
+        if any(r.get('authorization', 'D92') == authorization and
+               (authorization == 'D94' or r['parent_id'] == parent['campaign_id']) for r in existing):
             raise ValueError('a supplement is already registered; do not reset its bound')
-        path = m2_prepare.prepare(parent['weekly_attempt_caps']['gemini'], question_count=3, parent_campaign=parent)
+        if authorization == 'D94':
+            predecessors = [r for r in existing if r.get('authorization', 'D92') == 'D92'
+                            and r['parent_id'] == parent['campaign_id']]
+            if len(predecessors) != 1 or not any(r.get('type') == 'supplement_finished' and
+                    r.get('supplement_id') == predecessors[0]['supplement_id'] for r in rows):
+                raise ValueError('D94 requires the completed D92 predecessor')
+            if quota.MODEL_VERIFICATION_VERSION != 'quota_model_verification_v2':
+                raise ValueError('D94 verifier version changed')
+        path = m2_prepare.prepare(parent['weekly_attempt_caps']['gemini'],
+                                  question_count=limits['max_questions'], parent_campaign=parent)
         campaign = json.loads(path.read_text())
         if {q['question_id'] for q in parent['questions']} & {q['question_id'] for q in campaign['questions']}:
             raise ValueError('supplement overlaps parent')
         S.register(root, campaign)
-        record = {'type': 'supplement_registered', 'version': VERSION, 'supplement_id': campaign['campaign_id'],
+        record = {'type': 'supplement_registered', **limits, 'authorization': authorization,
+            'supplement_id': campaign['campaign_id'],
             'parent_id': parent['campaign_id'], 'campaign_sha256': hash_obj(campaign),
             'registered_at': to_iso(utc_now()), 'player': 'gemini', 'tier': 1,
-            'max_questions': 3, 'max_calls': MAX_CALLS, 'max_seconds': MAX_SECONDS,
+            'quota_model_verification_version': quota.MODEL_VERIFICATION_VERSION,
             'runtime_fingerprint': F.runtime_fingerprint('gemini'),
             'report_policy': 'separate_evidence_only_no_automatic_m2_promotion'}
         append_record(root / 'm2_supplements.jsonl', record)
@@ -77,8 +100,13 @@ def registration(root, campaign):
     rec = frozen[0]
     if rec['runtime_fingerprint'] != F.runtime_fingerprint('gemini'):
         raise ValueError('supplement runtime changed')
-    if rec['version'] != VERSION or rec['max_calls'] != MAX_CALLS or rec['max_seconds'] != MAX_SECONDS:
+    authorization = rec.get('authorization', 'D92')
+    limits = contract(authorization)
+    if any(rec.get(k) != v for k, v in limits.items()):
         raise ValueError('supplement contract changed')
+    if authorization == 'D94' and (rec.get('quota_model_verification_version') != 'quota_model_verification_v2'
+                                  or quota.MODEL_VERIFICATION_VERSION != 'quota_model_verification_v2'):
+        raise ValueError('D94 verifier version changed')
     parents = [r['campaign'] for r in read_complete(root / 'campaigns.jsonl')
                if r.get('campaign', {}).get('campaign_id') == rec['parent_id']]
     if not parents:
@@ -87,7 +115,7 @@ def registration(root, campaign):
     if any(campaign[k] != parents[0][k] for k in ('budget_window_start', 'budget_window_end', 'weekly_attempt_caps',
                                                   'run_config_sha256', 'quota_policy_sha256')):
         raise ValueError('supplement cannot reset the original budget or configuration')
-    if not 1 <= len(campaign['questions']) <= 3:
+    if not 1 <= len(campaign['questions']) <= limits['max_questions']:
         raise ValueError('supplement exceeds question bound')
     return rec, rows
 
@@ -98,14 +126,26 @@ def own_attempts(root, campaign):
 
 
 class BoundedBudget(B.Budget):
+    max_calls = MAX_CALLS
+
+    def __init__(self, *args, max_calls=MAX_CALLS, **kwargs):
+        super().__init__(*args, **kwargs)
+        self.max_calls = max_calls
+
     def reserve(self, request, **kw):
         ids = {q['question_id'] for q in self.campaign['questions']}
         starts = read_complete(self.root / 'forecast_attempt_starts.jsonl')
         used = {r['attempt_id'] for r in starts if r.get('question_id') in ids}
         if request['player'] != 'gemini' or request['tier'] != 1 or request['question_id'] not in ids:
             raise F.QuestionDone('supplement scope violation')
-        if len(used) >= MAX_CALLS:
+        if len(used) >= self.max_calls:
             raise F.QuestionDone('supplement actual-call cap reached')
+        # Admission runs for every CLI call, including repairs within one job.
+        # Checking jobs() alone would miss an untrusted initial -> repair transition.
+        qs = read_complete(self.root / 'quota.jsonl')
+        if any(r.get('model_check') != 'verified' or quota.attempt_drop(r, qs) is None
+               for r in own_attempts(self.root, self.campaign)):
+            raise F.QuestionDone('supplement prior cost is untrusted; no repair or rerun')
         counts, error = quota.detect_agy_activity()
         if counts or error:
             raise F.QuestionDone('supplement requires no concurrent agy activity')
@@ -167,7 +207,7 @@ def worker(root, campaign):
         if counts or error:
             raise ValueError('other agy activity prevents clean attribution')
         started = utc_now()
-        deadline = started + timedelta(seconds=MAX_SECONDS)
+        deadline = started + timedelta(seconds=rec['max_seconds'])
         append_record(root / 'm2_supplements.jsonl', {'type': 'supplement_started', 'version': VERSION,
             'supplement_id': campaign['campaign_id'], 'at': to_iso(started), 'deadline': to_iso(deadline)})
         client = MetaculusClient(get_secret('METACULUS_TOKEN', F.PROJECT_ROOT / '.env'))
@@ -175,8 +215,8 @@ def worker(root, campaign):
         provider = StrictSnapshots(client, root, campaign, tournaments=cfg)
         engine = SupplementScheduler(root, campaign, snapshots=provider, execution_deadline=deadline)
         engine.budget = BoundedBudget(root, campaign, load_quota_policy(), engine.run_id,
-                                      acceptance_log=engine.budget.acceptance_log)
-        result = engine.run(max_jobs=3, lock_held=True, paused_players=('claude', 'gpt'))
+                                      acceptance_log=engine.budget.acceptance_log, max_calls=rec['max_calls'])
+        result = engine.run(max_jobs=rec['max_questions'], lock_held=True, paused_players=('claude', 'gpt'))
         counts, error = quota.detect_agy_activity()
         append_record(root / 'm2_supplements.jsonl', {'type': 'supplement_finished', 'version': VERSION,
             'supplement_id': campaign['campaign_id'], 'at': to_iso(utc_now()), 'scheduler_run_id': engine.run_id,
@@ -202,13 +242,15 @@ def report(root, campaign):
             'error_type': r.get('error_type'), 'pipeline_version': r['pipeline_version']})
     out = {'type': 'm2_supplement_report', 'version': VERSION, 'report_id': new_id('m2cost'),
         'at': to_iso(utc_now()), 'supplement_id': campaign['campaign_id'], 'parent_id': rec['parent_id'],
+        'authorization': rec.get('authorization', 'D92'),
+        'limits': {k: rec[k] for k in ('max_questions', 'max_calls', 'max_seconds')},
         'finished': any(r['type'] == 'supplement_finished' for r in rows), 'actual_calls': len(starts),
         'unknown_attempt_ids': unknown, 'measurements': measurements,
         'trusted_attempts': sum(r['quota_fraction'] is not None for r in measurements),
         'm2_acceptance_changed': False,
         'limitations': ['Tier 1 only; never impute Tier 2 costs from these samples.',
                        'Original untrusted costs remain untrusted. This separate report does not promote M2.',
-                       'At most three new questions; insufficient to estimate population capacity reliably.']}
+                       'Small bounded sample; insufficient to estimate population capacity reliably.']}
     dest = F.PROJECT_ROOT / 'reports' / (out['report_id'] + '.json')
     with dest.open('x') as stream:
         json.dump(out, stream, ensure_ascii=False, indent=2)
@@ -221,17 +263,19 @@ def main(argv=None):
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument('command', choices=('prepare', 'run', '_worker', 'report'))
     p.add_argument('--campaign', type=Path, required=True)
+    p.add_argument('--authorization', choices=tuple(CONTRACTS), default='D92', help='prepare only')
     args = p.parse_args(argv)
     campaign = json.loads(args.campaign.read_text())
     if args.command == 'prepare':
-        print(json.dumps({'campaign_path': str(prepare(F.DATA, campaign)), 'predictions_run': 0}))
+        print(json.dumps({'campaign_path': str(prepare(F.DATA, campaign, authorization=args.authorization)), 'predictions_run': 0}))
     elif args.command == '_worker':
         worker(F.DATA, campaign)
     elif args.command == 'run':
+        rec, _ = registration(F.DATA, campaign)
         # Bound the whole controller including API, preflight and cleanup; timeout never retries.
         code, timed_out = supervise(
             [sys.executable, str(Path(__file__).resolve()), '_worker', '--campaign', str(args.campaign.resolve())],
-            timeout_s=MAX_SECONDS - CLEANUP_RESERVE_S)
+            timeout_s=rec['max_seconds'] - CLEANUP_RESERVE_S)
         append_record(F.DATA / 'm2_supplements.jsonl', {'type': 'supplement_supervisor_finished',
             'supplement_id': campaign['campaign_id'], 'at': to_iso(utc_now()),
             'exit_code': code, 'timed_out': timed_out, 'automatic_retry': False})
