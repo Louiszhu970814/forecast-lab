@@ -26,7 +26,7 @@ from submit_contract import ConfirmedFailure, Readback, own_forecast_records
 FORECAST_PATH = "/api/questions/forecast/"
 COMMENT_PATH = "/api/comments/create/"
 
-VERSION = "api_transport_v5"
+VERSION = "api_transport_v6"
 # V15: verify every endpoint, field and query on bot testing area before live.
 ACCOUNT_PATH = "users/me/"
 ACCOUNT_ID, ACCOUNT_IS_BOT = "id", "is_bot"
@@ -38,6 +38,10 @@ FORECAST_CATEGORIES = "probability_yes_per_category"
 COMMENTS_PATH = "comments/"
 COMMENT_QUERY_POST, COMMENT_QUERY_AUTHOR = "post", "author"
 COMMENT_QUERY_LIMIT = "limit"
+# D102: the backend lists the requester's private comments only with is_private=true
+# (comments/services/feed.py); without it every private comment is filtered out.
+COMMENT_QUERY_PRIVATE = "is_private"
+COMMENT_PRIVATE = "is_private"  # row field; when present it must equal the frozen payload
 COMMENT_TIME, COMMENT_TEXT = "created_at", "text"
 COMMENT_AUTHOR, COMMENT_POST = "author", "on_post"
 PAGE_RESULTS, PAGE_NEXT = "results", "next"
@@ -332,8 +336,13 @@ class APITransport:
             else:
                 if sha256_hex(payload["text"]) != intent["comment_hash"]:
                     return unknown
-                page = self.client.get(COMMENTS_PATH, {COMMENT_QUERY_POST: intent["post_id"],
-                    COMMENT_QUERY_AUTHOR: intent["bot_id"], COMMENT_QUERY_LIMIT: 100})
+                if type(payload.get("is_private")) is not bool:
+                    return unknown
+                query = {COMMENT_QUERY_POST: intent["post_id"],
+                    COMMENT_QUERY_AUTHOR: intent["bot_id"], COMMENT_QUERY_LIMIT: 100}
+                if payload["is_private"]:
+                    query[COMMENT_QUERY_PRIVATE] = "true"
+                page = self.client.get(COMMENTS_PATH, query)
                 visited, matches_found = set(), {}
                 for _ in range(MAX_COMMENT_PAGES):
                     if not isinstance(page, dict) or not isinstance(page.get(PAGE_RESULTS), list) or PAGE_NEXT not in page:
@@ -346,6 +355,7 @@ class APITransport:
                         try:
                             matches = type(author) is int and author == intent["bot_id"] \
                                 and type(row.get(COMMENT_POST)) is int and row[COMMENT_POST] == intent["post_id"] \
+                                and (COMMENT_PRIVATE not in row or row[COMMENT_PRIVATE] is payload["is_private"]) \
                                 and started < parse_iso(row[COMMENT_TIME]) <= utc_now() \
                                 and isinstance(row.get(COMMENT_TEXT), str) \
                                 and sha256_hex(row[COMMENT_TEXT]) == intent["comment_hash"]
@@ -356,7 +366,8 @@ class APITransport:
                             if receipt:
                                 matches_found[receipt["id"]] = receipt
                     nxt = page.get(PAGE_NEXT)
-                    if nxt is None or nxt == "":
+                    # Countless pagination keeps a next link after the last row; an empty page ends it.
+                    if nxt is None or nxt == "" or not page[PAGE_RESULTS]:
                         return Readback("found", next(iter(matches_found.values())), request_id) if len(matches_found) == 1 else unknown
                     if not isinstance(nxt, str) or nxt in visited:
                         return unknown

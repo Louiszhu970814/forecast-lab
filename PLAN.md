@@ -1,6 +1,6 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.50（v1.0 凍結後的修訂，見 §16；Claude 依 D95 主持，D102 多選題有界驗收）
+> 版本：v1.51（v1.0 凍結後的修訂，見 §16；Claude 依 D95 主持，D104 私人留言讀回修正）
 > 初稿：Claude
 > 本回合整合者：Claude（D95；GPT 已完成 D82／D84～D94 的主持與交接）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
@@ -1730,10 +1730,13 @@ view_image                  stable true
 | D101 | 2026-11-02 | Louis 對 D101-CAPS 選 A（照建議）：Claude 與 GPT 每週嘗試次數上限各 130，Gemini 每週 200 次作為防失控上限。`quota_policy_v4` → `quota_policy_v5`；`config.py` 驗證 Gemini 的選填上限。正式覆蓋率情境事前登記後才執行，通過標準為支援題覆蓋率第 10 百分位 ≥ 90%；結果 100% | 本輪指示；Gemini（Argon high）獨立審查 PASS；不啟用排程 |
 | D102 | 2026-11-02 | Louis 於桌面對話核准 D102（照建議 A）：改在 bot testing area 唯一未用過、系統支援的多選題（question 46450）做有界驗收，trial、均勻 synthetic 預測最多 1 次、私人留言最多 1 次、不重試，遇 4xx／429／unknown 即停，結束立即回 local；同時驗證請求間隔後的私人留言（D98）與歷史選項順序為 null 時的多選題送出／讀回（D99）。`v15_probe_v2` → `v15_probe_v3` | 本輪指示；GPT 實作、Claude 審查（留言屬性核對改走文件允許的列表端點）、Gemini（Argon high）審查 PASS 並修正一項 non-blocking |
 | D103 | 2026-11-02 | Louis 回報 TG 決策問題並指派 GPT 修正（D100／D101 交由 Claude 執行）。根因：D100／D101 只記錄了選項，沒有登記續作，程式也沒有喚醒桌面對話的機制；TG 常駐服務本身正常。GPT 實作 `telegram_ops_v4`／`team_chat_v2`（§5.2）。Louis 另表示多數決定在 Claude Code 對話做出，TG 只在他從 TG 詢問時用於決策 | 本輪指示；Gemini（Argon medium）審查兩項 non-blocking 修正後複查 PASS；GPT 隔離完整 1641 passed；服務已重載 |
+| D104 | 2026-11-02 | D102 實測：多選題預測 1 次讀回 found（順序也相符），私人留言 1 次由伺服器接受並附內容（無 429），但留言讀回記為 unknown。唯讀查證與官方後端原始碼確認：留言列表只在帶 `is_private=true` 時列出請求者自己的私人留言，且分頁在最後一頁後仍附 `next`，讀回因此翻完 20 個空頁。`api_transport_v5` → `api_transport_v6`：私人留言查詢加上 `is_private=true`、空頁即結束、逐筆核對 `is_private`；正式送出流程共用此讀回 | 主持人依 Louis 持續推進 M3 的指示修正；Gemini（Argon high）審查 PASS，兩項 non-blocking 已採納；unknown 的留言只做唯讀對帳，不重送 |
 
 ---
 
 ## 16. 變更紀錄
+
+- **v1.51**（2026-11-02）：D104，`api_transport_v5` → `api_transport_v6`：留言讀回要求凍結 payload 的 `is_private` 為 bool，私人留言查詢加上 `is_private=true`，空的結果頁視為列表結束，每筆紀錄若帶 `is_private` 必須與 payload 相同；`v15_probe` 的留言屬性核對同樣加旗標。測試以接近後端行為的假伺服器補強。D102 實測紀錄見 `docs/tasks/M3-MC-PROBE-D102.md`。
 
 - **v1.50**（2026-11-02）：D102，`v15_probe_v2` → `v15_probe_v3`：`prepare --question-type multiple_choice`（預設 binary）；多選題的 synthetic 預測為均勻分布，直接用 `submit.forecast_payload()` 的捨入；新計畫帶 `max_comment_requests: 1`，拒絕留言復原旗標，只有 v1／v2 的是非題舊計畫保留 D84／D88 的復原規則；多選題留言的 `included_forecast` 以精確多重集合核對並記 `included_forecast_order_verified`；留言屬性改由 `comments/?post=&author=<自己>` 列表讀取（只接受恰好一筆相同 ID）。規格 `docs/tasks/M3-MC-PROBE-D102.md`。
 

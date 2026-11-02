@@ -685,7 +685,7 @@ def test_comment_properties_use_documented_own_comment_list(mc_probe):
     assert '/api/comments/100/' not in paths
     last = [r for r in http.calls if urllib.parse.urlsplit(r.full_url).path == '/api/comments/'][-1]
     query = urllib.parse.parse_qs(urllib.parse.urlsplit(last.full_url).query)
-    assert query['author'] == [str(V.BOT_ID)] and query['post'] == ['17']
+    assert query['author'] == [str(V.BOT_ID)] and query['post'] == ['17'] and query['is_private'] == ['true']
 
 
 @pytest.mark.parametrize('change', ['duplicate', 'missing'])

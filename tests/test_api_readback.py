@@ -328,3 +328,78 @@ def test_comment_readback_requires_one_match_over_complete_pagination(later):
         return Response({'results':[row],'next':'https://www.metaculus.com/api/comments/?offset=100'})
     result=T.APITransport(TOKEN,opener=opener).readback('comment',intent(),request_id='r')
     assert result.outcome==('found' if later=='duplicate' else 'unknown')
+
+
+def _server_like_comments(rows):
+    """Backend semantics (D102): private rows only with is_private=true; countless pagination
+    always returns a next link, including after the last row."""
+    calls = []
+    def opener(req, timeout):
+        parts = urllib.parse.urlsplit(req.full_url)
+        if parts.path != '/api/comments/':
+            return HTTP()(req, timeout)
+        query = urllib.parse.parse_qs(parts.query)
+        calls.append(query)
+        private = query.get('is_private') == ['true']
+        visible = [r for r in rows if r['is_private'] is private]
+        offset, limit = int(query.get('offset', ['0'])[0]), int(query.get('limit', ['100'])[0])
+        nxt = 'https://www.metaculus.com/api/comments/?' + urllib.parse.urlencode(
+            {**{k: v[0] for k, v in query.items()}, 'offset': offset + limit})
+        return Response({'results': visible[offset:offset + limit], 'next': nxt, 'previous': None})
+    return opener, calls
+
+
+def _comment_row(**kw):
+    return {'id': 9, 'author': {'id': 42}, 'on_post': 17, 'text': 'Synthetic comment', 'is_private': True,
+            'created_at': to_iso(NOW + timedelta(seconds=1)), **kw}
+
+
+def test_private_comment_readback_requests_private_listing_and_stops_on_empty_page():
+    opener, calls = _server_like_comments([_comment_row()])
+    result = T.APITransport(TOKEN, opener=opener).readback('comment', legacy_intent(), request_id='r')
+    assert result.outcome == 'found' and result.record['id'] == 9
+    assert [q.get('is_private') for q in calls] == [['true'], ['true']]
+    assert [q.get('offset', ['0']) for q in calls] == [['0'], ['100']]
+
+
+def test_private_comment_hidden_without_flag_is_not_assumed_found():
+    opener, calls = _server_like_comments([_comment_row()])
+    data = legacy_intent()
+    data['comment_payload'] = {**data['comment_payload'], 'is_private': False}
+    result = T.APITransport(TOKEN, opener=opener).readback('comment', data, request_id='r')
+    assert result.outcome == 'unknown'
+    assert len(calls) == 1 and 'is_private' not in calls[0]
+
+
+@pytest.mark.parametrize('value', [None, 'true', 1])
+def test_comment_readback_requires_explicit_privacy_flag(value):
+    opener, calls = _server_like_comments([_comment_row()])
+    data = legacy_intent()
+    data['comment_payload'] = {**data['comment_payload'], 'is_private': value}
+    result = T.APITransport(TOKEN, opener=opener).readback('comment', data, request_id='r')
+    assert result.outcome == 'unknown' and not calls
+
+
+def test_empty_first_comment_page_ends_with_one_request():
+    opener, calls = _server_like_comments([])
+    result = T.APITransport(TOKEN, opener=opener).readback('comment', legacy_intent(), request_id='r')
+    assert result.outcome == 'unknown' and len(calls) == 1
+
+
+def test_public_comment_readback_found_without_private_flag_across_trailing_page():
+    opener, calls = _server_like_comments([_comment_row(id=7, is_private=True), _comment_row(id=9, is_private=False)])
+    data = legacy_intent()
+    data['comment_payload'] = {**data['comment_payload'], 'is_private': False}
+    result = T.APITransport(TOKEN, opener=opener).readback('comment', data, request_id='r')
+    assert result.outcome == 'found' and result.record['id'] == 9
+    assert len(calls) == 2 and all('is_private' not in q for q in calls)
+
+
+@pytest.mark.parametrize('row_value', [False, None, 'true'])
+def test_private_readback_rejects_row_whose_privacy_differs(row_value):
+    def opener(req, timeout):
+        if urllib.parse.urlsplit(req.full_url).path != '/api/comments/':
+            return HTTP()(req, timeout)
+        return Response({'results': [_comment_row(is_private=row_value)], 'next': None})
+    result = T.APITransport(TOKEN, opener=opener).readback('comment', legacy_intent(), request_id='r')
+    assert result.outcome == 'unknown'

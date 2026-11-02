@@ -59,3 +59,35 @@
 - Claude 審查：範圍符合規格。修改一處：最後的留言屬性核對原本讀 `comments/<id>/` 詳細頁，該端點不在公開閘道文件中（文件說部分網站專用端點回 403），改為讀文件明確允許的 `comments/?post=<post>&author=<自己>&limit=100`，只接受恰好一筆相同 ID 的紀錄，否則記為未核對。補 3 個測試。官方後端的列表與詳細頁都用 `serialize_comment_many`，欄位相同。
 - Gemini（Argon high）第 1 輪 PASS，一項 non-blocking：新計畫若被刪掉 `max_comment_requests` 並重算雜湊，會回到舊的復原規則。已修正：只有 v1／v2 版本的是非題計畫算舊計畫，其他計畫一律要有 `max_comment_requests == 1`；補 3 個測試；真實帳冊中的原 V15 計畫仍可驗證。第 2 輪定點複查 PASS。
 - 隔離完整 **1708 passed**（含 D103 的 TG 修改）。
+
+## 實際執行（2026-11-02，UTC）
+
+| 時間 | 事件 |
+|---|---|
+| 11:27:04～11:27:17 | local 模式唯讀前檢，凍結計畫 `v15_1793618837390_110f6deb`（post 46223／question 46450，3 個選項，payload 0.333333／0.333333／0.333334，`max_comment_requests: 1`）。前一次 API 請求在 11:02 |
+| 11:27～11:37 | 約 10 分鐘沒有任何 Metaculus API 請求 |
+| 11:37:41 | 切到 trial（bot 311763） |
+| 11:38:39.615 | 預測 POST 開始；11:38:42.775 回應（無收據內容） |
+| 11:38:51.685 | 預測讀回 **found**：伺服器 start_time 1793619522.579765，`option_order_verified: true` |
+| 11:39:53.549 | 私人留言 POST 開始；11:39:56.217 **伺服器回應並附內容**（`receipt_present: true`），沒有 429 |
+| 11:41:22.982 | 留言讀回記為 **unknown**（不重送） |
+| 11:41:23 | 回 local |
+
+整個過程沒有 4xx／429，冷卻帳冊沒有新紀錄；預測 POST 1 次、留言 POST 1 次，都沒有重試。
+
+### 留言 unknown 的原因（唯讀查證）
+
+- 讀回花了約 86 秒，以 3.5～4.5 秒的請求間隔推算約 20 個請求，等於分頁上限 `MAX_COMMENT_PAGES = 20`。
+- 唯讀 GET `comments/?post=46223&author=311763&limit=100`：`results` 為空，但仍附 `next`（offset=100）。
+- 官方後端 `comments/services/feed.py` 的 `get_comments_feed`：只有傳入 `is_private=true` 時才列出請求者自己的私人留言，否則一律 `is_private=False`；列表用 `CountlessLimitOffsetPagination`，最後一頁之後仍附 `next`。
+- 同一查詢加上 `is_private=true` 後回傳恰好 1 筆：留言 1250911，作者 311763、`on_post` 46223、`is_private: true`、`created_at` 11:39:56.075Z（在請求開始之後）、文字雜湊與凍結計畫相同；`included_forecast` 為 multiple_choice，`probability_yes_per_category` 與送出的值逐位置相同，`start_time` 與預測讀回相同。
+
+結論：**私人留言在加上請求間隔後已成功發布**；unknown 是本專案讀回程式的錯誤（沒有傳 `is_private=true`，空頁也不停止），不是平台拒絕。正式送出流程用的是同一段讀回程式，因此一併修正。
+
+### 修正（`api_transport_v5` → `api_transport_v6`）
+
+- 留言讀回要求凍結 payload 的 `is_private` 是 bool（否則直接 unknown，不發請求）；私人留言的查詢加上 `is_private=true`。
+- 讀到空的 `results` 頁就視為列表結束。
+- probe 的留言屬性核對同樣加上 `is_private=true`。
+- 新測試用接近後端行為的假伺服器：私人留言只在帶旗標時列出、永遠附 `next`。
+- Gemini（Argon high）第 1 輪 PASS，兩項 non-blocking（逐筆核對 `is_private`；補公開留言 found 的測試），已採納；第 2 輪定點複查 PASS。隔離完整 **1718 passed**。

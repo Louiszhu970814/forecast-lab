@@ -525,7 +525,9 @@ def test_comment_readback_pagination_and_uncertainty(fault):
             return Response({'unexpected': TOKEN})
         if fault == 'wrong_author' or req.full_url.endswith('offset=100'):
             return Response({'results': [record], 'next': None})
-        return Response({'results': [], 'next': ('https://evil.example/' + TOKEN if fault == 'foreign_next'
+        # A non-matching row keeps the first page non-empty (an empty page ends the listing, D102).
+        other = {**record, 'id': 8, 'text': 'Other synthetic comment'}
+        return Response({'results': [other], 'next': ('https://evil.example/' + TOKEN if fault == 'foreign_next'
                          else 'https://www.metaculus.com/api/comments/?offset=100')})
     obj = T.APITransport(TOKEN, opener=opener)
     result = obj.readback('comment', intent(), request_id='r')

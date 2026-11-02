@@ -85,7 +85,8 @@ class Probe:
         The detail endpoint is not in the public gateway documentation and may be refused.
         Anything but exactly one row with this id yields {} and therefore an unverified result.
         """
-        page = self.transport.client.get('comments/', {'post': post_id, 'author': BOT_ID, 'limit': 100})
+        # Private comments are listed only with is_private=true (D102 finding).
+        page = self.transport.client.get('comments/', {'post': post_id, 'author': BOT_ID, 'is_private': 'true', 'limit': 100})
         rows = page.get('results') if isinstance(page, dict) else None
         matches = [r for r in rows if isinstance(r, dict) and type(r.get('id')) is int and r['id'] == comment_id] \
             if isinstance(rows, list) else []
