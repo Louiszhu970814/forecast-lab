@@ -1,6 +1,6 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.55（v1.0 凍結後的修訂，見 §16；Claude 依 D95 主持，D107 A3 熔斷解除）
+> 版本：v1.56（v1.0 凍結後的修訂，見 §16；Claude 依 D95 主持，D107 A2 測試區重送驗收）
 > 初稿：Claude
 > 本回合整合者：Claude（D95；GPT 已完成 D82／D84～D94 的主持與交接）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
@@ -1601,6 +1601,10 @@ view_image                  stable true
 
 - [§5.2 / D91 / D95] 依 Louis 本輪要求已修正 `telegram_ops_v4`／`team_chat_v2`：未開始且未到期可改選、版本核對接手、條件里程碑通知、最新決策優先、資料截點與執行器心跳、明確負責人／阻塞／下一步；請整合者同步正文、§15／§16 與版本。根因是 D100／D101 未登記續作且沒有桌面 agent 喚醒機制，TG launchd 本來已在線；選項範圍已獲核准不得重問。實作與證據見 `docs/tasks/TELEGRAM-HANDOFF.md`，操作見 `docs/telegram.md`｜使用者已另行指示 Claude 執行 D100／D101，GPT 只修 TG，不改這兩項決定或預測設定。相關 94 passed、隔離完整 1641 passed；Gemini Argon medium 審查與修正後複查均 PASS。維持僅已審查離線續作可自動執行的 D91 界線，人工主持人須在開工前登記 claim；本輪未提交，由 Claude 整合｜non-blocking
 
+#### D107 A2 工作副本部分實作（GPT，2026-11-02）
+
+- [§3.6 / §12 V15 / §15 D107 A2 / §16] 建議整合者審查完整 `v15_probe_v4` 三情境並同步版本／變更紀錄：依 Claude 決定，`comment_retry` 使用隔離且標記 synthetic 的輸入與帳冊、唯讀正式去重、強制讀回及未修改的 Submitter 三次留言狀態機（本地注入一次、真實留言最多兩次、預測最多一次）；長度測試維持已有自身預測及 forecast probe 保留的限制；歷史 unknown／write_unconfirmed 僅在同一請求後有 found 或具證據的 confirmed_failed 才解除阻擋｜工作副本已完成離線實作，`single`／v1～v3 相容測試保留；相關 433 passed，完整 1831 passed／62 failed／2 skipped（61 項沙箱或暫存目錄限制、1 項既有含空白路徑測試假設），詳見任務文件；未修改正式 Submitter／transport、未執行平台驗收或提交部署，仍待 Claude 與獨立審查，不代表 M3 驗收完成｜non-blocking
+
 ### 14.3 Louis 與女友
 
 （待填）
@@ -1739,6 +1743,8 @@ view_image                  stable true
 ---
 
 ## 16. 變更紀錄
+
+- **v1.56**（2026-11-02）：D107 A2 實作，`v15_probe_v3` → `v15_probe_v4`，CLI 加 `--scenario`（預設 `single`，即原 v3 行為，v1～v3 計畫規則不變）。三個 bot testing area 重送情境，計畫帶 `reuse_authorization: "PLAN D107 A2"` 與固定上限，一次執行、不可續跑：`comment_length`（不送預測，私人留言 2000／10000／50000／150000 字元 ASCII 合成文字，每則讀回核對全文雜湊與長度，遇拒絕、unknown 或截斷即停，最多 4 次；只選已有自身預測且已被 probe 保留的題目）、`duplicate_forecast`（同題兩次合成預測，以送出前基準辨認新紀錄並記錄平台歷史筆數，最多 2 次）、`comment_retry`（預測 1 次；第一次留言在任何網路 I/O 前以本地注入的確認失敗結束並明確標記，之後由未修改的 `Submitter` 狀態機與 `COMMENT_ATTEMPTS=3` 退避最多送 2 次真實留言；使用獨立資料根目錄與標記 synthetic 的合成輸入，不寫正式送出帳冊，去重仍唯讀沿用正式帳冊）。重用題目時，先前 probe 在該題若有沒有終局結果的請求就不選；同一請求之後已 found 或有拒絕證據者視為已解決。正式 `submit.py`、`submit_transport.py` 未修改。GPT 兩輪實作（第一輪 needs_input 由 Claude 決定不改正式送出程式、真實留言上限 2 次），Claude 審查未修改，完整 2023 passed；Gemini（Argon high）獨立審查 PASS、無發現。規格 `docs/tasks/D107-A2-BTA-REUSE-PROBE.md`。
 
 - **v1.55**（2026-11-02）：D107 A3 實作，`budget_v4` → `budget_v5`。新增追加式事件 `budget_upgrade_stop_lifted`（player、被解除的 reason 與 stop 的 `at`、固定授權字串 `PLAN D107 A3`），只解除事件明列、同一 player、在解除時間之前寫入且仍未到期的 stop；之後新寫入的 stop 照常生效。第 2 層 token 熔斷的違規判定只看最近一次解除之後開始的紀錄，避免解除前的違規立即重新觸發；沒有解除紀錄時行為不變。每題 token 上限、每週次數上限、Gemini 的 credits／五小時桶／版面檢查不變。CLI `budget.py lift-tier2-stops --player gpt --player gemini --authorization "PLAN D107 A3"`：只限 GPT／Gemini，全部驗證後才寫入，沒有可解除的 stop 時拒絕，不輸出帳冊內容。GPT 實作，Claude 審查未修改，完整 1846 passed；Gemini（Argon high）獨立審查 PASS、無發現。規格 `docs/tasks/D107-A3-TIER2-BREAKER-LIFT.md`。
 

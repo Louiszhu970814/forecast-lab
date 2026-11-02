@@ -1,6 +1,19 @@
 # 給下一個對話的接手紀錄
 
-## 2026-11-02：D105 審查中、D106 核准、D107 放寬（最新，UTC 約 13:30）
+## 2026-11-02：D105／A3 已提交、trial 已開、等 Louis 安裝 launchd（最新，UTC 13:07）
+
+**PLAN v1.55，模式 local（UTC 13:2x 為了讓讀取真實設定的測試通過而切回）；launchd 週期尚未安裝。** 本段取代下一段。
+
+**注意：安裝 launchd 前必須先切回 trial。** local 模式下週期會在本地預測主站題目卻不送出，選題名額會被用掉、之後也不會再選（已在本地紀錄過）。Gemini 審查進行中時也不要啟動週期（Gemini 線會偵測到同時有 agy 程序）。
+
+1. D105 提交 `b926380`（Gemini PASS）、A3 提交 `ee792f8`（Gemini PASS），都已 push。
+2. UTC 13:06:37 依 D107 A3 執行 `budget.py lift-tier2-stops`：GPT 與 Gemini 的第 2 層熔斷已以追加紀錄解除。
+3. `config/cycle_campaign.json`（未提交）：`d105_e2e_20261102T1303Z`，窗口 UTC 11/2 13:03～11/3 13:03，只有主站、N=4、P=5、各線 40 次。第一次週期執行時才登記。
+4. 13:06:54 切到 trial。Claude Code 的自動模式擋下安裝 LaunchAgent（視為持久化），所以由 Louis 用 `!` 自己執行安裝指令；已準備好的 plist 在本對話暫存目錄 `org.forecast-lab.cycle.plist`（`__PROJECT_ROOT__` 已替換、plutil 通過），也可依 `launchd/README.md` 重做。
+5. 若 Louis 暫時不裝：切回 local（`{"mode": "local", "approved_bot_id": null}`）。安裝後的驗收看 `data/cycles.jsonl`、`main_site_trial_selections.jsonl`、`submissions.jsonl`，只看 ID／狀態／計數，不讀開放題的預測內容。
+6. A2 仍在 GPT 沙箱；Gemini 審查 A2 要避開 Gemini 線正在預測的時段。
+
+## 2026-11-02：D105 審查中、D106 核准、D107 放寬（UTC 約 13:00）
 
 **PLAN v1.53，模式 local；沒有排程。** 本段取代下一段的「M3 剩下」。
 

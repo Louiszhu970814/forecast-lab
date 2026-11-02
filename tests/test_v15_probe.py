@@ -457,7 +457,7 @@ def test_mc_prepare_uses_uniform_submission_rounding_and_bounded_plan(mc_probe):
     queries = [urllib.parse.parse_qs(urllib.parse.urlsplit(r.full_url).query)
         for r in http.calls if urllib.parse.urlsplit(r.full_url).path == '/api/posts/']
     assert queries[-1]['forecast_type'] == ['multiple_choice']
-    assert obj.rows()[0]['version'] == 'v15_probe_v3'
+    assert obj.rows()[0]['version'] == V.VERSION
     assert 'UNIQUE-QUESTION-TEXT' not in obj.log.read_text()
     assert not (project/'data/forecasts.jsonl').exists()
     assert not (project/'data/aggregates.jsonl').exists()
@@ -668,12 +668,12 @@ def test_cli_passes_question_type_without_real_credentials_or_http(probe, monkey
     monkeypatch.setattr(flab.envfile, 'get_secret', lambda *a: TOKEN)
     monkeypatch.setattr(V, 'APITransport', lambda token: obj.transport)
     monkeypatch.setattr(V, 'Probe', lambda *a: obj)
-    def prepare(question_type):
-        calls.append(question_type)
+    def prepare(question_type, scenario):
+        calls.append((question_type, scenario))
         return {'writes': 0}
     monkeypatch.setattr(obj, 'prepare', prepare)
     assert V.main(['prepare', *args]) == 0
-    assert calls == [expected] and not http.calls
+    assert calls == [(expected, 'single')] and not http.calls
     assert json.loads(capsys.readouterr().out) == {'writes': 0}
 
 
