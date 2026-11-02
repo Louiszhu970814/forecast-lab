@@ -644,12 +644,89 @@ def attempt_drop(attempt, snapshots, *, period="weekly", current=None):
     return quota_drop(pair.get("before"), pair.get("after"), period=period, current=current)
 
 
-def estimate(attempts, snapshots, *, current, fallback, tier=1, period="weekly") -> tuple[float, int]:
-    drops = [d for r in attempts if r.get("model_check") == "verified" and r.get("tier", 1) == tier
-             and r.get("player", "gemini") == "gemini"
-             and (d := attempt_drop(r, snapshots, period=period, current=current)) is not None and d > 0]
-    drops = sorted(drops[-50:])
-    return (drops[min(len(drops) - 1, int(.9 * len(drops)))], len(drops)) if drops else (fallback, 0)
+WINDOW_ESTIMATE_VERSION = "quota_window_estimate_v1"
+WINDOW_SECONDS = {"weekly": 7 * 86400, "five_hour": 5 * 3600}
+DEFAULT_WINDOW_MULTIPLIER = 3.0
+DEFAULT_WINDOW_MIN_CALLS = 5
+DEFAULT_TIER2_SCALE = 3.0
+
+
+def window_usage(attempts, snapshots, *, current, period="weekly") -> dict | None:
+    """Window-level Gemini usage from every reading of the current reset window (D96/D97).
+
+    `/usage` reads are not a consistent, monotonic counter, so a single before/after delta is
+    never a per-call cost. A reading never reports a future state, so every reading is at least
+    the true remaining fraction at its own time, and the true value only falls within one fixed
+    window. The minimum reading is therefore an upper bound on the current remaining fraction,
+    and `1 - minimum` a lower bound on all usage since the window opened. That usage includes
+    development, research and personal use, so dividing by forecast calls overstates the mean
+    forecast cost. Concurrency does not invalidate a reading, only per-call attribution.
+    """
+    if period not in WINDOW_SECONDS:
+        raise ValueError("unknown quota period")
+    cur = _coerce_snapshot(current)
+    buckets = argon_buckets(cur)
+    bucket = getattr(buckets, period) if buckets.layout != "unknown" else None
+    reset = _parse_iso_safe(bucket.reset_time) if bucket is not None else None
+    if bucket is None or reset is None or cur.stale:
+        return None
+    readings = [bucket.remaining_fraction]
+    seen = {cur.snapshot_id}  # `current` is often a row of `snapshots`; count each reading once
+    for row in snapshots:
+        if row.get("stale") or row.get("delayed"):
+            continue
+        sid = row.get("snapshot_id")
+        if isinstance(sid, str) and sid:
+            if sid in seen:
+                continue
+            seen.add(sid)
+        # Cheap pre-filter before full parsing; layout/id/reset are re-checked below.
+        listed = row.get("buckets") or {}
+        raw = listed.get(bucket.id) if hasattr(listed, "get") else None
+        if raw is None or not hasattr(raw, "get") or raw.get("reset_time") != bucket.reset_time:
+            continue
+        other = argon_buckets(row)
+        same = getattr(other, period) if other.layout == buckets.layout else None
+        if same is not None and same.id == bucket.id and same.reset_time == bucket.reset_time:
+            readings.append(same.remaining_fraction)
+    start = reset.timestamp() - WINDOW_SECONDS[period]
+    calls = 0
+    for r in attempts:
+        if r.get("player", "gemini") != "gemini":
+            continue
+        began = _parse_iso_safe(r.get("started_at_utc"))
+        if began is not None and start <= began.timestamp() < reset.timestamp():
+            calls += 1
+    lowest = min(readings)
+    return {"method": WINDOW_ESTIMATE_VERSION, "period": period, "quota_layout": buckets.layout,
+            "bucket": bucket.id, "reset_time": bucket.reset_time, "readings": len(readings),
+            "min_remaining": lowest, "used_lower_bound": max(0.0, 1.0 - lowest), "gemini_calls": calls,
+            "mean_per_call": (1.0 - lowest) / calls if calls and lowest < 1.0 else None,
+            "includes_non_forecast_usage": True}
+
+
+def estimate(attempts, snapshots, *, current, fallback, tier=1, period="weekly",
+             multiplier=DEFAULT_WINDOW_MULTIPLIER, min_calls=DEFAULT_WINDOW_MIN_CALLS,
+             tier2_scale=DEFAULT_TIER2_SCALE) -> tuple[float, int]:
+    """Per-call admission estimate from window-level usage; never above ``fallback`` (D97).
+
+    Returns ``(estimate, gemini_calls_used)``; ``(fallback, 0)`` when the window has too few
+    calls or no observed usage. Tier 2 is scaled by the tier-2 token multiplier cap because the
+    token breaker bounds a tier-2 call at that multiple of the tier-1 baseline.
+    """
+    usage = window_usage(attempts, snapshots, current=current, period=period)
+    if usage is None or usage["gemini_calls"] < max(1, int(min_calls)) or not usage["mean_per_call"]:
+        return fallback, 0
+    value = usage["mean_per_call"] * float(multiplier) * (float(tier2_scale) if tier == 2 else 1.0)
+    return min(float(fallback), value), usage["gemini_calls"]
+
+
+def estimate_settings(policy: Mapping[str, Any]) -> dict[str, float]:
+    """Window estimate knobs from quota policy, with v4 defaults for older frozen policies."""
+    cfg = (policy.get("players") or {}).get("gemini") or {}
+    return {"multiplier": float(cfg.get("window_estimate_multiplier", DEFAULT_WINDOW_MULTIPLIER)),
+            "min_calls": int(cfg.get("window_min_calls", DEFAULT_WINDOW_MIN_CALLS)),
+            "tier2_scale": float(policy.get("token_multiplier_cap", DEFAULT_TIER2_SCALE))}
 
 
 def five_hour_gate(snapshot, estimate: float) -> tuple[str | None, dict]:
@@ -773,13 +850,19 @@ def manual_admission(snapshot, policy: dict, *, model: str, history_root: Path, 
     if not credits_ok(snapshot) or snapshot.get("stale") or snapshot.get("concurrent_agy_detected"):
         return "quota_snapshot_untrusted", info
     cfg = policy["players"]["gemini"]
-    reserve, estimate_weekly = 1 - float(cfg["weekly_cap"]), float(cfg["tier2_per_question_cap"])
+    fallback = float(cfg["tier2_per_question_cap"])
+    forecasts, history = read_complete(history_root / "forecasts.jsonl"), read_complete(history_root / "quota.jsonl")
+    settings = estimate_settings(policy)
+    reserve = 1 - float(cfg["weekly_cap"])
+    estimate_weekly, weekly_count = estimate(forecasts, history, current=snapshot, fallback=fallback, tier=tier,
+                                             period="weekly", **settings)
     info.update(quota_weekly_bucket=buckets.weekly.id, argon_remaining=buckets.weekly.remaining_fraction,
-                reserve=reserve, estimate=estimate_weekly)
+                reserve=reserve, estimate=estimate_weekly, estimate_samples=weekly_count,
+                estimate_method=WINDOW_ESTIMATE_VERSION)
     if (model.startswith("gemini-4-argon-") or buckets.layout == "ultra_shared") and buckets.weekly.remaining_fraction - estimate_weekly < reserve - QUOTA_EPSILON:
         return "quota_exhausted", info
-    estimate_5h, count = estimate(read_complete(history_root / "forecasts.jsonl"), read_complete(history_root / "quota.jsonl"),
-        current=snapshot, fallback=estimate_weekly, tier=tier, period="five_hour")
+    estimate_5h, count = estimate(forecasts, history, current=snapshot, fallback=fallback, tier=tier,
+                                  period="five_hour", **settings)
     reason, short_info = five_hour_gate(snapshot, estimate_5h)
     info.update(short_info)
     if buckets.five_hour:

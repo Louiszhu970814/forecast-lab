@@ -57,7 +57,7 @@ def test_all_actual_config_files_validate() -> None:
     assert agg_cfg["multiple_choice"]["smoothing_epsilon"] == 0.02
 
     quota_cfg = load_quota_policy()
-    assert quota_cfg["version"] == "quota_policy_v3"
+    assert quota_cfg["version"] == "quota_policy_v4"
     assert quota_cfg["players"]["gemini"]["weekly_cap"] == 1.0
     assert quota_cfg["players"]["gemini"]["tier2_per_question_cap"] == 0.05
     assert quota_cfg["players"]["gemini"]["credits_must_be_zero"] is True

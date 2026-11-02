@@ -292,11 +292,11 @@ def test_passive_v5_does_not_block_complete_report_or_change_ledgers(environment
     assert {p:p.read_bytes() for p in obj.root.glob("*.jsonl")}==before and tracker["calls"]==calls
 
 
-@pytest.mark.parametrize("gap",["trusted_gemini_costs","production_acceptance_current","no_unknown_started_attempts"])
+@pytest.mark.parametrize("gap",["gemini_window_cost_estimate","production_acceptance_current","no_unknown_started_attempts"])
 def test_passive_v5_preserves_other_blocking_gates(environment,monkeypatch,gap):
     import m2_report
     obj,_=_completed_report_campaign(environment);gates=_approved_report_gates()
-    if gap=="trusted_gemini_costs":monkeypatch.setattr(m2_report.B.Budget,"_drop",lambda *args:None)
+    if gap=="gemini_window_cost_estimate":monkeypatch.setattr(m2_report.quota,"window_usage",lambda *args,**kwargs:None)
     elif gap=="production_acceptance_current":gates["production_acceptance"]["gpt.tier2"]["ok"]=False
     else:append_record(obj.root/"forecast_attempt_starts.jsonl",{"attempt_id":"unknown-start","question_id":100,"player":"gpt","tier":2})
     report=m2_report.build(obj.root,obj.campaign,gates=gates)

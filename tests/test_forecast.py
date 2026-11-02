@@ -11,6 +11,7 @@ import acceptance_judge as J
 import forecast as F
 import quota
 import validate as V
+from flab.timeutil import to_iso
 from adapters.base import AdapterResult, UrlEvent
 from flab.jsonl import append_record, read_records
 
@@ -415,17 +416,18 @@ def test_gemini_model_mismatch_from_quota_stops_the_line(env, monkeypatch) -> No
     assert recs[0]["model_check"] == "mismatch" and not F.adoptable(recs[0]) and "model_mismatch" in summary["line_stopped"]
 
 
-def test_argon_estimate_uses_observed_drops(tmp_path: Path) -> None:
+def test_argon_estimate_uses_window_usage_not_per_call_deltas(tmp_path: Path) -> None:
     log = tmp_path / "q.jsonl"
     assert F.argon_estimate(log, POLICY, tmp_path / "f.jsonl") == (0.05, 0)
-    for i, (b, a) in enumerate([(0.9, 0.89), (0.89, 0.87), (0.87, 0.86)]):
+    # Rising "after" reads (negative deltas) are irrelevant; only the window minimum counts.
+    for i, (b, a) in enumerate([(0.99, 0.995), (0.985, 0.99), (0.98, 0.99), (0.99, 0.98), (0.98, 0.985)]):
         for when, v in (("before", b), ("after", a)):
             append_record(log, {"type": "quota_snapshot", "attempt_id": f"a{i}", "when": when,
                                 "buckets": _qsnap(v).to_dict()["buckets"]})
-    for i in range(3):
-        append_record(tmp_path / "f.jsonl", {"type": "forecast_attempt", "attempt_id": f"a{i}", "model_check": "verified"})
-    est, n = F.argon_estimate(log, POLICY, tmp_path / "f.jsonl", current=_qsnap(.9))
-    assert abs(est - 0.02) < 1e-9 and n == 3
+        append_record(tmp_path / "f.jsonl", {"type": "forecast_attempt", "attempt_id": f"a{i}", "model_check": "undetermined",
+                                             "player": "gemini", "started_at_utc": to_iso(NOW)})
+    est, n = F.argon_estimate(log, POLICY, tmp_path / "f.jsonl", current=_qsnap(.99))
+    assert abs(est - (1 - 0.98) / 5 * 3) < 1e-9 and n == 5
 
 
 # ---------------------------------------------------------------- Codex takeover regressions

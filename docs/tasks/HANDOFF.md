@@ -1,5 +1,16 @@
 # 給下一個對話的接手紀錄
 
+## 2026-11-02：D97 已實作，M2 報告 14／14（最新，UTC 約 05:10）
+
+**PLAN v1.45，模式 local；沒有背景預測／量測程序，沒有排程。** Claude 主持。
+
+1. Louis 對 D96-QUOTA 選 A，並表示 Gemini 用 Ultra、額度很多，不需要再設限制。D97 已實作：`quota_window_estimate_v1`、`budget_v4`、`quota_policy_v4`、`m2_report_v5`。細節見 `QUOTA-OBSERVABILITY-D96.md` 末段與 PLAN §7.7／§9／§15。
+2. 取消 Gemini 第 2 層每題 5% 與 `weekly_tier2_argon_breaker` 的新觸發；准入估計改窗口層級（不超過 0.05）。保留 credits＝0、真正耗盡時暫停／等待、同線並行 1、token 熔斷。**D97 前寫入的 Gemini 第 2 層熔斷（至 UTC 11/8 12:11:16）照舊生效**；GPT 第 2 層熔斷不變。
+3. 隔離完整 **1537 passed**；Gemini Argon high 審查第 1 輪抓到讀數重複計數（已修正），第 2 輪 PASS。最新 M2 報告 `m2report_1793595697637_6ccfc68f` **14／14**。
+4. `quota_policy` 雜湊改變，D92／D94 等舊題集不能再執行（本來就不得重啟）。
+5. Louis 新指示：不靠官方寄信，改請 Gemini 搜尋論壇、GitHub、其他開源參賽 bot，找私人留言 429、多選題選項映射、留言長度的線索。Claude 同時以 `gh` 直接查官方客戶端原始碼。結果待記錄。
+6. M3 待辦：Metaculus 客戶端目前沒有主動的請求間隔，GET 也多次遇到 429（11/1 17:15、11/2 01:50），可能與留言被拒有關；預計先做離線的請求節流，再請 Louis 決定是否做新的有界私人留言驗收。
+
 ## 2026-11-02：D96 Claude 已實際接手（最新，UTC 約 04:40）
 
 **PLAN v1.44，模式 local；沒有背景預測／量測程序，沒有排程。** Claude 於 UTC 04:2x 依 D95 開始主持，已在 TG 進度板登記。

@@ -1,5 +1,5 @@
 {
-  "version": "quota_policy_v3",
+  "version": "quota_policy_v4",
   "max_concurrency_per_player": 1,
   "token_multiplier_cap": 3,
   "priority_order": [
@@ -21,6 +21,8 @@
     "gemini": {
       "weekly_cap": 1.0,
       "tier2_per_question_cap": 0.05,
+      "window_estimate_multiplier": 3,
+      "window_min_calls": 5,
       "credits_must_be_zero": true
     },
     "claude": {
@@ -33,7 +35,7 @@
     }
   },
   "_notes": {
-    "version": "quota_policy_v3：依 PLAN D74，舊 M2 題集結束後 Gemini 個人保留線由 20% 降為 0%，weekly_cap 由 0.8 改為 1.0；Ultra 仍檢查共用週桶與五小時桶（D75）",
+    "version": "quota_policy_v4：依 PLAN D97，Gemini 的 /usage 讀數不一致（D96），單次前後差值不當成本。准入估計改用重置窗口內所有讀數的最小值推算總用量，除以窗口內 Gemini 呼叫數，乘上 window_estimate_multiplier；第 2 層再乘上 token_multiplier_cap。呼叫數少於 window_min_calls 或沒有觀測到用量時，退回 tier2_per_question_cap。tier2_per_question_cap 改為估計值的上限與備用值，不再是每題第 2 層的額度上限；Gemini 第 2 層改由共用的 token 熔斷限制。v3 起 weekly_cap 為 1.0（D74），Ultra 檢查共用週桶與五小時桶（D75）",
     "weekly_attempts_cap": "暫定：claude 與 gpt 的 weekly_attempts_cap 初始為 null，於 M2 量測後設定（PLAN §9）",
     "priority_identifiers": "暫定：priority_order 與 admission_reserve_order 的代號字串為暫定，對應 PLAN §9 的優先序與准入順序"
   }

@@ -25,7 +25,7 @@ from flab.ledger import transaction, read_complete
 from flab.timeutil import parse_iso, to_iso, utc_now
 from poll_questions import latest_snapshots
 
-VERSION = "m2_report_v4"
+VERSION = "m2_report_v5"
 
 
 def readiness(acceptance_log=baseline.ACCEPTANCE_LOG, *, versions=None):
@@ -85,6 +85,16 @@ def build(root: Path, campaign: dict, *, gates: dict, now=None):
     trusted = {r["attempt_id"]: d for r in source if r.get("player") == "gemini"
                and r.get("model_check") == "verified" and (d := observer._drop(r, quota_rows)) is not None}
     layouts = {r.get("attempt_id"): quota.argon_buckets(r).layout for r in quota_rows if r.get("when") == "before"}
+    # D97: one window-level estimate per weekly reset window that holds this campaign's Gemini calls.
+    gemini_windows, seen_windows = [], set()
+    gemini_ids = {r["attempt_id"] for r in source if r.get("player") == "gemini"}
+    for r in quota_rows:
+        if r.get("when") != "before" or r.get("attempt_id") not in gemini_ids:
+            continue
+        usage = quota.window_usage(attempts, quota_rows, current=r, period="weekly")
+        if usage is not None and (key := (usage["quota_layout"], usage["bucket"], usage["reset_time"])) not in seen_windows:
+            seen_windows.add(key)
+            gemini_windows.append(usage)
     # D80: tier-1 validity counts only questions this line actually attempted. A question whose
     # latest tier-1 job was budget_skipped and that has no tier-1 attempt was never run, so it is
     # reported as a coverage gap, not as an invalid output.
@@ -169,7 +179,8 @@ def build(root: Path, campaign: dict, *, gates: dict, now=None):
             a.get("escalation", {}).get("candidate") and a["question_id"] in ids for a in aggregates),
         "all_lines_and_layers_measured": all(r["attempts"] > 0 for r in costs.values()),
         "known_tokens_all_attempts": bool(source) and all(B.tokens(r) is not None for r in source),
-        "trusted_gemini_costs": bool(trusted),
+        "gemini_window_cost_estimate": bool(gemini_windows) and all(
+            w["gemini_calls"] > 0 and w["readings"] >= 2 and w["mean_per_call"] is not None for w in gemini_windows),
         "single_pipeline_version": bool(source) and len({r.get("pipeline_version") for r in source}) == 1,
         "no_unknown_started_attempts": not unresolved,
         "no_preflight_waivers": bool(source) and not any(r.get("preflight_waivers") for r in source),
@@ -177,6 +188,10 @@ def build(root: Path, campaign: dict, *, gates: dict, now=None):
         "baseline_and_autoload_approved": bool(gates.get("baseline_approved_id")) and gates.get("autoload_passed") is True,
         "production_acceptance_current": len(gates.get("production_acceptance", {})) == 6 and all(
             r.get("ok") for r in gates.get("production_acceptance", {}).values())}
+    gemini_cost_evidence = {"policy": quota.WINDOW_ESTIMATE_VERSION, "decision": "D97",
+        "per_call_cost": "unobservable: agy /usage readings are inconsistent within a fixed window (D96)",
+        "windows": gemini_windows, "legacy_trusted_attempts": len(trusted),
+        "note": "Window usage includes development, research and personal Gemini use, so the mean per forecast call is an overstatement."}
     # D89: missing real exhaustion evidence stays unobserved, not a failed M2 gate.
     # Collection/classification and all runtime safety/budget rules remain unchanged.
     observed_players = [p for p in PLAYERS if lines[p]["quota_exhaustion_observed"]]
@@ -185,7 +200,7 @@ def build(root: Path, campaign: dict, *, gates: dict, now=None):
         "observed_players": observed_players, "unobserved_players": [p for p in PLAYERS if p not in observed_players]}
     return {"type": "m2_report", "report_id": new_id("m2report"), "version": VERSION, "generated_at": to_iso(now),
         "campaign_id": campaign["campaign_id"], "m2_complete": all(checks.values()), "checks": checks,
-        "quota_exhaustion_evidence": quota_evidence,
+        "quota_exhaustion_evidence": quota_evidence, "gemini_cost_evidence": gemini_cost_evidence,
         "trusted_gemini_attempts": len(trusted),
         "undetermined_gemini_attempts": sum(r.get("player") == "gemini" and r["attempt_id"] not in trusted for r in source),
         "pending": [k for k, ok in checks.items() if not ok], "lines": lines, "costs": costs,

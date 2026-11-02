@@ -449,14 +449,15 @@ def _fraction(v: Any) -> float | None:
 
 def argon_estimate(quota_log: Path, policy: dict[str, Any], forecasts_log: Path, *, tier: int = 1,
                    current=None, period: str = "weekly") -> tuple[float, int]:
-    """Estimate from trusted, same-layout pairs in the requested bucket's own units."""
+    """Window-level estimate in the requested bucket's own units (D97); never above the fallback."""
     attempts = read_records(forecasts_log) if forecasts_log.exists() else []
     snapshots = read_records(quota_log) if quota_log.exists() else []
     # Without a target layout no history can be safely selected (e.g. a plan upgrade).
     fallback = float(policy["players"]["gemini"]["tier2_per_question_cap"])
     if current is None:
         return fallback, 0
-    return quota.estimate(attempts, snapshots, current=current, fallback=fallback, tier=tier, period=period)
+    return quota.estimate(attempts, snapshots, current=current, fallback=fallback, tier=tier, period=period,
+                          **quota.estimate_settings(policy))
 
 
 def quota_model_check(before, after, result) -> str:
@@ -485,7 +486,7 @@ def gemini_admission(ctx: Context, before: Any) -> tuple[str | None, dict[str, A
     policy = ctx.quota_policy or load_quota_policy()
     reserve = 1 - float(policy["players"]["gemini"]["weekly_cap"])
     estimate, samples = argon_estimate(ctx.quota_log, policy, ctx.forecasts_log, tier=ctx.tier, current=before)
-    used = {"quota_layout": buckets.layout, "quota_weekly_bucket": buckets.weekly.id, "argon_remaining": remaining, "estimate": estimate, "estimate_samples": samples, "reserve": reserve}
+    used = {"quota_layout": buckets.layout, "quota_weekly_bucket": buckets.weekly.id, "argon_remaining": remaining, "estimate": estimate, "estimate_samples": samples, "estimate_method": quota.WINDOW_ESTIMATE_VERSION, "reserve": reserve}
     if remaining - estimate < reserve:
         try:
             reset = to_iso(parse_iso(buckets.weekly.reset_time))

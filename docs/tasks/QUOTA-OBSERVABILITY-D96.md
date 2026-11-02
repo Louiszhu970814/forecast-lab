@@ -75,3 +75,18 @@
 - 本輪沒有新增模型呼叫、預測、補測或 API POST；idle 讀取只用不耗模型額度的唯讀指令。
 - 兩條第二層熔斷（GPT 至 UTC 11/8 00:00、Gemini 至 UTC 11/8 12:11:16）保持不變。
 - 模式維持 local；M3 的私人留言、MC 映射、正式容量與 launchd 端到端仍未通過，與本文件無關。
+
+## Louis 的決定與實作（D97）
+
+UTC 2026-11-02 約 04:45，Louis 在 Claude Code 對話中選擇 A（「我覺得都改」），並補充：「目前 gemini 我用的是 ultra 額度很多感覺不需要再設定限制了」。採用內容與實作見 PLAN §7.7、§9、§15 D97：
+
+- M2 的 `trusted_gemini_costs` 改為 `gemini_window_cost_estimate`（`m2_report_v5`）；報告另輸出 `gemini_cost_evidence`，單次成本列為無法觀測。
+- `quota.window_usage()`／`quota.estimate()`（`quota_window_estimate_v1`）：窗口內所有讀數的最小值推算總用量，除以窗口內 Gemini 呼叫數，乘以 3；第 2 層再乘以 `token_multiplier_cap`；不超過 0.05；呼叫少於 5 次或沒有觀測到用量時退回 0.05。stale／delayed 讀數不使用。
+- `budget_v4`：取消 Gemini 第 2 層每題 5% 額度上限與 `weekly_tier2_argon_breaker` 的新觸發；既有熔斷紀錄照舊生效到原定重置時間。Gemini 第 2 層改由共用 token 熔斷限制。
+- 保留：credits 必須為 0、週桶／五小時桶真正不足時暫停或等待、同線並行 1、token 熔斷。持續模式的 Gemini 每週次數上限只作防失控保護。
+
+Louis 說「不需要再設定限制」，Claude 仍保留上述安全檢查：credits 檢查防止付費額度扣款；耗盡檢查避免啟動注定失敗的呼叫；token 熔斷防止第 2 層子代理失控。它們不是為了節省額度而設的限制。
+
+Gemini（Argon high）獨立審查：第 1 輪指出當前讀數若也在帳冊中會被重複計數（筆數多 1，使「至少 2 筆讀數」的門檻失效），已改為依 `snapshot_id` 去重並補測試；第 2 輪 PASS。隔離完整 1537 passed。
+
+修正後重新產生的 M2 報告 `reports/m2report_1793595697637_6ccfc68f.json`：**14／14**，`m2_complete=true`。週窗口（UTC 11-01T12:11:16～11-08T12:11:16）102 筆讀數、最小剩餘 0.89390、總用量下界 0.1061、Gemini 呼叫 34 次、平均每次約 0.0031（含其他用量，偏高）。

@@ -397,18 +397,17 @@ def test_audit_arriving_during_prequota_query_prevents_exposure(ctx):
     assert result["outcome"] == "stopped_waiting" and not ctx.adapter.requests
 
 
-def test_quota_estimates_do_not_mix_tiers(tmp_path):
-    from test_forecast import POLICY, _qsnap
-    import quota
+def test_quota_estimates_scale_tier2_by_the_token_cap(tmp_path):
+    from test_forecast import NOW, POLICY, _qsnap
+    from flab.timeutil import to_iso
     forecasts, quotas = tmp_path / "forecasts", tmp_path / "quotas"
-    for tier, drop in [(1, .01), (2, .04)]:
-        aid = f"tier{tier}"
-        append_record(forecasts, {"type": "forecast_attempt", "attempt_id": aid, "tier": tier, "model_check": "verified"})
-        for when, remaining in [("before", .9), ("after", .9 - drop)]:
-            append_record(quotas, {"type": "quota_snapshot", "attempt_id": aid, "when": when,
-                "buckets": _qsnap(remaining).to_dict()["buckets"]})
-    assert F.argon_estimate(quotas, POLICY, forecasts, tier=1, current=_qsnap(.9)) == pytest.approx((.01, 1))
-    assert F.argon_estimate(quotas, POLICY, forecasts, tier=2, current=_qsnap(.9)) == pytest.approx((.04, 1))
+    for i, tier in enumerate((1, 1, 1, 1, 2, 2)):
+        append_record(forecasts, {"type": "forecast_attempt", "attempt_id": f"a{i}", "tier": tier, "player": "gemini",
+                                  "model_check": "undetermined", "started_at_utc": to_iso(NOW)})
+    append_record(quotas, {"type": "quota_snapshot", "attempt_id": "a0", "when": "before", "buckets": _qsnap(.994).to_dict()["buckets"]})
+    # Every call shares one window: (1 - .994) / 6 = .001 per call; tier 1 x3, tier 2 x3 x3.
+    assert F.argon_estimate(quotas, POLICY, forecasts, tier=1, current=_qsnap(.996)) == pytest.approx((.003, 6))
+    assert F.argon_estimate(quotas, POLICY, forecasts, tier=2, current=_qsnap(.996)) == pytest.approx((.009, 6))
 
 
 def test_gpt_path_uses_catalog_with_tier2_profile(ctx):

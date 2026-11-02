@@ -37,6 +37,24 @@ def save_pair(root, aid, before, after):
         append_record(root / "quota.jsonl", {"type": "quota_snapshot", "attempt_id": aid, "when": when, **snap.to_dict()})
 
 
+def ultra_window(weekly=.9, short=.8, *, weekly_reset=None, short_reset=None, **kwargs):
+    """Ultra snapshot whose reset windows contain NOW (the fixture's resets lie after NOW)."""
+    snap = ultra(weekly, short, **kwargs)
+    resets = {quota.GEMINI_WEEKLY_BUCKET_ID: weekly_reset or to_iso(NOW + timedelta(days=3)),
+              quota.GEMINI_5H_BUCKET_ID: short_reset or to_iso(NOW + timedelta(hours=2))}
+    return replace(snap, buckets={k: replace(b, reset_time=resets.get(k, b.reset_time)) for k, b in snap.buckets.items()})
+
+
+def save_reading(root, snap, aid="reading", when="before"):
+    append_record(root / "quota.jsonl", {"type": "quota_snapshot", "attempt_id": aid, "when": when, **snap.to_dict()})
+
+
+def window_calls(path, n, *, player="gemini", started=None, tier=1):
+    for i in range(n):
+        append_record(path, {"type": "forecast_attempt", "attempt_id": f"{player}{tier}-{i}-{started}", "player": player,
+                             "tier": tier, "started_at_utc": started or to_iso(NOW - timedelta(minutes=5))})
+
+
 def test_layouts_and_bucket_selection_roundtrip():
     legacy = quota.parse_snapshot(FIXTURES / "slash_usage.json")
     old = quota.argon_buckets(legacy)
@@ -94,24 +112,47 @@ def test_bad_cost_pairs_are_excluded(problem):
     assert quota.quota_drop(before, after) is None
 
 
-def test_estimates_use_current_layout_and_each_buckets_own_history(tmp_path, ledger):
-    for aid, before, after, status in [
-        ("old", _qsnap(.9), _qsnap(.5), "trusted"),
-        ("shared", ultra(), ultra(.88, .77), "trusted"),
-        ("uncertain", ultra(), ultra(.7, .6), "undetermined"),
-        ("cross", _qsnap(.9), ultra(.8), "trusted"),
-    ]:
-        r = attempt(ledger, aid=aid, player="gemini")
-        # Replace the row only in this test's input set through another independent history.
-        r["quota_cost_status"] = status
-        append_record(tmp_path / "estimates.jsonl", r)
-        save_pair(tmp_path, aid, before, after)
+def test_window_estimate_uses_minimum_reading_and_window_calls(tmp_path):
     qlog, flog = tmp_path / "quota.jsonl", tmp_path / "estimates.jsonl"
-    assert F.argon_estimate(qlog, POLICY, flog, current=ultra()) == pytest.approx((.02, 1))
-    assert F.argon_estimate(qlog, POLICY, flog, current=ultra(), period="five_hour") == pytest.approx((.03, 1))
-    assert F.argon_estimate(qlog, POLICY, flog, current=_qsnap(.9)) == pytest.approx((.4, 1))
+    window_calls(flog, 6)
+    window_calls(flog, 3, player="claude")                                       # other lines never count
+    window_calls(flog, 2, started=to_iso(NOW - timedelta(days=9)))              # before this weekly window
+    for weekly, short in ((.97, .95), (.98, .99), (.96, .94)):                  # non-monotonic reads
+        save_reading(tmp_path, ultra_window(weekly, short))
+    save_reading(tmp_path, ultra_window(.5, .5, weekly_reset=to_iso(NOW + timedelta(days=1)),
+                                        short_reset=to_iso(NOW + timedelta(hours=1))))   # other reset window
+    save_reading(tmp_path, _qsnap(.3))                                           # other layout
+    save_reading(tmp_path, ultra_window(.1, .1, stale=True))                     # stale reads are ignored
+    append_record(qlog, {"type": "quota_snapshot", "attempt_id": "late", "when": "after", "delayed": True,
+                         **ultra_window(.1, .1).to_dict()})                     # so are delayed reads
+    current = ultra_window(.97, .95)
+    # weekly: (1 - .96) / 6 x 3; five-hour: (1 - .94) / 6 x 3
+    assert F.argon_estimate(qlog, POLICY, flog, current=current) == pytest.approx((.02, 6))
+    assert F.argon_estimate(qlog, POLICY, flog, current=current, period="five_hour") == pytest.approx((.03, 6))
+    # Tier 2 is scaled by the token multiplier cap (default 3) and never exceeds the fallback.
+    assert F.argon_estimate(qlog, POLICY, flog, current=current, tier=2) == pytest.approx((.05, 6))
+    assert F.argon_estimate(qlog, {**POLICY, "token_multiplier_cap": 2}, flog, current=current, tier=2) == pytest.approx((.04, 6))
     assert F.argon_estimate(qlog, POLICY, flog) == (.05, 0)
-    assert ledger._drop({"attempt_id": "cross"}, read_records(qlog)) is None
+    usage = quota.window_usage(read_records(flog), read_records(qlog), current=current)
+    assert usage["readings"] == 4 and usage["min_remaining"] == .96 and usage["gemini_calls"] == 6
+    assert usage["method"] == quota.WINDOW_ESTIMATE_VERSION and usage["includes_non_forecast_usage"]
+
+
+@pytest.mark.parametrize("calls,readings", [(4, (.97, .96)), (6, (1.0,)), (0, (.9,))])
+def test_window_estimate_falls_back_without_enough_calls_or_observed_usage(tmp_path, calls, readings):
+    qlog, flog = tmp_path / "quota.jsonl", tmp_path / "estimates.jsonl"
+    window_calls(flog, calls)
+    for weekly in readings:
+        save_reading(tmp_path, ultra_window(weekly))
+    assert F.argon_estimate(qlog, POLICY, flog, current=ultra_window(max(readings))) == (.05, 0)
+
+
+def test_window_estimate_rejects_unknown_or_stale_current_snapshot(tmp_path):
+    window_calls(tmp_path / "f.jsonl", 6)
+    assert quota.window_usage(read_records(tmp_path / "f.jsonl"), [], current=ultra_window(stale=True)) is None
+    assert quota.window_usage([], [], current=ultra_window(weekly=float("nan"))) is None
+    with pytest.raises(ValueError):
+        quota.window_usage([], [], current=ultra_window(), period="daily")
 
 
 @pytest.mark.parametrize("log_check,weekly,short,expected", [
@@ -254,21 +295,33 @@ def test_each_gate_denies_before_model_call(tmp_path, monkeypatch, ledger, gate,
         assert row["quota_retry_at_utc"] == quota.argon_buckets(before).five_hour.reset_time
 
 
-def test_budget_uses_five_hour_history_and_current_layout(ledger):
-    for aid, b, a in [("old", _qsnap(.9), _qsnap(.6)), ("newunit", ultra(), ultra(.88, .79))]:
-        attempt(ledger, aid=aid, player="gemini")
-        save_pair(ledger.root, aid, b, a)
-    append_record(ledger.root / "quota.jsonl", {"attempt_id": "new", "when": "before", **ultra(short=.02).to_dict()})
+def window_history(root):
+    for i in range(6):
+        attempt(SimpleNamespace(root=root), aid=f"w{i}", player="gemini", qid=40 + i)
+    save_reading(root, ultra_window(.98, .97))
+    save_reading(root, _qsnap(.2))          # a legacy reading is another unit and never mixes in
+
+
+def test_budget_uses_window_estimates_for_both_buckets(ledger):
+    window_history(ledger.root)
+    append_record(ledger.root / "quota.jsonl", {"attempt_id": "new", "when": "before", **ultra_window(.97, .94).to_dict()})
     result = reserve(ledger, player="gemini")
-    assert result["allowed"] and result["argon_estimate"] == pytest.approx(.02)
-    assert result["quota_5h_estimate"] == pytest.approx(.01) and result["quota_5h_estimate_samples"] == 1
+    # weekly (1 - .97) / 6 x 3 = .015; five-hour (1 - .94) / 6 x 3 = .03
+    assert result["allowed"] and result["argon_estimate"] == pytest.approx(.015)
+    assert result["argon_estimate_calls"] == 6 and result["argon_estimate_method"] == quota.WINDOW_ESTIMATE_VERSION
+    assert result["quota_5h_estimate"] == pytest.approx(.03) and result["quota_5h_estimate_samples"] == 6
 
 
-def test_manual_gate_uses_five_hour_history(ledger):
-    attempt(ledger, player="gemini")
-    save_pair(ledger.root, "old", ultra(), ultra(.88, .79))
-    reason, info = quota.manual_admission(ultra(short=.02), load_quota_policy(), model="gemini-4-argon-high", history_root=ledger.root)
-    assert reason is None and info["quota_5h_estimate"] == pytest.approx(.01)
+def test_manual_gate_uses_window_estimates(ledger):
+    window_history(ledger.root)
+    reason, info = quota.manual_admission(ultra_window(.97, .94), load_quota_policy(), model="gemini-4-argon-high",
+                                          history_root=ledger.root)
+    assert reason is None and info["estimate"] == pytest.approx(.015) and info["estimate_samples"] == 6
+    assert info["quota_5h_estimate"] == pytest.approx(.03)
+    # A nearly empty five-hour bucket raises the window estimate and waits for the reset.
+    reason, info = quota.manual_admission(ultra_window(.97, .03), load_quota_policy(), model="gemini-4-argon-high",
+                                          history_root=ledger.root)
+    assert reason == "quota_5h_wait" and info["quota_5h_estimate"] == pytest.approx(.05)
 
 
 def test_single_source_of_bucket_ids():
@@ -291,12 +344,12 @@ def test_report_uses_trusted_attempts_and_separates_incompatible_units(tmp_path)
     campaign = {"campaign_id": "report", "questions": [{"question_id": 1}, {"question_id": 2}]}
     report_attempt(tmp_path, "uncertain", ultra(), ultra(.6, .5), "undetermined")
     report = m2_report.build(tmp_path, campaign, gates={}, now=NOW)
-    assert not report["checks"]["trusted_gemini_costs"]
+    assert report["gemini_cost_evidence"]["legacy_trusted_attempts"] == 0
     assert report["undetermined_gemini_attempts"] == 1
     assert report["costs"]["gemini.tier1"]["groups"]["all"]["tokens"]["total"] is None
     report_attempt(tmp_path, "trusted", ultra(), ultra(.88, .77))
     report = m2_report.build(tmp_path, campaign, gates={}, now=NOW)
-    assert report["checks"]["trusted_gemini_costs"]
+    assert report["gemini_cost_evidence"]["legacy_trusted_attempts"] == 1
     assert (report["trusted_gemini_attempts"], report["undetermined_gemini_attempts"]) == (1, 1)
     costs = report["costs"]["gemini.tier1"]
     assert costs["groups"]["all"]["argon_fraction"]["total"] == pytest.approx(.02)
@@ -310,6 +363,42 @@ def test_report_uses_trusted_attempts_and_separates_incompatible_units(tmp_path)
     assert costs["groups"]["all"]["argon_fraction"]["total"] is None
     assert costs["quota_fraction_by_layout"]["ultra_shared"]["total"] == pytest.approx(.02)
     assert costs["quota_fraction_by_layout"]["legacy_argon"]["total"] == pytest.approx(.05)
+
+
+def test_report_gemini_cost_gate_uses_window_estimate(tmp_path):
+    campaign = {"campaign_id": "report", "questions": [{"question_id": 1}]}
+    # The fixture's Ultra windows start after NOW, so these calls fall outside them: no estimate.
+    report_attempt(tmp_path, "outside", ultra(), ultra(.95, .7), "undetermined")
+    report = m2_report.build(tmp_path, campaign, gates={}, now=NOW)
+    assert not report["checks"]["gemini_window_cost_estimate"] and "gemini_window_cost_estimate" in report["pending"]
+    assert "trusted_gemini_costs" not in report["checks"]
+    # Calls inside a window with inconsistent (rising) reads still give a window-level estimate.
+    other = tmp_path / "inside"
+    other.mkdir()
+    report_attempt(other, "a", ultra_window(.96, .9), ultra_window(.98, .95), "undetermined")
+    report_attempt(other, "b", ultra_window(.97, .93), ultra_window(.96, .9), "undetermined")
+    report = m2_report.build(other, {"campaign_id": "inside", "questions": [{"question_id": 1}]}, gates={}, now=NOW)
+    assert report["checks"]["gemini_window_cost_estimate"]
+    evidence = report["gemini_cost_evidence"]
+    assert evidence["decision"] == "D97" and evidence["per_call_cost"].startswith("unobservable")
+    [window] = evidence["windows"]
+    assert window["readings"] == 4 and window["gemini_calls"] == 2
+    assert window["mean_per_call"] == pytest.approx(.02) and window["used_lower_bound"] == pytest.approx(.04)
+
+
+def test_report_gate_needs_two_distinct_readings_in_the_window(tmp_path):
+    # The before snapshot is also the `current` reading: it must not count twice.
+    append_record(tmp_path / "forecasts.jsonl", {"type": "forecast_attempt", "attempt_id": "solo", "question_id": 1,
+        "question_snapshot_id": "q1", "player": "gemini", "tier": 1, "model_check": "undetermined",
+        "attempt_kind": "initial", "usage": {"input_tokens": 10, "output_tokens": 10},
+        "started_at_utc": to_iso(NOW), "finished_at_utc": to_iso(NOW + timedelta(seconds=1))})
+    save_reading(tmp_path, ultra_window(.97, .9), aid="solo")
+    report = m2_report.build(tmp_path, {"campaign_id": "solo", "questions": [{"question_id": 1}]}, gates={}, now=NOW)
+    [window] = report["gemini_cost_evidence"]["windows"]
+    assert window["readings"] == 1 and not report["checks"]["gemini_window_cost_estimate"]
+    snap = ultra_window(.97, .9)
+    rows = [{"attempt_id": "x", "when": "before", **snap.to_dict()}] * 3
+    assert quota.window_usage([], rows, current=rows[0])["readings"] == 1
 
 
 def test_forecast_unknown_snapshot_records_fixed_reason_without_nan(env, tmp_path):

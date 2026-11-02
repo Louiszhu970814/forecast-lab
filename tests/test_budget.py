@@ -122,16 +122,61 @@ def test_gemini_respects_personal_reserve_and_forecast_costs(ledger, weekly_cap,
     assert reserve(ledger, player="gemini", aid="next")["allowed"]
 
 
-def test_gemini_tier2_overrun_is_a_persistent_reset_bound_breaker(ledger):
+@pytest.mark.parametrize("after", [.84, .95])
+def test_gemini_tier2_quota_deltas_no_longer_trip_a_breaker(ledger, after):
+    # D97: a large or negative before/after delta is not a cost and never stops upgrades.
     attempt(ledger, player="gemini")
     attempt(ledger, aid="deep", tier=2, player="gemini", total=30)
     snapshot(ledger, aid="deep", remaining=.9)
-    snapshot(ledger, aid="deep", when="after", remaining=.84)
+    snapshot(ledger, aid="deep", when="after", remaining=after)
     snapshot(ledger, remaining=.84)
     decision = reserve(ledger, tier=2, player="gemini", qid=8)
-    assert decision["reason"] == "weekly_tier2_argon_breaker"
+    assert decision["allowed"], decision["reason"]
+    assert decision["argon_estimate_method"] == quota.WINDOW_ESTIMATE_VERSION
+    assert not any(r["type"] == "budget_upgrade_stop" for r in read_records(ledger.log))
+
+
+def test_gemini_tier2_token_overrun_still_trips_the_shared_token_breaker(ledger):
+    attempt(ledger, player="gemini")
+    attempt(ledger, aid="deep", tier=2, player="gemini", total=100)
+    snapshot(ledger, remaining=.9)
+    decision = reserve(ledger, tier=2, player="gemini", qid=8)
+    assert decision["reason"] == "weekly_tier2_token_breaker"
     event = next(r for r in read_records(ledger.log) if r["type"] == "budget_upgrade_stop")
     assert event["until"] == to_iso(NOW + timedelta(days=3))
+
+
+def test_persisted_argon_breaker_is_honoured_until_it_expires(ledger):
+    attempt(ledger, player="gemini")
+    reset = to_iso(NOW + timedelta(days=3))
+    append_record(ledger.log, {"type": "budget_upgrade_stop", "player": "gemini", "reason": "weekly_tier2_argon_breaker",
+                               "until": reset, "at": to_iso(NOW - timedelta(hours=1)), "quota_layout": "legacy_argon"})
+    snapshot(ledger, remaining=.9, reset=reset)
+    assert reserve(ledger, tier=2, player="gemini", qid=8)["reason"] == "weekly_tier2_argon_breaker"
+    # A later reset window is a different breaker scope: the old stop no longer applies.
+    snapshot(ledger, aid="later", remaining=.9, reset=to_iso(NOW + timedelta(days=4)))
+    assert reserve(ledger, tier=2, player="gemini", aid="later", qid=9)["allowed"]
+
+
+def test_gemini_reserve_uses_window_estimate_instead_of_fixed_fallback(ledger):
+    # Twenty pending tier-1 jobs at the old 0.05 fallback exceed the bucket (0.97 - 0.05 - 1.0 < 0).
+    # Window usage 0.03 over 7 calls is ~0.0043 per call: tier 1 x3, tier 2 x3 x3 (token cap).
+    for i in range(6):
+        attempt(ledger, aid=f"w{i}", player="gemini", qid=20 + i)
+    attempt(ledger, aid="deep", tier=2, player="gemini", qid=30)
+    snapshot(ledger, aid="w0", remaining=.98)
+    snapshot(ledger, remaining=.97)
+    decision = reserve(ledger, tier=2, player="gemini", qid=8, pending=20)
+    assert decision["allowed"], decision["reason"]
+    assert decision["argon_estimate"] == pytest.approx(.03 / 7 * 3 * 3)
+    assert decision["argon_estimate_calls"] == 7
+    # Without enough window calls the old fallback still applies and reserves the line.
+    fresh = B.Budget(ledger.root / "fresh", ledger.campaign, ledger.policy, "fresh", now=lambda: NOW)
+    fresh.root.mkdir()
+    attempt(fresh, player="gemini")
+    attempt(fresh, aid="deep", tier=2, player="gemini", qid=30)
+    snapshot(fresh, remaining=.97)
+    assert reserve(fresh, tier=2, player="gemini", qid=8, pending=20)["reason"] == "argon_personal_or_tier1_reserve"
 
 
 def test_completion_estimate_uses_same_line_same_layer_and_full_cap_when_unknown(ledger):

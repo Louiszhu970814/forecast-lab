@@ -18,7 +18,7 @@ from flab.jsonl import append_record
 from flab.ledger import transaction, read_complete
 from flab.timeutil import parse_iso, to_iso, utc_now
 
-VERSION = "budget_v3"
+VERSION = "budget_v4"
 
 
 def quantile(values: list[float], q=.9) -> float | None:
@@ -174,29 +174,20 @@ class Budget:
                     valid = False
                     if not isinstance(argon_remaining, (float, int)) or isinstance(argon_remaining, bool) or not math.isfinite(argon_remaining):
                         argon_remaining = None
-                samples = [drop for r in forecasts if r.get("player") == player and r.get("tier") == tier
-                           and r.get("model_check") == "verified" and (drop := self._drop(r, snapshots, current=before)) is not None and drop > 0]
-                argon_estimate = quantile(samples[-50:]) or self.policy["players"][player]["tier2_per_question_cap"]
-                first_samples = [drop for r in source if r.get("model_check") == "verified"
-                                 and (drop := self._drop(r, snapshots, current=before)) is not None and drop > 0]
-                first_estimate = quantile(first_samples[-50:]) or self.policy["players"][player]["tier2_per_question_cap"]
+                # D96/D97: `/usage` reads are inconsistent, so per-call before/after deltas are never
+                # costs. Estimates come from window-level usage (capped at the old fallback), and
+                # Gemini tier 2 is bounded by the shared token breaker above, not by quota deltas.
+                # Persisted weekly_tier2_argon_breaker stops are still honoured until they expire.
+                fallback = self.policy["players"][player]["tier2_per_question_cap"]
+                settings = quota.estimate_settings(self.policy)
+                argon_estimate, estimate_calls = quota.estimate(forecasts, snapshots, current=before,
+                    fallback=fallback, tier=tier, period="weekly", **settings)
+                first_estimate, _ = quota.estimate(forecasts, snapshots, current=before,
+                    fallback=fallback, tier=1, period="weekly", **settings)
+                quota_info.update(argon_estimate_method=quota.WINDOW_ESTIMATE_VERSION,
+                                  argon_estimate_calls=estimate_calls)
                 if valid and argon_remaining - argon_estimate - protected * first_estimate < 1 - self.policy["players"][player]["weekly_cap"]:
                     reason = "argon_personal_or_tier1_reserve"
-                if tier == 2:
-                    costs = {}
-                    for r in scoped:
-                        # Only the current Argon reset window belongs to this weekly breaker.
-                        pair = next((s for s in snapshots if s.get("attempt_id") == r["attempt_id"] and s.get("when") == "before"), {})
-                        old_buckets = quota.argon_buckets(pair)
-                        old_reset = old_buckets.weekly.reset_time if old_buckets.weekly else None
-                        if old_buckets.layout == buckets.layout and old_reset == reset:
-                            costs.setdefault(r["question_id"], []).append(self._drop(r, snapshots, current=before))
-                    qcap = self.policy["players"][player]["tier2_per_question_cap"]
-                    if any(any(v is None for v in vals) or sum(vals) > qcap for vals in costs.values()):
-                        breach_reason = "weekly_tier2_argon_breaker"
-                    own = costs.get(qid, [])
-                    if any(v is None for v in own) or sum(own) + argon_estimate > qcap + 1e-12:
-                        reason = "question_tier2_argon_capacity"
             if tier == 2:
                 paused = next((r for r in reversed(events) if r["type"] == "budget_upgrade_stop"
                                and r["player"] == player and self.now() < parse_iso(r["until"])
@@ -212,7 +203,7 @@ class Budget:
             if player == "gemini" and valid:
                 fallback = self.policy["players"][player]["tier2_per_question_cap"]
                 estimate_5h, samples_5h = quota.estimate(forecasts, snapshots, current=before,
-                    fallback=fallback, tier=tier, period="five_hour")
+                    fallback=fallback, tier=tier, period="five_hour", **quota.estimate_settings(self.policy))
                 wait_reason, info = quota.five_hour_gate(before, estimate_5h)
                 quota_info.update(info)
                 if buckets.five_hour:
