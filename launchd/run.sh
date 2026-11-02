@@ -2,6 +2,10 @@
 set -eu
 # Resolve the repository from this wrapper; no credentials in argv or launchd configuration.
 project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+# launchd starts jobs with only /usr/bin:/bin:/usr/sbin:/sbin; the official model CLIs
+# (claude, codex, agy) are installed per user in ~/.local/bin.
+PATH="$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin"
+export PATH
 cd "$project_dir"
 mkdir -p data/logs
 job=${1:-cycle}
