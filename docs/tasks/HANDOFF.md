@@ -7,7 +7,8 @@
 1. D99（`api_transport_v5`）：多選題在歷史選項順序被遮罩為 null 時可以送出，讀回改用身分、時間與機率值多重集合的精確核對。GPT 實作、Claude 審查並收緊、Gemini 兩輪審查（第 1 輪抓到 POST 前檢查不一致，已修正），隔離完整 1620 passed。見 `M3-MC-READBACK-D99.md`。
 2. 三家輪流的開發方式：GPT 用 `flab.dev_runner` 的沙箱函式（snapshot／prepare_cli／export_changes）在專案外實作，模型加 `-m gpt-6-astra -c model_reasoning_effort="high"`；Claude 套 patch、隔離完整測試；Gemini 以無工具的 agy Argon high 審查 diff。
 3. **待 Louis**：TG 決策 D100-PROBE（加上請求間隔後的有界私人留言驗收）。之前嘗試切換 trial 時被 Claude Code 的權限系統擋下，沒有任何部分執行；需要 Louis 明確核准，執行時可能還要在電腦上允許。
-4. 下一步：多選題與私人留言的真實驗收（平台寫入，待核准）；bulk 端點評估；launchd 安裝需 Louis 在場。
+4. **待 Louis**：TG 決策 D101-CAPS（Claude／GPT 每週嘗試次數上限；建議各 130，Gemini 只設 200 的防失控上限）。選定後先用 `coverage_sim.py register` 事前登記正式覆蓋率情境再 `run`，不直接啟用排程。
+5. 下一步：多選題與私人留言的真實驗收（平台寫入，待核准）；bulk 端點評估；launchd 安裝需 Louis 在場。TG 回覆不會喚醒桌面對話，接手者先執行 `project_control.py status` 讀取決定。
 
 ## 2026-11-02：D98 平台線索與 API 請求間隔（最新，UTC 約 05:30）
 
