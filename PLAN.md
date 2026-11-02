@@ -1711,7 +1711,7 @@ view_image                  stable true
 
 ## 16. 變更紀錄
 
-- **v1.41**（2026-11-02）：D93，新增 `quota_model_verification_v2`，修正已知未使用第三方桶的未來 reset 占位滑動導致的過度拒絕；只接受精確全滿、有序觀測、未跨舊 reset、5 秒內符合對應固定窗口的形狀，其他情況照舊拒絕。新 Gemini attempt 附核對版本；模型／prompt／整合／預算／停線／歷史紀錄與 local 模式不變。新增 20 個合成回歸，相關 216 passed，Gemini 獨立審查 PASS；證據與限制見 `docs/tasks/QUOTA-VERIFICATION-D93.md`。本輪真實預測共 1 次，沒有 API POST、未知啟動或自動重跑；六組容量分析為診斷用途，非 M3 正式通過。
+- **v1.41**（2026-11-02）：D93，新增 `quota_model_verification_v2`，修正已知未使用第三方桶的未來 reset 占位滑動導致的過度拒絕；只接受精確全滿、有序觀測、未跨舊 reset、5 秒內符合對應固定窗口的形狀，其他情況照舊拒絕。新 Gemini attempt 附核對版本；模型／prompt／整合／預算／停線／歷史紀錄與 local 模式不變。新增 20 個合成回歸，相關 216 passed; full suite 1518 passed，Gemini 獨立審查 PASS；證據與限制見 `docs/tasks/QUOTA-VERIFICATION-D93.md`。本輪真實預測共 1 次，沒有 API POST、未知啟動或自動重跑；六組容量分析為診斷用途，非 M3 正式通過。
 
 
 - **v1.40**（2026-11-02）：D92，新增 `m2_supplement_v1`／`capacity_report_v1`；`m2_prepare_v4` → `m2_prepare_v5`，保留預設 20 題，補充入口固定 3 題、承接原窗口與 cap，選題另排除所有曾啟動或被其他題集保留者。補充量測沿用正式 preflight／CLI／預算／快照核對，保留逐次呼叫與完整 worker 計時。控制器沿用 `cycle.supervise` 跨 session 後代清理，保留清理時間，不以只殺父程序群組冒充全樹終止。報告只輸出操作 metadata、耗時／token／可信配額，保留未知與歷史計時缺口。模型、prompt、整合、正式配額政策、既有題集與 local 模式保持不變。驗證與實測證據見 `docs/tasks/M2-M3-D92.md`。

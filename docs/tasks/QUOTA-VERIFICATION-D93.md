@@ -31,3 +31,5 @@ D92 的有界補充量測在第一筆後依契約停止。這次沒有並行 agy
 Gemini（官方 agy／Gemini 3.8 Flash medium）獨立審查 PASS，明確區分觀測推論與官方保證。新增 20 項合成回歸：全滿滑動、少量消耗、曾用桶、跨重置、錯誤時間／窗口、反向日期、Gemini 桶漂移／不動、並行／過期／缺桶、僅 idle 查詢不能證明模型、mismatch 優先。相關 216 passed；完整隔離測試結果於交接及變更紀錄記錄。
 
 診斷帳冊：`data/quota_diagnostics.jsonl`。受測／審查副本與回放結果：`/var/folders/mz/kz1rwmd573d6g9rsxv_5nq480000gn/T/forecast-m2m3-flovkh4y/`（`review4/`、`d93-focused.txt`、`d93-full.txt`）。
+
+最終完整隔離測試：**1518 passed in 76.30s**。三個程式／測試檔與受測副本逐位元一致。整合後重產 M2 報告仍為 13／14，沒有因修正而把歷史資料改成可信。
