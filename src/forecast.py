@@ -683,6 +683,7 @@ def run_attempt(ctx: Context, snap: dict[str, Any], *, kind: str, prompt: str, s
         "usage": usage, "quota_before": getattr(quota_before, "snapshot_id", None),
         "quota_after": getattr(quota_after, "snapshot_id", None),
         **({"quota_layout": quota.argon_buckets(quota_before).layout,
+            "quota_model_verification_version": quota.MODEL_VERIFICATION_VERSION,
             "quota_cost_status": "trusted" if quota.quota_drop(quota_before, quota_after) is not None else "undetermined"}
            if gemini else {}),
         "tool_call_counts": result.tool_call_counts, "subagent_count": result.subagent_count,

@@ -666,6 +666,28 @@ def five_hour_gate(snapshot, estimate: float) -> tuple[str | None, dict]:
     return None, info
 
 
+MODEL_VERIFICATION_VERSION = "quota_model_verification_v2"
+
+
+def idle_third_party_reset(key, before, after, x, y) -> bool:
+    """Recognize only full, unused 3p buckets whose future placeholder slides with now.
+
+    Gemini's own reset window must remain identical. This exception cannot hide a reset
+    crossed during the sample, a used bucket, missing timestamps, or arbitrary reset drift.
+    The <=5-second offset tolerance covers second resolution and the credits query delay;
+    slow/ambiguous responses simply remain undetermined.
+    """
+    window = {THIRD_PARTY_WEEKLY_BUCKET_ID: 7 * 86400, THIRD_PARTY_5H_BUCKET_ID: 5 * 3600}.get(key)
+    t0, t1 = _parse_iso_safe(before.taken_at), _parse_iso_safe(after.taken_at)
+    r0, r1 = _parse_iso_safe(x.reset_time), _parse_iso_safe(y.reset_time)
+    if window is None or x.remaining_fraction != 1.0 or y.remaining_fraction != 1.0:
+        return False
+    if any(t is None for t in (t0, t1, r0, r1)) or not t0 <= t1 < r0 <= r1:
+        return False
+    return all(abs((reset - observed).total_seconds() - window) <= 5
+               for reset, observed in ((r0, t0), (r1, t1)))
+
+
 def shared_group_consumed(before, after) -> bool:
     """Consistent shared Gemini movement is evidence of group use, never of model identity."""
     if argon_buckets(before).layout != "ultra_shared" or argon_buckets(after).layout != "ultra_shared":
@@ -678,7 +700,9 @@ def shared_group_consumed(before, after) -> bool:
         return False
     for key in a.buckets:
         x, y = a.buckets[key], b.buckets[key]
-        if x.reset_time != y.reset_time or x.remaining_fraction < y.remaining_fraction - QUOTA_EPSILON:
+        if x.remaining_fraction < y.remaining_fraction - QUOTA_EPSILON:
+            return False
+        if x.reset_time != y.reset_time and not idle_third_party_reset(key, a, b, x, y):
             return False
         if KNOWN_BUCKET_TO_GROUP[key] != "gemini" and abs(x.remaining_fraction - y.remaining_fraction) > QUOTA_EPSILON:
             return False

@@ -1,6 +1,6 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.40（v1.0 凍結後的修訂，見 §16；有界補充量測與容量盤點）
+> 版本：v1.41（v1.0 凍結後的修訂，見 §16；補充量測與額度核對修正）
 > 初稿：Claude
 > 本回合整合者：GPT（D82、D84；v1.10～v1.29 由 Claude 整合）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
@@ -855,6 +855,7 @@ token 欄位的對應（D29）：
     - Flash／Pro 額度桶（`gemini-weekly`、`gemini-5h`）。
     - Google AI Ultra（2026-11-01 起，D75）沒有 Argon 專屬的桶：Argon 與 Flash／Pro 共用 `Gemini Models` 組的 `gemini-weekly` 與 `gemini-5h`。保留線改套用在 `gemini-weekly`；另外要求 5 小時桶「剩餘 − 預估 ≥ 0」，不足時等到該桶重置（`quota_5h_wait`），不算停線。結構由 `quota.argon_buckets()` 判斷（`legacy_argon`／`ultra_shared`／`unknown`），其他模組不得直接引用桶 ID；`unknown` 一律不啟動。
     - Ultra 下用量差值無法區分模型：只有 `--log-file` 的模型解析為 verified，且 Gemini 組有一致的減少，才判為 `verified`；log 顯示不符就判為 `mismatch`；其餘為 `undetermined`。
+    - D93：`quota_model_verification_v2` 針對 agy 1.4.12 實測的未使用第三方桶日期滑動作窄範圍處理；僅已知 3p-weekly／3p-5h 前後恰為 1.0、兩個 reset 都在整個樣本之後、向前移動且各自等於觀測時間 +7 天／+5 小時（容差 5 秒）時，該不相關桶的日期移動不單獨否決模型核對。Gemini 自身窗口仍須完全相同、週與五小時桶都一致下降、型號 log verified，其他資料異常／消耗／並行仍拒絕。這是操作觀測的有限推論，不是官方語意承諾；只用於未來紀錄，舊成本不重分類。
     - 每次查詢 `/usage` 前後，都以 `ps` 偵測本程序樹以外的 agy：另一個無互動的 `agy -p` 在執行時不啟動；互動式 `agy` 或 Antigravity 桌面 app 開著時照常執行，但該次成本記為 `undetermined`，不作為估算樣本（D75）。
 
     讀取 JSON 中的浮點數欄位 `buckets[].remaining_fraction`，不解析 `response` 文字中的整數百分比；單題消耗常小於 1%，整數百分比不會變動（D52）。
@@ -1704,9 +1705,14 @@ view_image                  stable true
 | D91 | 2026-11-02 | Louis 將 TG 需求修正為三家共享進度的工作對話：手機點名詢問 M3／阻塞／待決事項，在 TG 回覆決定，由本人主動 polling；單純問答使用中階模型。GPT 整合共用進度板、三家官方 CLI 無工具問答與指定選項決策；已審查的本機離線續作可自動開始，其他列為待主持人接手，不聲稱直接續接桌面對話 | `telegram_ops_v3`、`team_chat_v1`，Gemini 獨立審查 PASS，隔離完整 1473 passed；三家合成進度 CLI 實測通過。舊開發入口與定期推播停用；保留歷史，預測設定、local 模式、M2／M3 驗收與額度熔斷不變。沿用現有私人配對 |
 | D92 | 2026-11-02 | Louis 要求自主繼續 M2／M3。GPT 整合有界 Gemini 第一層補充量測與 worker 成本報告；保持原預算窗口、上限與停線，最多 3 個新題／6 次實際呼叫／60 分鐘，一次性、無寫入 API | Gemini 獨立審查；新成本單獨留存，不修改舊不確定資料、不自動宣告 M2 通過。覆蓋率情境事前固定分母／假設，實機留言／MC／launchd 與正式容量仍須驗收 |
 
+| D93 | 2026-11-02 | D92 只執行 1 次後依成本歸因不明而停止；GPT 從安全操作 metadata 發現未使用第三方桶 reset 隨查詢滑動，並以不耗模型的唯讀查詢確認，實作窄範圍未來核對修正 | `quota_model_verification_v2`；Gemini 審查 PASS。自身 Gemini 窗口／正消耗、型號、並行與預算檢查保留；舊 21 筆與 D92 紀錄不重分類，不重啟或增加本輪預測。M2／M3 尚未完成；不能把離線回放當實機驗收 |
+
 ---
 
 ## 16. 變更紀錄
+
+- **v1.41**（2026-11-02）：D93，新增 `quota_model_verification_v2`，修正已知未使用第三方桶的未來 reset 占位滑動導致的過度拒絕；只接受精確全滿、有序觀測、未跨舊 reset、5 秒內符合對應固定窗口的形狀，其他情況照舊拒絕。新 Gemini attempt 附核對版本；模型／prompt／整合／預算／停線／歷史紀錄與 local 模式不變。新增 20 個合成回歸，相關 216 passed，Gemini 獨立審查 PASS；證據與限制見 `docs/tasks/QUOTA-VERIFICATION-D93.md`。本輪真實預測共 1 次，沒有 API POST、未知啟動或自動重跑；六組容量分析為診斷用途，非 M3 正式通過。
+
 
 - **v1.40**（2026-11-02）：D92，新增 `m2_supplement_v1`／`capacity_report_v1`；`m2_prepare_v4` → `m2_prepare_v5`，保留預設 20 題，補充入口固定 3 題、承接原窗口與 cap，選題另排除所有曾啟動或被其他題集保留者。補充量測沿用正式 preflight／CLI／預算／快照核對，保留逐次呼叫與完整 worker 計時。控制器沿用 `cycle.supervise` 跨 session 後代清理，保留清理時間，不以只殺父程序群組冒充全樹終止。報告只輸出操作 metadata、耗時／token／可信配額，保留未知與歷史計時缺口。模型、prompt、整合、正式配額政策、既有題集與 local 模式保持不變。驗證與實測證據見 `docs/tasks/M2-M3-D92.md`。
 

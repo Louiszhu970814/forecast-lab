@@ -399,3 +399,68 @@ def test_reconciliation_preserves_budget_five_hour_wait(ctx):
     result = R.run(ctx, SNAP, admit=lambda req: {"allowed": False, "reason": "quota_5h_wait", "quota_retry_at_utc": retry})
     assert result["outcome"] == "quota_5h_wait" and result["quota_retry_at_utc"] == retry
     assert not result["notify_louis"] and not ctx.adapter.requests
+
+
+def idle_pair():
+    before, after = ultra(), replace(ultra(.89994, .79977), taken_at=to_iso(NOW+timedelta(seconds=144)))
+    def other(snap):
+        buckets=dict(snap.buckets)
+        for key, seconds in ((quota.THIRD_PARTY_WEEKLY_BUCKET_ID,7*86400),(quota.THIRD_PARTY_5H_BUCKET_ID,5*3600)):
+            buckets[key]=replace(buckets[key],remaining_fraction=1.0,
+                reset_time=to_iso(quota._parse_iso_safe(snap.taken_at)+timedelta(seconds=seconds-3)))
+        return replace(snap,buckets=buckets)
+    return other(before),other(after)
+
+
+def test_idle_full_other_groups_moving_future_reset_does_not_hide_gemini_use():
+    before,after=idle_pair()
+    assert quota.shared_group_consumed(before,after)
+    result=SimpleNamespace(usage_raw={'log_model_check':'verified'})
+    assert F.quota_model_check(before,after,result)=='verified'
+    assert quota.quota_drop(before,after)==pytest.approx(.00006)
+    # No ID evidence cannot be upgraded by quota shape alone.
+    assert F.quota_model_check(before,after,SimpleNamespace(usage_raw={}))=='undetermined'
+
+
+@pytest.mark.parametrize('problem',['used_before','used_both','decrease','increase','missing_timestamp','reversed',
+    'missing_reset','invalid_reset','crossed_reset','wrong_window','far_future','reset_backwards','gemini_reset',
+    'gemini_zero','concurrent','stale','missing_bucket'])
+def test_idle_reset_exception_remains_narrow(problem):
+    before,after=idle_pair()
+    a,b=dict(before.buckets),dict(after.buckets)
+    key=quota.THIRD_PARTY_WEEKLY_BUCKET_ID
+    if problem=='used_before': a[key]=replace(a[key],remaining_fraction=.99)
+    elif problem=='used_both':
+        a[key]=replace(a[key],remaining_fraction=.99);b[key]=replace(b[key],remaining_fraction=.99)
+    elif problem=='decrease': b[key]=replace(b[key],remaining_fraction=.999999999)
+    elif problem=='increase': a[key]=replace(a[key],remaining_fraction=.999999999)
+    elif problem=='missing_timestamp': before=replace(before,taken_at=None)
+    elif problem=='reversed': after=replace(after,taken_at=to_iso(NOW-timedelta(seconds=1)))
+    elif problem=='missing_reset': b[key]=replace(b[key],reset_time=None)
+    elif problem=='invalid_reset': b[key]=replace(b[key],reset_time='bad')
+    elif problem=='crossed_reset': a[key]=replace(a[key],reset_time=to_iso(NOW+timedelta(seconds=20)))
+    elif problem=='wrong_window': b[key]=replace(b[key],reset_time=to_iso(NOW+timedelta(hours=5,seconds=141)))
+    elif problem=='far_future': b[key]=replace(b[key],reset_time=to_iso(NOW+timedelta(days=30)))
+    elif problem=='reset_backwards': b[key]=replace(b[key],reset_time=to_iso(NOW+timedelta(days=7,seconds=-10)))
+    elif problem=='gemini_reset':
+        k=quota.GEMINI_WEEKLY_BUCKET_ID;b[k]=replace(b[k],reset_time=to_iso(NOW+timedelta(days=8)))
+    elif problem=='gemini_zero':
+        k=quota.GEMINI_5H_BUCKET_ID;b[k]=replace(b[k],remaining_fraction=a[k].remaining_fraction)
+    elif problem=='concurrent': after=replace(after,concurrent_agy_kinds=('ide',))
+    elif problem=='stale': after=replace(after,stale=True)
+    elif problem=='missing_bucket': b.pop(key)
+    before,after=replace(before,buckets=a),replace(after,buckets=b)
+    assert not quota.shared_group_consumed(before,after)
+    assert F.quota_model_check(before,after,SimpleNamespace(usage_raw={'log_model_check':'verified'}))=='undetermined'
+
+
+def test_idle_query_without_model_use_never_proves_model_or_cost():
+    before,after=idle_pair();b=dict(after.buckets)
+    for key in (quota.GEMINI_WEEKLY_BUCKET_ID,quota.GEMINI_5H_BUCKET_ID):
+        b[key]=replace(b[key],remaining_fraction=before.buckets[key].remaining_fraction)
+    assert not quota.shared_group_consumed(before,replace(after,buckets=b))
+
+
+def test_model_mismatch_still_dominates_idle_reset():
+    before,after=idle_pair()
+    assert F.quota_model_check(before,after,SimpleNamespace(usage_raw={'log_model_check':'mismatch'}))=='mismatch'
