@@ -1,5 +1,11 @@
 # D105 端到端監督交接（Claude → GPT，2026-11-02 UTC 13:40）
 
+## D112 最新驗收（UTC 15:33；PLAN v1.61）
+
+M3 第二項的兩題型自動端到端已通過：41219／41418 是非題、42336 多選題的預測與私人留言均由 launchd 自動 found，各操作只 POST 一次，unknown 0。證據 `data/e2e_acceptance_checks.jsonl`（15:33:26）與 [M3-READBACK-D111.md](M3-READBACK-D111.md)。第四題 41628 尚待 Gemini 第 2 層與送出，A2 三情境還沒開始；不是 M3 全部完成，live 未核准。
+
+已審查程式／文件提交 `50a0be5`；兩份 runtime config 未納入。現行 trial、STOP_SUBMIT 不存在，原窗口與 600 秒排程不變，監看 session 7274。下一步等第四題完成後做 A2，情境間至少 10 分鐘不存取 API，最後回 local。
+
 Louis 指示：D105 端到端的監督交給 GPT，之後由 GPT 主持並分配工作；Claude 交接後待命（PLAN D108）。規格與決策仍以 `PLAN.md` 為準。
 
 ## GPT 接手後的更新（2026-11-02 UTC 14:00）
@@ -20,7 +26,7 @@ GPT 於 13:46:36 建立 `config/STOP_SUBMIT`，並在第二輪結束後取得 cy
 
 | 項目 | 值 |
 |---|---|
-| PLAN | v1.60（D109／D110／D111） |
+| PLAN | v1.61（D109～D112） |
 | 模式 | `config/submit_mode.json` = trial，bot 311763（UTC 13:27:50 切換） |
 | launchd | `org.forecast-lab.cycle` 已由 Louis 於 UTC 13:29 親自安裝，每 600 秒啟動；`~/Library/LaunchAgents/org.forecast-lab.cycle.plist` |
 | 窗口 | `config/cycle_campaign.json`（未提交）＝ `d105_e2e_20261102T1303Z`，UTC 11/2 13:03～11/3 13:03；只有 `main_site_questions`，N=4、P=5；每線 40 次；13:29:15 已登記 |

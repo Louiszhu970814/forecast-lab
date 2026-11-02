@@ -1,5 +1,11 @@
 # 給下一個對話的接手紀錄
 
+## D112 最新驗收（UTC 15:33；PLAN v1.61）
+
+M3 第二項的兩題型自動端到端已通過：41219／41418 是非題、42336 多選題的預測與私人留言均由 launchd 自動 found，各操作只 POST 一次，unknown 0。證據 `data/e2e_acceptance_checks.jsonl`（15:33:26）與 [M3-READBACK-D111.md](M3-READBACK-D111.md)。第四題 41628 尚待 Gemini 第 2 層與送出，A2 三情境還沒開始；不是 M3 全部完成，live 未核准。
+
+已審查程式／文件提交 `50a0be5`；兩份 runtime config 未納入。現行 trial、STOP_SUBMIT 不存在，原窗口與 600 秒排程不變，監看 session 7274。下一步等第四題完成後做 A2，情境間至少 10 分鐘不存取 API，最後回 local。
+
 ## 2026-11-02：D111 自動讀回修正已套用（UTC 15:15）
 
 **PLAN v1.60；trial。** `submit_v10` 為已受理回執補做 GET，獨立證據寫 `data/submission_readbacks.jsonl`，不更改送出／重試狀態；`cycle_v7` 將送出程序上限從 120 延長至 300 秒，模型時限和 600 秒排程不變。完整隔離 2055 passed、Gemini 900 秒上限的獨立審查 PASS；15:15:41 在互斥鎖保護下套用。詳細驗證與限制見 [M3-READBACK-D111.md](M3-READBACK-D111.md)。

@@ -38,3 +38,32 @@ Bulk 候選維持後續優化：官方 `bulk-forecast-comment` 以交易合併�
 操作責任：GPT 在文件複核完成後只解除本次自建 STOP_SUBMIT，釋放 cycle／scheduler／submit／三線鎖，重啟狀態監看，並以既有 launchd 接續原窗口；不另手動送出或重算預測。隨後核對正式 CLI 所寫的自動讀回證據。若新版仍出現 300 秒 TimeoutExpired，先從 request 狀態判斷是否只中斷前檢或留下未知寫入，再評估原因，不自動再加時或重送。
 
 D111 恢復證據：UTC 15:19:48 只移除 GPT 本次自建 STOP_SUBMIT，審查鎖已釋放；15:19:53 狀態監看重新啟動（session 7274），unknown 0／hazards=[]。主持人以既有 launchd 的 kickstart 接續同一個凍結窗口，未重裝或改間隔；這次啟動為修正後恢復，不列入自然排程間距估計。尚待新週期的實機讀回。
+
+## 新版覆蓋率重播（UTC 15:23）
+
+兩個情境均於 15:23:27 先登記後執行，沿用 D101 的同一份歷史開題表（schedule hash `9676300fe06bb93d453c1ae95e3deab828a05d8bbf7c3cf1f60e147066c83b51`）、每線上限、耗時樣本、種子與 20 次重播；沒有覆寫舊情境。
+
+| 新情境 | 固定差異 | 支援題準時覆蓋 p10 | 全部題目覆蓋 p10 |
+|---|---|---:|---:|
+| `d111_engine_replay_c130_c130_g200_o300_n10` | 只換成 cycle_v7 引擎政策 | 100% | 64.42% |
+| `d111_submit270_stress_c130_c130_g200_o300_n10` | 另將每題送出總耗時固定為 270 秒；診斷用 | 98.51% | 63.46% |
+
+固定觀察範圍有 104 題，其中支援 67 題、不支援 37 題。第一情境每次都覆蓋 67 題；第二情境的 20 次中有 3 次各晚送 1 題，其他漏答都是未支援題型。正式重播的 p10 繼續高於原訂 90% 門檻；壓力情境也高於門檻，但它是附加診斷。結果在 `data/coverage_sims.jsonl`／`data/coverage_sim_results.jsonl`。
+
+這是沿用 D101 凍結樣本的條件式重播，不是新一輪實機覆蓋率；Gemini 第 2 層的原耗時樣本只有一筆，尚不能由模擬推定所有未來研究時長。新版本 300 秒的實機送出時間與本輪後續工作仍須觀察。
+
+## D112 實機驗收結果（UTC 15:33）
+
+`cycle_1793632794963_9bfce6be`（15:19:54.962～15:32:24.525，cycle_v7）自動完成以下讀回。預測使用正式帳冊的 reconciled=true，留言使用同一 request、同一 frozen lookup 的新驗證帳冊 found；各個證據時間都落在已完成的 launchd 週期內，沒有採用主持人的額外 GET。
+
+| 題號 | 題型 | 預測自動 found（UTC） | 私人留言自動 found（UTC） | 預測／留言 POST 次數 |
+|---|---|---|---|---:|
+| 41219 | binary | 14:38:16.075 | 15:26:11.766 | 1／1 |
+| 41418 | binary | 15:04:34.859 | 15:26:27.022 | 1／1 |
+| 42336 | multiple_choice | 15:31:39.795 | 15:32:24.017 | 1／1 |
+
+15:33:26 的 `data/e2e_acceptance_checks.jsonl` 記錄 both_types_automatic_found=true、all_four_complete=false、unknown_requests=0、hazards=[]。三線均完成這些題目的第一層；MC 三線第二層也已完成。**M3 第二項通過；第四題 41628 仍待 Gemini 第 2 層與送出，A2 尚未開始，M3 整體與 live 都沒有宣稱完成。**
+
+本輪 on_finalized（含本地發布與送出）耗時 171.938 秒，在新上限內完成；它先留下 MC 預測 unknown，最後 submit 在同一輪自動對帳成功。整輪仍顯示 attention，反映中途有 unknown，不代表目前仍有未解決請求；errors=[]，沒有 TimeoutExpired。這一輪支持 300 秒能容納此案例，不代表任意批次都能完成。
+
+Claude 對 D112 的有限驗收結論與模擬報告複核 PASS，沒有 blocking。主持人依其提醒，核對器改為只接受唯一的完成週期時間區間，並將核對器 SHA-256 及正式來源提交 `50a0be5` 追加到 `data/development_checks.jsonl`。自動性依據包含本次實際操作紀錄、cycle 互斥及正式 CLI 唯一寫入新帳冊的路徑；僅時間落在週期內本身不是獨立的程序身分證明。
