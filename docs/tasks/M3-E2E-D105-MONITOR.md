@@ -1,6 +1,12 @@
 # D105 端到端監督交接（Claude → GPT，2026-11-02 UTC 13:40）
 
-## D112 最新驗收（UTC 15:33；PLAN v1.61）
+## D113 收尾（UTC 16:35；PLAN v1.62）
+
+D105 四題及 D107 A2 三情境全部完成。41219／41418／41628／42336 的預測與私人留言各一次 POST、全部自動 found、unknown 0；A2 的重複歷史、四階合成留言及只補留言路徑也已核對。最新證據見 [M3-READINESS-D113.md](M3-READINESS-D113.md) 與 [A2 報告](D107-A2-BTA-REUSE-PROBE.md)。
+
+16:35:10 已回 local，卸載本次 cycle LaunchAgent 並封存安裝副本，guard 及狀態監看均已結束，STOP_SUBMIT 不存在。原 campaign、正式帳冊與 TG 服務保持原狀；沒有新觀測在背景執行。M3 的 V11／實際輪詢重播仍有缺口，live 未核准。以下有時間標記的段落保留歷史，不代表目前仍在 trial 或仍有監看程序。
+
+## D112 歷史驗收（UTC 15:33；PLAN v1.61）
 
 M3 第二項的兩題型自動端到端已通過：41219／41418 是非題、42336 多選題的預測與私人留言均由 launchd 自動 found，各操作只 POST 一次，unknown 0。證據 `data/e2e_acceptance_checks.jsonl`（15:33:26）與 [M3-READBACK-D111.md](M3-READBACK-D111.md)。第四題 41628 尚待 Gemini 第 2 層與送出，A2 三情境還沒開始；不是 M3 全部完成，live 未核准。
 
@@ -26,9 +32,9 @@ GPT 於 13:46:36 建立 `config/STOP_SUBMIT`，並在第二輪結束後取得 cy
 
 | 項目 | 值 |
 |---|---|
-| PLAN | v1.61（D109～D112） |
-| 模式 | `config/submit_mode.json` = trial，bot 311763（UTC 13:27:50 切換） |
-| launchd | `org.forecast-lab.cycle` 已由 Louis 於 UTC 13:29 親自安裝，每 600 秒啟動；`~/Library/LaunchAgents/org.forecast-lab.cycle.plist` |
+| PLAN | v1.62（D113） |
+| 模式 | `config/submit_mode.json` = local（UTC 16:35:10 回復） |
+| launchd | 本次 `org.forecast-lab.cycle` 已卸載；600 秒安裝副本封存於 `data/launchd_archive/20261102T163510Z/` |
 | 窗口 | `config/cycle_campaign.json`（未提交）＝ `d105_e2e_20261102T1303Z`，UTC 11/2 13:03～11/3 13:03；只有 `main_site_questions`，N=4、P=5；每線 40 次；13:29:15 已登記 |
 | 選題 | 是非題 41219、41418、41628；多選題 42336（`data/main_site_trial_selections.jsonl`） |
 | 熔斷 | GPT／Gemini 第 2 層熔斷已於 13:06:37 依 D107 A3 追加解除紀錄 |
@@ -44,7 +50,7 @@ GPT 於 13:46:36 建立 `config/STOP_SUBMIT`，並在第二輪結束後取得 cy
 
 - 只看 ID、狀態、計數、錯誤類型與時間。**不讀開放題目的預測機率、理由、留言正文或模型輸出**（D91 與 AGENTS.md 的進度規則；這 4 題雖是試驗題，也照同樣做法）。
 - 先看每個週期 `cycles.jsonl` 最後一筆的 `players`：若仍有 `preflight_blocked`，看 `preflight.problems`。第一輪的 `no passing acceptance with the production model and effort` 推測是 CLI 版本為 None 連帶造成，PATH 修正後應消失；若沒消失要查原因，**不得用 waiver 或改驗收紀錄繞過**。
-- 異常（非預期題目、重複 POST、4xx／429 連續、unknown 堆積、寫到 4 題以外）時：先建立 `config/STOP_SUBMIT` 停送出；需要整個停止時請 Louis 執行 `launchctl bootout gui/$(id -u) ~/Library/LaunchAgents/org.forecast-lab.cycle.plist`（Claude Code 的自動模式擋過代理安裝 LaunchAgent，移除也可能需要 Louis 本人）。unknown 只對帳、不重送；不刪帳冊。
+- 異常（非預期題目、重複 POST、4xx／429 連續、unknown 堆積、寫到 4 題以外）時：先建立 `config/STOP_SUBMIT` 停送出；需要整個停止時卸載指定的預測工作 `org.forecast-lab.cycle`，不影響 TG。D113 已在監督與收尾授權內實際完成卸載及封存；新安裝仍遵守 D78。unknown 只對帳、不重送；不刪帳冊。
 - Gemini 線正在預測時不要啟動 Gemini 開發審查（`quota.detect_agy_activity()` 會把同時存在的 agy 視為不可信）。
 - 模式為 trial 時，`tests/test_scheduler.py`、`tests/test_m2_supplement.py`、`tests/test_config.py` 有 26 個測試會讀真實的 `submit_mode.json` 而失敗，屬環境因素；在 local 下完整測試為 2023 passed。
 
@@ -59,14 +65,14 @@ python3 -c "import json; Q={41219,41418,41628,42336}; [print(r.get('question_id'
 
 `Submitter._event()` 已按 aggregate ID／原因去重，既有回歸測試通過。最初有 130 筆舊 M2 拒絕紀錄；後來新增的是新 aggregate 的檢查，並非每輪重寫 130 筆。「每天新增 1.9 萬」是原交接的錯誤推算，已撤回，不據此修改送出器。全歷史掃描的本地成本可另評估。
 
-目前實機較明顯的是 on_finalized 的送出呼叫在 120 秒前檢上限中止。帳冊能讓後續呼叫接續，但會增加週期與送出延遲；完成本輪驗收後應以各輪實測分解評估。尚未修改 timeout 或送出契約；涉及送出的修正仍依 D107 A4 由 Gemini 獨立審查。
+當時的 on_finalized 曾在 120 秒送出上限中止；D111 已經 Gemini 獨立審查，改為 300 秒並補獨立讀回，實機已完成四題。模型 timeout 與 600 秒排程間隔不變；詳見 [M3-READBACK-D111.md](M3-READBACK-D111.md)。
 
-## 端到端之後的工作
+## 端到端之後的原定工作（D113 已完成 1～3 的本輪收尾）
 
 1. 把端到端結果寫進本檔、`HANDOFF.md`，並由整合者更新 PLAN §10 M3 的狀態與 §15／§16。
 2. D107 A2 的三個測試區情境（`docs/tasks/D107-A2-BTA-REUSE-PROBE.md`）：probe 會取得 scheduler／submit／三線鎖，與週期互斥，要在週期閒置或移除後執行；依序 `duplicate_forecast`（是非題）、`comment_length`、`comment_retry`，每個之間至少 10 分鐘且沒有其他 Metaculus API 活動，完成後回 local。D107 A1 已給常設授權，不必逐次請示，事後回報。
-3. 窗口在 UTC 11/3 13:03 結束；之後週期不再做模型工作。若不另開窗口，請 Louis 移除 launchd 週期並切回 local。下一個窗口須在看任何輸出前設定，且不得與本窗口重疊。
-4. M3 其餘項目：MiniBench 系列白名單與每輪 ID 的實機核對、bulk 端點評估（候選）。切換 `live` 仍須 M3 全部通過並經 Louis 另行核准。
+3. 原窗口截止仍為 UTC 11/3 13:03；既定四題與 A2 已完成，D113 已提前結束執行、回 local 並卸載封存排程，不改寫凍結窗口。下一個窗口須在看任何輸出前設定，且不得與本窗口重疊。
+4. MiniBench 實機發現與 bulk 候選評估已記於 D111；V11 與實際輪詢重播缺口見 D113 對照。切換 `live` 仍須 M3 全部通過並經 Louis 另行核准。
 
 ## 已恢復實機（UTC 14:09）
 

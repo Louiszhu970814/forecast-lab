@@ -1,5 +1,15 @@
 # 給下一個對話的接手紀錄
 
+## D113 最新收尾：四題及 A2 完成，已回 local（UTC 16:35，PLAN v1.62）
+
+D105 四題均已自動 found（最後 41628：預測 15:53:36、留言 15:54:21），各預測／留言一次 POST，unknown 0；三線各 6 次實際工作。全四題驗收證據在 `data/e2e_acceptance_checks.jsonl`（15:55:40）。狀態監看已正常結束，沒有模型工作待執行。以下較早段落均為歷史快照，不能覆蓋本段目前狀態。
+
+A2 三情境全部完成，詳見 [A2 報告](D107-A2-BTA-REUSE-PROBE.md)：duplicate_forecast 兩次 found、歷史由既有基準 1 變 2、3；comment_length 四階 2000／10000／50000／150000 字元都立即全文讀回；comment_retry 預測 found 後，本地注入一次未送網路的留言失敗，由原 Submitter 只補一次真實留言並 found。合計真實預測 POST 3、真實留言 POST 5、注入 1，unknown 0；正式送出帳冊雜湊未變。靜默間隔 872.322／619.162 秒。**已完成的 probe 不可重跑或另建 ID 增加次數**。
+
+UTC 16:35:10 先回 local，再卸載 `org.forecast-lab.cycle`，並將安裝副本移至 `data/launchd_archive/20261102T163510Z/`；已確認不再載入。cycle guard session 63610 已正常退出，STOP_SUBMIT 不存在，TG 服務保持原狀。既定四題與 A2 做完後結束執行；原 campaign 仍未提交、截止 11/3 13:03 UTC 沒有改寫，不另補題或開重疊窗口。操作、審查、核對器及雜湊 manifest 保存於 `data/operations/d113-a2-20261102/`。
+
+目前 **M3 尚未全部完成、live 未核准**。下一步見 [M3 對照](M3-READINESS-D113.md)：先設計並審查有界的純 metadata 觀測／重播，補 V11 及實際可見性、輪詢、修訂與 launchd 觸發差異。此新觀測尚未啟動。600 秒仍建議作保守起點；不是嚴格每 10 分鐘開始新一輪。開發審查上限 900 秒，預測 timeout 不變。程式驗證沿用完整隔離 2055 passed、Gemini PASS。
+
 ## D112 最新驗收（UTC 15:33；PLAN v1.61）
 
 M3 第二項的兩題型自動端到端已通過：41219／41418 是非題、42336 多選題的預測與私人留言均由 launchd 自動 found，各操作只 POST 一次，unknown 0。證據 `data/e2e_acceptance_checks.jsonl`（15:33:26）與 [M3-READBACK-D111.md](M3-READBACK-D111.md)。第四題 41628 尚待 Gemini 第 2 層與送出，A2 三情境還沒開始；不是 M3 全部完成，live 未核准。

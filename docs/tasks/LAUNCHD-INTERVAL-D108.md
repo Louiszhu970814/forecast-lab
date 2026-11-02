@@ -19,6 +19,8 @@
 
 ## 實際計時與限制
 
+本節保留 D109 當時觀測；其中 worker／supervisor 的 4320／4330 秒已由 D111 的 5100／5110 秒取代，現行值見末段與 launchd README。以下舊數字不代表目前設定。
+
 - 第一輪 UTC 13:29:15.531～13:31:10.301；第二輪實際於 13:41:10.732 開始，並非交接估計的 13:39。兩次開始相隔 715.201 秒，第二次開始距第一輪結束約 600.431 秒。只有兩次啟動觀測，不能據此宣稱固定的最壞延遲。
 - 第二輪 UTC 13:42:16.969 預檢三線全 `ready`；UTC 13:51:44.979 結束，耗時 634.247 秒。Claude／GPT 各完成 3 次第 1 層；Gemini 尚未啟動模型便因額度讀數過期被擋。沒有新增預測／留言 POST。這輪已超過 600 秒；工作仍在執行時不能依賴下一個 launchd tick 啟動新週期，此時上述理想 10 分鐘上界不成立。
 - 本機 `man 5 launchd.plist` 明訂 `StartInterval` 在睡眠或該工作仍在執行時會錯過觸發。Apple 的[排程文件](https://developer.apple.com/library/archive/documentation/MacOSX/Conceptual/BPSystemStartup/Chapters/ScheduledJobs.html)也說明非日曆型工作在睡眠／關機期間會跳過。因此應量測實際輪詢間距，而非只看 plist 的 600。

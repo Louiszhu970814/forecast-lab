@@ -1,5 +1,30 @@
 # D107 A2：bot testing area 重送驗收（`v15_probe_v4`）
 
+## D113 實機結果（UTC 2026-11-02 16:35）
+
+D105 四題均已自動讀回完成、unknown 0 後，GPT 取得 cycle 互斥鎖執行既有已審查的 v15_probe_v4；source 與 ac5edf2 相同。三情境全部完成，結束已回 local；這不代表完整 M3 或 live 核准。
+
+| 情境 | probe | 執行結果 |
+|---|---|---|
+| duplicate_forecast | v15_1793634954960_3d23c6ae | 15:55:42 開始、15:59:45.267 完成；預測 POST 2、留言 0，兩次 found；history_counts 1→2→3，accepted_with_history |
+| comment_length | v15_1793636070757_0131103d | 16:14:17.612 開始、16:20:48.254 完成；預測 0、留言 POST 4，2000／10000／50000／150000 字元均全文長度與雜湊相符；沒有截斷，first_rejected_length=null |
+| comment_retry | v15_1793637081218_dfd2b627 | 16:31:07.371 開始、16:34:54.943 完成；預測 POST 1、真實留言 POST 1，均 found；另有一次本地留言失敗注入，network_request_sent=false，沒有重送預測 |
+
+首情境 target 為 ground 32977、question 43332／post 43327、bot 311763；只有合成輸入。歷史筆數 1 是測試前基準，兩次 POST 後分別為 2、3；found 時間為 15:58:12.486、15:59:45.266。所有 request／狀態在 `data/v15_probes.jsonl`，控制端時鐘與共享 API pace mtime 在 `data/a2_execution.jsonl`；靜默期間只讀本地狀態與整理文件，不呼叫 Metaculus API。正式比賽的禁止重送規則沒有改變。
+
+第一、二項間實際 API 靜默為 872.322 秒，共用 pace mtime 未變。長度情境使用同一測試區與題目；四筆 found 依序為 16:16:48.795、16:18:10.008、16:19:29.901、16:20:48.252。`max_accepted_length=150000` 只代表最大已測可接受長度，沒有測到拒絕邊界，不能稱平台的絕對上限；正式留言上限仍為 3000 字元。第二、三項間靜默為 619.162 秒，前後 pace mtime 相同。
+
+長度結果是 ASCII 合成私人留言的立即讀回證據，不保證長期保存全文；D98 已記錄官方後端對超過 500 字元的 bot 私人留言，滿 30 天後保留前 200 字元的規則。第一段靜默由執行 wrapper 在開始前核對單調時鐘與 pace mtime，另有本輪本地檢查；當時控制紀錄只保存間隔及上一項結束的 mtime，彙整器不能獨立重建期間全部 API 活動。第二段開始另記前後 mtime 與單調時鐘，增加可核對的中繼資料；不改既有 probe 或請求上限。
+
+第三情境仍用同一 bot／ground／question／post。預測 request `request_1793637219615_bbef3c32` 於 16:33:52.187 found；本地注入 `request_1793637256133_7a87b9bc` 於 16:34:16.137 confirmed_failed，明確未送網路；原 Submitter 狀態機補留言 `request_1793637279480_61dcb606` 於 16:34:54.942 found。隔離送出帳冊最後為 comment_ok，位於 `data/v15_probe_submitter/v15_1793637081218_dfd2b627/`。這證明本地確認失敗後的正式補留言路徑，不冒充平台真的回過一次 4xx。
+
+16:35:10.643 的 `data/a2_acceptance_checks.jsonl`：all_three_complete=true、hazards=[]；彙整另核對 probe 與控制結果、實際上限、四階長度與重建合成文字的 SHA-256、歷史筆數遞增及注入／真實請求分開計數。總計真實預測 POST 3、真實留言 POST 5，全部 found，未知 0。正式 `data/submissions.jsonl` SHA-256 一直保持 `92c23f8261efd92e3b78128915054feb425df305e66534ddfdbef7d72947d6ce`。
+
+16:35:10.760 收尾完成：先原子寫回 local，再 bootout 並確認 `org.forecast-lab.cycle` 不再載入；安裝 plist 移至 `data/launchd_archive/20261102T163510Z/org.forecast-lab.cycle.plist`（SHA-256 `95e8cee76574cc1810c17fe85d8dace0dbcfe352072c979068afe870c07d36d2`），避免登入時再啟動。沒有改 TG 服務，沒有改凍結 campaign 或刪帳冊；cycle guard 已釋放，STOP_SUBMIT 不存在。既定四題及 A2 已做完，所以結束執行，沒有改寫原窗口截止或另開重疊窗口。操作、審查與核對器存於 `data/operations/d113-a2-20261102/`，含雜湊 manifest。
+
+依 D107 A4，Claude 第一輪文件／證據審查要求更新過時狀態、限定長度與保存期間的結論，並強化彙整器對階梯／雜湊／請求計數／注入差異的核對；已修正。最後一輪 **PASS，沒有 blocking**（900 秒上限），只複核提供的程式、操作中繼資料與文件，沒有讀取開放題預測或重做平台請求。這不取代原 v15_probe_v4 的 Gemini 審查或 D111 的 2055 passed。
+
+
 規格：Claude（主持）。實作：GPT（Codex 開發沙箱）。審查：Claude，之後 Gemini（送出／讀回相關，D107 A4 規定須獨立審查）。
 Louis 於 2026-11-02 核准 D107 A1（試驗場地有界寫入常設授權）與 A2（bot testing area 允許重送）。
 
