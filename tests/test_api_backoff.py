@@ -233,3 +233,117 @@ def test_zero_retry_after_5xx_keeps_local_exponential_delay():
     def sleep(seconds):sleeps.append(seconds);clock[0]+=timedelta(seconds=seconds)
     client=MetaculusClient(TOKEN,opener=http,sleep=sleep,backoff=Backoff(now=lambda:clock[0]))
     assert client.get_post(1)=={} and sleeps==[1,2] and len(calls)==3
+
+
+# ---------------------------------------------------------------- D98 request pacing
+
+class _Clock:
+    # A past epoch: the real OS mtime of a new lock file must not make these tests pass.
+    def __init__(self, start=1_700_000_000.0):
+        self.t, self.sleeps = start, []
+
+    def wall(self):
+        return self.t
+
+    def sleep(self, seconds):
+        self.sleeps.append(seconds)
+        self.t += seconds
+
+
+def _paced(path, clock, **kw):
+    return Backoff(path, now=lambda: NOW, pace=True, sleep=clock.sleep, wall=clock.wall,
+                   jitter=lambda lo, hi: hi, **kw)
+
+
+def _ok(req, timeout):
+    return io.BytesIO(b'{}')
+
+
+def test_production_constructors_pace_and_mock_openers_do_not():
+    from api_backoff import DEFAULT_PATH
+    assert MetaculusClient(TOKEN)._backoff.pace and T.APITransport(TOKEN)._backoff.pace
+    assert MetaculusClient(TOKEN)._backoff.path == DEFAULT_PATH
+    assert not MetaculusClient(TOKEN, opener=_ok)._backoff.pace
+    assert not T.APITransport(TOKEN, opener=_ok)._backoff.pace
+    assert not Backoff().pace and not Backoff(None).pace
+
+
+def test_requests_are_spaced_by_pace_plus_jitter_and_first_request_is_immediate(tmp_path):
+    from urllib.request import Request
+    clock = _Clock()
+    guard = _paced(tmp_path / 'cooldowns.jsonl', clock)
+    req = Request('https://www.metaculus.com/api/users/me/')
+    starts = []
+    for _ in range(3):
+        guard.open(lambda r, t: (starts.append(clock.t), io.BytesIO(b'{}'))[1], req, 30)
+        clock.t += 1.0  # the response itself took a second
+    assert clock.sleeps == [pytest.approx(3.5), pytest.approx(3.5)]
+    assert [b - a for a, b in zip(starts, starts[1:])] == [pytest.approx(4.5), pytest.approx(4.5)]
+
+
+def test_first_request_on_a_new_or_unmarked_lock_does_not_wait(tmp_path):
+    from urllib.request import Request
+    req = Request('https://www.metaculus.com/api/users/me/')
+    clock = _Clock()
+    _paced(tmp_path / 'fresh.jsonl', clock).open(_ok, req, 30)
+    path = tmp_path / 'old.jsonl'
+    Backoff(path).open(_ok, req, 30)                 # an unpaced holder creates an empty lock
+    assert path.with_suffix('.lock').stat().st_size == 0
+    _paced(path, clock).open(_ok, req, 30)
+    assert clock.sleeps == []
+    assert path.with_suffix('.lock').stat().st_size == 1
+
+
+def test_pace_is_shared_across_processes_through_the_lock_file(tmp_path):
+    from urllib.request import Request
+    clock = _Clock()
+    path = tmp_path / 'cooldowns.jsonl'
+    req = Request('https://www.metaculus.com/api/users/me/')
+    _paced(path, clock).open(_ok, req, 30)
+    clock.t += 2.0
+    other = _paced(path, clock)          # a new client, as in another process
+    other.open(_ok, req, 30)
+    assert clock.sleeps == [pytest.approx(2.5)]
+
+
+def test_writes_and_failed_requests_are_paced_too(tmp_path):
+    from urllib.request import Request
+    clock = _Clock()
+    guard = _paced(tmp_path / 'c.jsonl', clock, pace_seconds=5, jitter_seconds=0)
+    post = Request('https://www.metaculus.com/api/comments/create/', data=b'{}', method='POST')
+    def reject(req, timeout):
+        raise urllib.error.HTTPError(req.full_url, 400, TOKEN, {}, None)
+    with pytest.raises(urllib.error.HTTPError):
+        guard.open(reject, post, 30)
+    guard.open(_ok, post, 30)
+    assert clock.sleeps == [pytest.approx(5)]
+
+
+def test_clock_step_never_waits_more_than_one_gap(tmp_path):
+    from urllib.request import Request
+    clock = _Clock()
+    path = tmp_path / 'c.jsonl'
+    req = Request('https://www.metaculus.com/api/users/me/')
+    _paced(path, clock).open(_ok, req, 30)
+    clock.t -= 3600                      # wall clock stepped back an hour
+    _paced(path, clock).open(_ok, req, 30)
+    assert clock.sleeps == [pytest.approx(4.5)]
+
+
+def test_active_cooldown_is_raised_before_any_pacing_sleep(tmp_path):
+    from urllib.request import Request
+    clock = _Clock()
+    path = tmp_path / 'c.jsonl'
+    guard = _paced(path, clock)
+    req = Request('https://www.metaculus.com/api/users/me/')
+    with pytest.raises(urllib.error.HTTPError):
+        guard.open(lambda r, t: (_ for _ in ()).throw(urllib.error.HTTPError(r.full_url, 429, TOKEN, {'Retry-After': '120'}, None)), req, 30)
+    with pytest.raises(Deferred):
+        guard.open(lambda *_: pytest.fail('network'), req, 30)
+    assert clock.sleeps == []
+
+
+@pytest.mark.parametrize('kw', [{'pace_seconds': -1}, {'jitter_seconds': 61}, {'pace_seconds': 61}])
+def test_invalid_pacing_is_rejected(kw):
+    with pytest.raises(ValueError):
+        Backoff(pace=True, **kw)

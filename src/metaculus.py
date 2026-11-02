@@ -57,7 +57,8 @@ class MetaculusClient:
         self._max_retries = max_retries
         self._open = opener
         self._sleep = sleep
-        self._backoff = backoff or Backoff(DEFAULT_PATH if opener is _default_opener else None)
+        # D98: only the real network opener paces; mock openers keep private, unpaced state.
+        self._backoff = backoff or (Backoff(DEFAULT_PATH, pace=True) if opener is _default_opener else Backoff())
         if manage_backoff:
             self._open = lambda req, timeout: self._backoff.open(opener, req, timeout)
 

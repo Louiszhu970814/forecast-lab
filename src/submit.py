@@ -621,7 +621,7 @@ def cli_transport(root):
     from api_backoff import Backoff
     return APITransport(get_secret("METACULUS_TOKEN", root / ".env"),
                         poll_log=root / "data" / "poll_log.jsonl",
-                        backoff=Backoff(root / "data" / "api_cooldowns.jsonl"))
+                        backoff=Backoff(root / "data" / "api_cooldowns.jsonl", pace=True))
 
 
 if __name__ == "__main__":

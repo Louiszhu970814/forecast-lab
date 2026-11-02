@@ -139,7 +139,7 @@ class APITransport:
         if not isinstance(token, str) or not token:
             raise ValueError("Metaculus token required")
         self._token, self._open, self._timeout = token, opener, timeout
-        self._backoff = backoff or Backoff(DEFAULT_PATH if opener is default_opener else None)
+        self._backoff = backoff or (Backoff(DEFAULT_PATH, pace=True) if opener is default_opener else Backoff())
         self._bot_id = None
         self._poll_log = POLL_LOG if poll_log is None else poll_log
         # The same host/redirect/error boundary protects authenticated GET pagination.

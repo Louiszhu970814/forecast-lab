@@ -1,6 +1,6 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.45（v1.0 凍結後的修訂，見 §16；Claude 依 D95 主持，D97 依 Louis 決定調整 Gemini 額度估計）
+> 版本：v1.46（v1.0 凍結後的修訂，見 §16；Claude 依 D95 主持，D98 不靠官方回信查平台線索並加上 API 請求間隔）
 > 初稿：Claude
 > 本回合整合者：Claude（D95；GPT 已完成 D82／D84～D94 的主持與交接）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
@@ -1018,6 +1018,7 @@ v0.4 新增：
   D85 已依唯讀實機回應與釘選的官方原始碼修正讀回契約：本帳號預測為 `my_forecasts.history/latest`，預測成功可能只回 201 空物件，讀回以 question／author／start_time 三元組、送出前基準及精確機率比對；留言查詢用 `post`，完整分頁後要求唯一新匹配。無法證明結果時維持 unknown，不重送。多選題缺少可驗證的歷史選項順序時，在首次 POST 前拒絕。
 
   D87 的 binary 元件實機測試於 UTC 18:30 完成一次預測 POST 與獨立讀回；第一個私人留言被明確拒絕；D88 的第二次留言於 18:44:30Z 回 HTTP 429，已達本筆上限，完整元件驗收未通過。沒有重送預測，試驗結束後回到 local；D78 的未來 trial 授權保留。
+  D98：官方客戶端在每個請求前固定等 3.5 秒加最多 1 秒抖動；官方後端的留言建立流程中，我們的私人留言沒有任何會被拒的條件，第一次 4xx 很可能也是閘道限流（推論）。`api_backoff_v2` 已對正式連線的所有請求加上跨程序共用的間隔。多選題寫入以目前選項標籤為鍵即可；讀回的順序在「重新加回曾刪除選項」與寬限期時會例外，因此改用不依賴順序的核對（待實作）。`/api/questions/bulk-forecast-comment/` 可由一般 bot token 原子寫入預測加私人留言，列為候選。bot 私人留言超過 500 字元滿 30 天後只保留前 200 字元。見 `docs/tasks/PLATFORM-CLUES-D98.md`。
   尚待確認：私人留言及補送成功、多選真實 POST 與可靠讀回、留言長度上限，以及重複送出時平台的行為（M3）。bot testing area 的多選題當前沒有可用的 `all_options_ever`，不能由 null 推定從未改過選項。留言尚無送出前 ID 基準，時間偏差可能使結果維持 unknown。官方原始碼與離線測試不等於 V15 完成；確認可靠的真實讀回方式之前，不得切換到 `live`。
 - **V16**：三家個人方案條款中，與自動化、比賽獎金與帳號使用有關的條文（只記錄、不阻擋，D35）。
 - **V17**（部分完成，D96）：agy 實際生效的 AI credits 設定鍵，以及單次執行前後的 `/usage` 變化是否足以判斷使用的模型（§7.7）。D96 的離線與 idle 讀數顯示，`/usage` 讀數本身不一致，單次前後差值不足以判斷模型或成本；Ultra 共用桶下的型號只能以 `--log-file` 判斷。AI credits 設定鍵仍待確認。
@@ -1716,10 +1717,13 @@ view_image                  stable true
 | D95 | 2026-11-02 | Louis 指示後續交由 Claude 接手；Claude 恢復主持與整合角色，GPT 完成交接後停止本輪開發 | 沿用現有授權與驗收界線；沒有新增模型呼叫、補測、API POST 或排程。交接已備妥不等於 Claude 程序已啟動，實際接手須另據執行紀錄確認 |
 | D96 | 2026-11-02 | Claude 於 UTC 04:2x 實際接手主持。依交接重審額度可觀察性：離線分析既有 114 筆 Gemini `/usage` 讀數，另做一次不耗模型額度的 idle 連續 12 筆讀取（`qprobe_1793593718311_5b4833ca`）。結論：讀數在固定窗口內回升、原樣重現且互相矛盾，單次前後差值不是單次成本。提出 Q1（M2 成本門檻改用窗口層級估計）與 Q2（Gemini 第 2 層改 token 熔斷與窗口層級估計）兩項提案，待 Louis 決定 | 只讀額度數值、時間與程序 metadata；沒有模型呼叫、預測、補測或 API POST。原 21 筆、D92、D94 紀錄不改寫，D92／D94 不重啟；現行判定、M2 門檻、兩條第 2 層熔斷與 local 模式不變，直到 Louis 決定 |
 | D97 | 2026-11-02 | Louis 對 D96-QUOTA 選擇 A（「我覺得都改」），並表示 Gemini 使用 Ultra、額度很多，不需要再設定限制。採用：M2 的 Gemini 成本門檻改為窗口層級估計（`gemini_window_cost_estimate`），單次成本照實列為無法觀測；取消 Gemini 第 2 層每題 5% 額度上限與 `weekly_tier2_argon_breaker`，第 2 層改由共用 token 熔斷限制；准入估計改用窗口層級平均 × 3（第 2 層再 × token 上限倍數），不超過原 0.05 | `quota_policy_v4`、`budget_v4`、`m2_report_v5`、`quota_window_estimate_v1`。保留 credits 必須為 0、週桶／五小時桶真正不足時暫停或等待、同線並行 1、token 熔斷；持續模式的 Gemini 每週次數上限只作防失控保護。D97 前已寫入的熔斷（Gemini 至 UTC 11/8 12:11:16）照舊生效，不追溯解除；GPT 第 2 層熔斷不受影響。舊 21 筆、D92、D94 紀錄不改寫。M3 與 live 核准不變 |
+| D98 | 2026-11-02 | Louis 指示：「可以繼續找繞開跟官方寄信溝通的方法，我偏向叫 gemini 繼續海巡各大論壇、github 上其他開源的參賽者的模型之類的應該都會有線索」。Claude 直接核對官方客戶端與後端原始碼，並請 Gemini（Argon high，只搜尋與讀網頁）搜尋論壇、GitHub 與其他參賽者；依結果對所有正式 API 請求加上間隔（`api_backoff_v2`） | 沒有寄信、沒有平台寫入、沒有讀開放題內容。Gemini 沒找到可採信的第三方案例，有用結論都來自官方原始碼並經 Claude 逐行核對；不採用「full_clean 強制 150,000 字元」。多選題讀回改用不依賴順序的核對與 bulk 端點屬後續提案；新的有界私人留言驗收屬平台寫入，須 Louis 核准。原 V15 probe 不加第三次留言 |
 
 ---
 
 ## 16. 變更紀錄
+
+- **v1.46**（2026-11-02）：D98，`api_backoff_v1` → `api_backoff_v2`：正式連線（真實 opener 與 CLI 傳輸）的所有 Metaculus API 請求，讀寫都在既有跨程序冷卻鎖內先等 3.5 秒加 0～1 秒抖動，上次請求時間記在鎖檔的修改時間，不新增帳冊；時鐘回撥最多等一個間隔，冷卻中的請求在任何等待前就被擋下。假 opener 與測試帳冊預設不加間隔。POST 次數、unknown 與重試規則不變。新增 `docs/tasks/PLATFORM-CLUES-D98.md`。隔離完整 1547 passed；Gemini（`gemini-4-argon-high`）獨立審查第 1 輪指出鎖檔剛建立時會讓第一個請求白等、測試依賴未來的假時間（blocking，已修正：空鎖檔視為尚無請求、首次標記寫入 1 位元組、測試改用過去時間），第 2 輪 PASS。
 
 - **v1.45**（2026-11-02）：D97，依 Louis 決定調整 Gemini 額度處理。`quota.py` 新增 `window_usage()`，`estimate()` 改為窗口層級估計（`quota_window_estimate_v1`）；`budget_v3` → `budget_v4`，移除 Gemini 第 2 層每題 5% 上限與 `weekly_tier2_argon_breaker` 的新觸發，既有熔斷紀錄照舊生效；`manual_admission` 的週桶門檻同樣改用估計；`quota_policy_v3` → `quota_policy_v4`（新增 `window_estimate_multiplier`＝3、`window_min_calls`＝5，`tier2_per_question_cap` 改為估計上限與備用值）；`m2_report_v4` → `m2_report_v5`，`trusted_gemini_costs` 改為 `gemini_window_cost_estimate`，另輸出 `gemini_cost_evidence`。會改變 Gemini 准入與第 2 層的行為；模型、prompt、篩題、整合、送出與 local 模式不變。舊題集的政策雜湊不同，D92／D94 等舊題集不能再執行。隔離完整 1537 passed；Gemini（`gemini-4-argon-high`）獨立審查第 1 輪指出 current 讀數重複計數（blocking，已修正並補測試），第 2 輪 PASS；最新 M2 報告 `m2report_1793595697637_6ccfc68f` 為 14／14。
 
