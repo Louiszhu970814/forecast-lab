@@ -25,7 +25,7 @@ from flab.ledger import transaction, read_complete
 from flab.timeutil import parse_iso, to_iso, utc_now
 from poll_questions import latest_snapshots
 
-VERSION = "m2_report_v3"
+VERSION = "m2_report_v4"
 
 
 def readiness(acceptance_log=baseline.ACCEPTANCE_LOG, *, versions=None):
@@ -170,7 +170,6 @@ def build(root: Path, campaign: dict, *, gates: dict, now=None):
         "all_lines_and_layers_measured": all(r["attempts"] > 0 for r in costs.values()),
         "known_tokens_all_attempts": bool(source) and all(B.tokens(r) is not None for r in source),
         "trusted_gemini_costs": bool(trusted),
-        "all_cli_quota_exhaustion_observed": all(r["quota_exhaustion_observed"] for r in lines.values()),
         "single_pipeline_version": bool(source) and len({r.get("pipeline_version") for r in source}) == 1,
         "no_unknown_started_attempts": not unresolved,
         "no_preflight_waivers": bool(source) and not any(r.get("preflight_waivers") for r in source),
@@ -178,8 +177,15 @@ def build(root: Path, campaign: dict, *, gates: dict, now=None):
         "baseline_and_autoload_approved": bool(gates.get("baseline_approved_id")) and gates.get("autoload_passed") is True,
         "production_acceptance_current": len(gates.get("production_acceptance", {})) == 6 and all(
             r.get("ok") for r in gates.get("production_acceptance", {}).values())}
+    # D89: missing real exhaustion evidence stays unobserved, not a failed M2 gate.
+    # Collection/classification and all runtime safety/budget rules remain unchanged.
+    observed_players = [p for p in PLAYERS if lines[p]["quota_exhaustion_observed"]]
+    quota_evidence = {"policy": "passive_observation_v1", "decision": "D89", "blocks_m2": False,
+        "all_cli_quota_exhaustion_observed": len(observed_players) == len(PLAYERS),
+        "observed_players": observed_players, "unobserved_players": [p for p in PLAYERS if p not in observed_players]}
     return {"type": "m2_report", "report_id": new_id("m2report"), "version": VERSION, "generated_at": to_iso(now),
         "campaign_id": campaign["campaign_id"], "m2_complete": all(checks.values()), "checks": checks,
+        "quota_exhaustion_evidence": quota_evidence,
         "trusted_gemini_attempts": len(trusted),
         "undetermined_gemini_attempts": sum(r.get("player") == "gemini" and r["attempt_id"] not in trusted for r in source),
         "pending": [k for k, ok in checks.items() if not ok], "lines": lines, "costs": costs,
@@ -209,6 +215,7 @@ def main(argv=None):
     append_record(F.DATA / "m2_reports.jsonl", {"type": "m2_report_created", "report_id": report["report_id"],
         "path": str(destination), "m2_complete": report["m2_complete"], "at": to_iso(utc_now())})
     print(json.dumps({"path": str(destination), "m2_complete": report["m2_complete"], "pending": report.get("pending"),
+                      "quota_exhaustion_evidence": report.get("quota_exhaustion_evidence"),
                       "readiness": gates}, ensure_ascii=False))
     return 0
 

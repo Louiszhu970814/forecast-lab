@@ -1,5 +1,19 @@
 # D84 後需要 Louis 處理的事項
 
+## 2026-11-02 晨間更新：D89 已採用（本段為最新狀態）
+
+Louis 已選第一項 B，並明確表示額度不用刻意燒掉、還要開發其他專案。PLAN v1.37／`m2_report_v4` 已將 V5 改為被動蒐證：Claude 已觀察，GPT／Gemini 未觀察；未觀察不單獨阻擋 M2。模型核對、未知錯誤拒絕、退避／補跑及所有預算保護保持不變。Gemini 獨立審查 PASS；相關測試 108 passed，隔離完整 1404 passed。
+
+最新報告 `reports/m2report_1793579888231_71185368.json`：14 項門檻通過 13 項，**只剩 `trusted_gemini_costs`**；21 筆 Gemini 成本仍不確定。此報告讀既有帳冊，未再跑模型題目。
+
+Louis 表示已關閉其他 agy 工作；UTC 00:34:36、且本輪 Gemini 審查尚未啟動時，既有偵測仍為 `interactive=1`、`ide=7`（程序數，不是 7 個獨立工作）。依 D75，仍不能做可信歸因。需完全退出剩餘互動式 agy 與 Antigravity 桌面程序再量測；沒有擅自終止工作或回填成本，既有兩條第 2 層週期熔斷保持不變。
+
+平台詢問已獲 Louis 直接寄送授權，UTC 約 00:37 經 Metaculus 官網 Contact Us／Bug report 提交一次；使用持有人 PrudentAggregate 的既有登記信箱（官網自動填入），詢問 bot 311763 的 MC canonical option mapping／grant、私人留言 HTTP429 與 Retry-After、私人留言長度上限。表單先顯示載入、之後關閉，無錯誤／工單 ID；沒有獨立郵件送達回執，待官方回覆，勿因此重送。未使用協助者 Gmail，未寄任何憑證／真實題文／模型推理。官網瀏覽身分已恢復 bot。安全紀錄追加在 `data/platform_inquiries.jsonl`。
+
+模式仍 local，未新增預測或留言 POST、未啟用 launchd。下一個可獨立處理的技術工作是修復 Retry-After 保留與退避；既有 probe 已到兩次留言上限，不能再補第三次。
+
+以下保留夜間報告原文；其中「V5 尚未決定／詢問尚未寄出」已由本段取代。
+
 建立：GPT，2026-11-01T17:32Z。這是待決事項，不是核准紀錄；既有門檻繼續生效。當時固定 M2 仍在背景執行，V15 元件工具仍待獨立審查。本報告不要求中止已授權的量測。
 
 ## 1. V5 要維持前置門檻，還是改為被動蒐證

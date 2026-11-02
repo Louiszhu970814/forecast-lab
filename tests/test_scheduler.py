@@ -230,7 +230,9 @@ def test_twenty_question_report_is_not_real_acceptance(environment):
     assert report["checks"]["all_questions_finalized_and_commented"]
     assert not report["m2_complete"]
     assert "baseline_and_autoload_approved" in report["pending"]
-    assert "all_cli_quota_exhaustion_observed" in report["pending"]
+    assert "all_cli_quota_exhaustion_observed" not in report["pending"]
+    assert not report["quota_exhaustion_evidence"]["all_cli_quota_exhaustion_observed"]
+    assert set(report["quota_exhaustion_evidence"]["unobserved_players"]) == {"claude", "gemini", "gpt"}
     assert report["costs"]["claude.tier1"]["groups"]["all"]["tokens"]["total"] == 600
     assert report["costs"]["gemini.tier2"]["groups"]["all"]["argon_fraction"]["total"] == pytest.approx(.02)
     assert "probability" not in str(report) and "The verified evidence" not in str(report)
@@ -258,3 +260,68 @@ def test_midrun_config_change_stops_before_cli(environment, monkeypatch):
     result = obj.execute(job)
     assert result["outcome"] == "line_stopped" and "configuration changed" in result["reason"]
     assert not tracker["calls"]
+
+
+def _approved_report_gates():
+    # Synthetic report-policy fixture only; never production acceptance evidence.
+    return {"baseline_approved_id":"synthetic-approval","autoload_passed":True,
+        "production_acceptance":{f"{p}.tier{t}":{"ok":True} for p in ("claude","gemini","gpt") for t in (1,2)},
+        "acceptance_quota_error_players":[]}
+
+
+def _completed_report_campaign(environment):
+    obj,snaps,tracker,_=environment(count=20)
+    for snap in snaps.values():append_record(obj.root/"questions.jsonl",{"type":"question_snapshot",**snap})
+    obj.run()
+    append_record(obj.root/"campaign_safety.jsonl", {"campaign_id":obj.campaign["campaign_id"],"synthetic":True})
+    return obj,tracker
+
+
+def test_passive_v5_does_not_block_complete_report_or_change_ledgers(environment):
+    import m2_report
+    obj,tracker=_completed_report_campaign(environment)
+    before={p:p.read_bytes() for p in obj.root.glob("*.jsonl")};calls=list(tracker["calls"])
+    report=m2_report.build(obj.root,obj.campaign,gates=_approved_report_gates())
+    assert report["m2_complete"] and report["pending"]==[]
+    assert "all_cli_quota_exhaustion_observed" not in report["checks"]
+    evidence=report["quota_exhaustion_evidence"]
+    assert evidence["policy"]=="passive_observation_v1" and evidence["decision"]=="D89"
+    assert evidence["blocks_m2"] is False and evidence["all_cli_quota_exhaustion_observed"] is False
+    assert not evidence["observed_players"] and len(evidence["unobserved_players"])==3
+    assert all(not line["quota_exhaustion_observed"] for line in report["lines"].values())
+    assert {p:p.read_bytes() for p in obj.root.glob("*.jsonl")}==before and tracker["calls"]==calls
+
+
+@pytest.mark.parametrize("gap",["trusted_gemini_costs","production_acceptance_current","no_unknown_started_attempts"])
+def test_passive_v5_preserves_other_blocking_gates(environment,monkeypatch,gap):
+    import m2_report
+    obj,_=_completed_report_campaign(environment);gates=_approved_report_gates()
+    if gap=="trusted_gemini_costs":monkeypatch.setattr(m2_report.B.Budget,"_drop",lambda *args:None)
+    elif gap=="production_acceptance_current":gates["production_acceptance"]["gpt.tier2"]["ok"]=False
+    else:append_record(obj.root/"forecast_attempt_starts.jsonl",{"attempt_id":"unknown-start","question_id":100,"player":"gpt","tier":2})
+    report=m2_report.build(obj.root,obj.campaign,gates=gates)
+    assert not report["m2_complete"] and gap in report["pending"]
+    assert not report["quota_exhaustion_evidence"]["blocks_m2"]
+
+
+@pytest.mark.parametrize("observed",[[],["claude"],["claude","gemini","gpt"]])
+def test_passive_v5_reports_observed_and_missing_without_inventing_evidence(tmp_path,observed):
+    import m2_report
+    report=m2_report.build(tmp_path,{"campaign_id":"v5-synthetic","questions":[{"question_id":100}]},
+        gates={"acceptance_quota_error_players":observed})
+    evidence=report["quota_exhaustion_evidence"]
+    assert set(evidence["observed_players"])==set(observed)
+    assert set(evidence["unobserved_players"])=={"claude","gemini","gpt"}-set(observed)
+    assert evidence["all_cli_quota_exhaustion_observed"]==(len(observed)==3)
+    assert all(line["quota_exhaustion_observed"]==(p in observed) for p,line in report["lines"].items())
+
+
+def test_passive_v5_keeps_runtime_quota_errors_as_observed_evidence(tmp_path):
+    import m2_report
+    append_record(tmp_path/"forecasts.jsonl",{"type":"forecast_attempt","attempt_id":"quota-failure",
+        "question_id":100,"question_snapshot_id":"qs100","prev_attempt_id":None,"player":"gemini","tier":1,
+        "validation_status":"invalid","attempt_kind":"initial","error_type":"quota_exhausted",
+        "started_at_utc":to_iso(NOW),"finished_at_utc":to_iso(NOW)})
+    report=m2_report.build(tmp_path,{"campaign_id":"v5-synthetic","questions":[{"question_id":100}]},gates={})
+    assert report["quota_exhaustion_evidence"]["observed_players"]==["gemini"]
+    assert report["lines"]["gemini"]["errors"]=={"quota_exhausted":1}
