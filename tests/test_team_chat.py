@@ -66,7 +66,8 @@ def test_decision_replay_and_old_message_does_not_execute(project):
     bot.handle(message(3,'決定 M3-1 B'))
     assert len([r for r in b.events() if r['type']=='decision_accepted'])==1
     assert b.decisions()['M3-1']['status']=='waiting_coordinator'
-    with pytest.raises(TaskError): b.choose(bot.dev_owner,'update:4','M3-1','A')
+    b.choose(bot.dev_owner,'update:4','M3-1','A')
+    assert b.decisions()['M3-1']['choice']=='A'
     assert '待主持人接手' in b.snapshot()
 
 
@@ -224,3 +225,207 @@ def test_live_service_migrates_legacy_schedule_and_leaves_old_tasks_idle(project
     assert bot.state.schedule.mode=='off'
     assert bot.tasks.tasks()[task['task_id']]['status']=='queued'
     bot.deliver();assert not api.sent
+
+
+def test_amend_queued_action_revokes_old_selection_and_replay(project):
+    b=board(project);spec=script(project);ask(b,actions={'B':spec})
+    b.choose('o','1','M3-1','B')
+    b.choose('o','2','M3-1','A')
+    assert b.choose('o','1','M3-1','B')['choice']=='A'
+    assert b.decisions()['M3-1']['revision']==2
+    w=TeamWorker(project,'o',answer=lambda *a:None,action=lambda *a:pytest.fail('revoked'),now=lambda:NOW)
+    assert not w.step()
+    b.choose('o','3','M3-1','B')
+    calls=[];w.action=lambda *a:calls.append(1)
+    assert w.step() and calls==[1]
+    assert not w.step()
+    with pytest.raises(TaskError,match='已完成'): b.choose('o','4','M3-1','A')
+
+
+@pytest.mark.parametrize('status,expected', [('closed','已結案'),('running','已開始'),
+    ('coordinator_running','已開始'),('succeeded','已完成'),('failed','執行失敗'),('unknown','結果不明')])
+def test_decision_rejection_identifies_exact_state(project,status,expected):
+    b=board(project);ask(b)
+    b.record('action_finished',decision_id='M3-1',status=status)
+    with pytest.raises(TaskError,match=expected): b.choose('o','1','M3-1','B')
+
+
+def test_missing_expired_and_cross_owner_decisions(project):
+    b=board(project);ask(b)
+    with pytest.raises(TaskError,match='不存在'): b.choose('o','1','missing','A')
+    b.choose('o','2','M3-1','A')
+    with pytest.raises(TaskError,match='其他配對'): b.choose('different','3','M3-1','B')
+    late=Board(project,now=lambda:NOW+timedelta(hours=2))
+    with pytest.raises(TaskError,match='已到期'): late.choose('o','3','M3-1','B')
+    assert '可選／未開工可修改' not in late.decision_text()
+    with pytest.raises(TaskError,match='已到期'): late.claim('M3-1',coordinator='Claude',revision=1)
+
+
+def test_atomic_claim_prevents_amendment_and_rejects_stale_revision(project):
+    b=board(project);ask(b);b.choose('o','1','M3-1','A');b.choose('o','2','M3-1','B')
+    with pytest.raises(TaskError,match='已修改'): b.claim('M3-1',coordinator='Claude',revision=1)
+    b.claim('M3-1',coordinator='Claude',revision=2)
+    with pytest.raises(TaskError,match='已開始'): b.choose('o','3','M3-1','A')
+    text=b.decision_text();assert '實際接手者：Claude' in text and '可選／未開工可修改' not in text
+    # Telegram worker restart cannot claim knowledge of a separate desktop agent.
+    w=TeamWorker(project,'o',answer=lambda *a:None,action=lambda *a:None,now=lambda:NOW)
+    w.recover();assert b.decisions()['M3-1']['status']=='coordinator_running'
+    b.close('M3-1','完成，來源為離線測試');assert b.decisions()['M3-1']['status']=='closed'
+
+
+def test_condition_releases_only_selected_option_and_notifies_once(project):
+    b=board(project);ask(b)
+    b.handoff('M3-1','B',coordinator='Claude',next_step='規劃驗收',condition='D99')
+    bot=service(project);bot.handle(message(1,'決定 M3-1 B'))
+    assert b.decisions()['M3-1']['status']=='waiting_condition'
+    with pytest.raises(TaskError): b.claim('M3-1',coordinator='Claude',revision=1)
+    b.complete_milestone('D99','審查通過',source='synthetic evidence')
+    b.refresh_conditions();b.complete_milestone('D99','審查通過',source='same evidence')
+    assert b.decisions()['M3-1']['status']=='waiting_coordinator'
+    assert sum(r['type']=='condition_ready' for r in b.events())==1
+    bot.enqueue_team_notifications();bot.enqueue_team_notifications();bot.deliver()
+    assert sum('條件 D99 已達成' in text for _,text in bot.api.sent)==1
+    # Notifications do not replay after restart.
+    restarted=service(project,bot.api);restarted.enqueue_team_notifications();restarted.deliver()
+    assert sum('條件 D99 已達成' in text for _,text in bot.api.sent)==1
+
+
+def test_condition_can_gate_reviewed_action_and_amendment_cancels_it(project):
+    b=board(project);spec=script(project);ask(b,actions={'B':spec})
+    b.handoff('M3-1','B',coordinator='Claude',next_step='離線檢查',condition='D99')
+    b.choose('o','1','M3-1','B')
+    w=TeamWorker(project,'o',answer=lambda *a:None,action=lambda *a:pytest.fail('not ready'),now=lambda:NOW)
+    assert not w.step()
+    b.choose('o','2','M3-1','A');b.complete_milestone('D99','done',source='tests')
+    assert not w.step() and b.decisions()['M3-1']['choice']=='A'
+    b.choose('o','3','M3-1','B');calls=[];w.action=lambda *a:calls.append(1)
+    assert w.step() and calls==[1]
+
+
+def test_milestone_already_done_and_legacy_choice_are_supported(project):
+    b=board(project);ask(b)
+    # A v1 acceptance has no revision field, but it is still amendable and claimable.
+    b.record('decision_accepted',owner='o',key='1',decision_id='M3-1',choice='B',status='waiting_coordinator',action=None)
+    b.complete_milestone('D99','done',source='tests')
+    b.handoff('M3-1','B',coordinator='Claude',next_step='規劃',condition='D99')
+    assert b.decisions()['M3-1']['revision']==1
+    assert '條件 D99 已達成' in b.decision_text()
+    b.choose('o','2','M3-1','A');assert b.decisions()['M3-1']['revision']==2
+
+
+def test_health_and_start_estimates_are_honest(project):
+    b=board(project);spec=script(project);ask(b,actions={'B':spec});b.choose('o','1','M3-1','B')
+    assert '開始時間無法估計' in b.decision_text()
+    b.health(worker_alive=True);b.health(worker_alive=True)
+    assert sum(r['type']=='service_health' for r in b.events())==1
+    assert '約 1 秒' in b.decision_text()
+    late=Board(project,now=lambda:NOW+timedelta(seconds=91))
+    assert '心跳過期' in late.snapshot() and '開始時間無法估計' in late.snapshot()
+    b.health(worker_alive=False);assert '開始時間無法估計' in b.snapshot()
+
+
+def test_manual_receipt_gives_owner_next_step_and_no_duplicate_approval(project):
+    bot=service(project);ask(bot.board)
+    bot.board.handoff('M3-1','A',coordinator='Claude',next_step='登記 130/130 覆蓋率情境',blocker='未登記離線程式')
+    bot.handle(message(1,'決定 M3-1 A'));bot.deliver()
+    text='\n'.join(t for _,t in bot.api.sent)
+    for expected in ('Claude','開始時間未定','130/130','無須重複核准','在電腦開啟','決定 M3-1 B'):
+        assert expected in text
+
+
+def test_question_uses_latest_decisions_and_discards_answer_if_state_changes(project):
+    bot=service(project);b=bot.board;ask(b)
+    b.publish('尚需 Louis 核准數值',source='old snapshot')
+    b.choose(bot.dev_owner,'choice','M3-1','A');bot.handle(message(1,'Gemini，還需要核准嗎？'))
+    seen=[]
+    def answer(p,player,q,context,halt):
+        seen.append(context)
+        assert '已選 A' in context['facts'] and '無須重複核准' in context['facts']
+        b.choose(bot.dev_owner,'newchoice','M3-1','B')
+        return 'STALE_ANSWER'
+    w=TeamWorker(project,bot.dev_owner,answer=answer,action=lambda *a:None,now=lambda:NOW)
+    assert w.step();bot.enqueue_answers();bot.deliver()
+    text='\n'.join(t for _,t in bot.api.sent)
+    assert 'STALE_ANSWER' not in text and '已選 B' in text and '資料截點' in text
+    assert seen[0]['as_of']==to_iso(NOW)
+
+
+def test_notifications_are_paired_and_do_not_replay_old_v1_starts(project):
+    bot=service(project);b=bot.board;ask(b)
+    b.choose('other','1','M3-1','A')
+    b.claim('M3-1',coordinator='Claude',revision=1)
+    b.notify('other','private notice',source='test')
+    b.notify(bot.dev_owner,'current notice',source='test')
+    bot.enqueue_team_notifications();bot.deliver()
+    text='\n'.join(t for _,t in bot.api.sent)
+    assert 'current notice' in text and 'private notice' not in text and '主持人已接手' not in text
+
+
+def test_long_snapshot_is_chunked_without_losing_options(project):
+    bot=service(project)
+    for i in range(14):
+        ask(bot.board,name=f'LONG-{i}')
+    bot.board.publish('😀'*2400,source='synthetic')
+    bot.handle(message(1,'進度'));bot.deliver()
+    text=''.join(t for _,t in bot.api.sent)
+    assert '決定 LONG-13 B' in text and '😀'*2400 in text
+    assert all(len(t.encode('utf-16-le'))//2<=3500 for _,t in bot.api.sent)
+    assert bot.state.offset==2
+
+
+def test_worker_start_and_phone_change_race_has_only_one_winner(project):
+    b=board(project);spec=script(project);ask(b,actions={'B':spec});b.choose('o','1','M3-1','B')
+    barrier=threading.Barrier(2);calls=[];errors=[]
+    w=TeamWorker(project,'o',answer=lambda *a:None,action=lambda *a:calls.append('B'),now=lambda:NOW)
+    def start():
+        barrier.wait();w.step()
+    def change():
+        barrier.wait()
+        try:b.choose('o','2','M3-1','A')
+        except TaskError:errors.append('started')
+    threads=[threading.Thread(target=start),threading.Thread(target=change)]
+    for t in threads:t.start()
+    for t in threads:t.join(2);assert not t.is_alive()
+    if b.decisions()['M3-1']['choice']=='A':assert not calls and not errors
+    else:assert calls==['B'] and errors==['started']
+
+
+def test_publish_condition_and_action_atomically(project):
+    b=board(project);spec=script(project)
+    b.ask('M3-1','先等檢查',{'A':'稍後','B':'離線執行'},expires_at=to_iso(NOW+timedelta(hours=1)),
+        actions={'B':spec},handoffs={'B':{'coordinator':'Claude','next_step':'執行檢查','condition':'D99'}})
+    b.choose('o','1','M3-1','B')
+    assert b.decisions()['M3-1']['status']=='waiting_condition'
+    with pytest.raises(TaskError):
+        b.ask('M3-2','錯誤映射',{'A':'a','B':'b'},expires_at=to_iso(NOW+timedelta(hours=1)),
+            handoffs={'C':{'coordinator':'Claude','next_step':'x'}})
+
+
+def test_handoff_for_unselected_option_or_before_acceptance_does_not_notify(project):
+    bot=service(project);b=bot.board;ask(b)
+    b.handoff('M3-1','B',coordinator='Claude',next_step='B next')
+    bot.handle(message(1,'決定 M3-1 A'))
+    bot.enqueue_team_notifications();bot.deliver()
+    b.handoff('M3-1','B',coordinator='Claude',next_step='B revised next')
+    bot.enqueue_team_notifications();bot.deliver()
+    assert not any('決策執行更新' in text for _,text in bot.api.sent)
+    # Updating the currently selected option still produces a notification.
+    b.handoff('M3-1','A',coordinator='Claude',next_step='A next')
+    bot.enqueue_team_notifications();bot.deliver()
+    assert sum('決策執行更新' in text for _,text in bot.api.sent)==1
+    # A new acceptance supersedes an undelivered old handoff.
+    b.handoff('M3-1','A',coordinator='Claude',next_step='obsolete')
+    bot.handle(message(2,'決定 M3-1 B'));bot.enqueue_team_notifications();bot.deliver()
+    assert sum('決策執行更新' in text for _,text in bot.api.sent)==1
+
+
+def test_expired_condition_never_releases_or_queues_work(project):
+    b=board(project);spec=script(project);ask(b,actions={'B':spec})
+    b.handoff('M3-1','B',coordinator='Claude',next_step='run',condition='D99')
+    b.choose('o','1','M3-1','B')
+    late=Board(project,now=lambda:NOW+timedelta(hours=2))
+    late.complete_milestone('D99','done late',source='test')
+    assert late.decisions()['M3-1']['status']=='waiting_condition'
+    assert not any(r['type']=='condition_ready' for r in late.events())
+    w=TeamWorker(project,'o',answer=lambda *a:None,action=lambda *a:pytest.fail('expired'),now=late.now)
+    assert not w.step()

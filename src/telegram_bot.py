@@ -33,7 +33,7 @@ from flab.timeutil import parse_iso, to_iso, utc_now
 from flab.dev_tasks import DEV_HELP, TaskError, TaskStore, parse_dev_command
 from flab.team_chat import Board, TeamWorker, LABELS, HELP as TEAM_HELP, parse_team
 
-VERSION = "telegram_ops_v3"
+VERSION = "telegram_ops_v4"
 PROJECT = Path(__file__).resolve().parents[1]
 TAIPEI = ZoneInfo("Asia/Taipei")
 LABEL = "org.forecast-lab.telegram"
@@ -297,7 +297,7 @@ class Service:
                 if kind == "report":
                     reply = build_report(self.project, days=value, now=self.now())
                 elif kind == "status":
-                    reply = status_text(self.project, now=self.now())
+                    reply = self.board.health_text() + "\n" + status_text(self.project, now=self.now())
                 elif kind == "schedule":
                     reply = self.state.schedule.label()
                 elif kind == "set_schedule":
@@ -330,23 +330,60 @@ class Service:
                 reply = f"[{LABELS[q['player']]}] 已收到，會依共用專案紀錄回答。"
             elif kind == "decision":
                 d = self.board.choose(self.dev_owner, f"update:{uid}", *value)
-                state = "續作已排隊；傳「待決事項」查看是否開始。" if d["status"] == "queued" else "傳「待決事項」查看接手與執行狀態。"
-                reply = f"決定已收到：{d['decision_id']} 選 {d['choice']}。{state}"
+                reply = "決定已收到（同一訊息重送不會重複執行）。\n" + self.board.describe_decision(d)
             elif kind == "decision_help":
                 reply = "請先查「待決事項」，再傳「決定 <編號> <選項>」，例如「決定 M3-1 B」。"
             else:
                 reply = TEAM_HELP
         except TaskError as exc:
             reply = str(exc)
+        self.enqueue_text(f"update:{uid}", reply, update_id=uid)
+
+    def enqueue_text(self, key, text, **fields):
+        # Keep every option and timestamp; Telegram's limit is UTF-16 units.
+        # Advance the command cursor only after all chunks have been journaled.
         from flab.dev_tasks import public_text
-        self.record("outbox", key=f"update:{uid}", update_id=uid, text=public_text(reply, limit=3900))
+        text = public_text(text, limit=max(1, len(text) * 2))
+        chunks = []
+        while text:
+            part = public_text(text, limit=3500)
+            chunks.append(part)
+            text = text[len(part):]
+        for i, part in enumerate(chunks):
+            last = i == len(chunks) - 1
+            part_key = key if last else f"{key}:part:{i}"
+            if part_key not in self.state.messages:
+                self.record("outbox", key=part_key, text=part, **(fields if last else {}))
 
     def enqueue_answers(self):
         for q in self.board.questions().values():
             key = "answer:" + q["request_id"]
             if q["owner"] != self.dev_owner or q["status"] != "finished" or key in self.state.messages:
                 continue
-            self.record("outbox", key=key, text=f"[{LABELS[q['player']]} · {q['model']}]\n{q['answer']}")
+            as_of = q.get("context_at", q["at"])
+            answer = q["answer"]
+            if q.get("outcome") == "answered" and q.get("state_token") != self.board.state_token():
+                answer = "回答期間專案紀錄已更新，舊答案不送出。以下為最新狀態（未再次呼叫模型）：\n" + self.board.snapshot()
+            self.enqueue_text(key, f"[{LABELS[q['player']]} · {q['model']}]\n模型資料截點：{as_of} UTC\n{answer}")
+
+    def enqueue_team_notifications(self):
+        latest = {}
+        for r in self.board.events():
+            if r["type"] == "notice" and r.get("owner") == self.dev_owner:
+                self.enqueue_text("team_notice:" + r["event_id"], f"專案通知 {r['at']} UTC\n依據：{r['source']}\n{r['summary']}")
+            elif r.get("version") == "team_chat_v2" and r["type"] in {
+                    "decision_accepted", "decision_handoff", "condition_ready", "coordinator_started", "action_started", "action_finished", "decision_closed"}:
+                if r["type"] == "decision_handoff" and "status" not in r:
+                    continue
+                latest[r["decision_id"]] = r
+        decisions = self.board.decisions()
+        for did, r in latest.items():
+            d = decisions[did]
+            if r["type"] == "decision_accepted" or d.get("owner") != self.dev_owner:
+                continue
+            key = "team_state:" + r["event_id"]
+            if key not in self.state.messages:
+                self.enqueue_text(key, "決策執行更新\n" + self.board.describe_decision(d))
 
     def dev_command(self, kind, value, key):
         if kind == "dev_help":
@@ -425,21 +462,27 @@ class Service:
         # Explicit migration: retain history but no old task worker or periodic pushes.
         self.record("workgroup_mode", key="workgroup_mode", schedule=vars(Schedule()))
         worker = TeamWorker(self.project, self.dev_owner)
+        self.worker = worker
         worker.start()
         try:
             self.poll_loop()
         finally:
             worker.stop()
             worker.join(timeout=75)
+            self.board.health(worker_alive=False)
 
     def poll_loop(self):
         backoff = 2
         while True:
             try:
+                worker = getattr(self, "worker", None)
+                self.board.health(worker_alive=bool(worker and worker.is_alive()))
+                self.board.refresh_conditions()
                 # Drain queued commands (especially /pause) before scheduled deliveries.
                 for update in self.api.updates(self.state.offset, timeout=3):
                     self.handle(update)
                 self.enqueue_answers()
+                self.enqueue_team_notifications()
                 self.deliver()
                 backoff = 2
             except TelegramError as exc:

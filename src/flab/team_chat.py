@@ -17,7 +17,8 @@ from flab.jsonl import append_record
 from flab.ledger import read_complete, transaction
 from flab.timeutil import utc_now, to_iso, parse_iso
 
-VERSION = "team_chat_v1"
+VERSION = "team_chat_v2"
+UNSTARTED = {"open", "queued", "waiting_coordinator", "waiting_condition"}
 MODELS = {"gpt": "gpt-6-sol", "claude": "claude-sonnet-5-5", "gemini": "gemini-3.8-flash-low"}
 LABELS = {"gpt": "GPT", "claude": "Claude", "gemini": "Gemini"}
 HELP = """Forecast Lab 工作對話
@@ -30,8 +31,10 @@ HELP = """Forecast Lab 工作對話
 看報告／週報：營運計數；狀態：服務設定
 
 進度由主持人更新，附資料時間；手機不直接讀取桌面對話。
-已登記續作的決定可啟動本機工作；其他決定顯示待主持人接手。
-不定期推播，由你主動查詢。電腦須保持開機連網。"""
+選項送出即核准該選項範圍；未開始且未到期可用同一指令修改。
+只有已登記的離線程式會自動執行；TG 點名模型只問答，不會喚醒桌面 agent。
+未登記續作須在電腦啟動指定主持人；回覆會列接手者、阻塞與下一步。
+決策接手／結果／條件達成會通知；一般進度由你主動查詢。電腦須保持開機連網。"""
 
 
 def checked_text(text, limit=3500):
@@ -82,17 +85,105 @@ class Board:
             self.events()
             self.record("progress", summary=summary, source=source)
 
-    def decisions(self):
+    def decisions(self, events=None):
         result = {}
-        for r in self.events():
+        for r in self.events() if events is None else events:
             if r["type"] == "decision_open":
-                result[r["decision_id"]] = {**r, "status": "open"}
-            elif r["type"] in {"decision_accepted", "action_started", "action_finished", "decision_closed"}:
+                result[r["decision_id"]] = {**r, "status": "open", "handoffs": dict(r.get("handoffs", {})), "revision": 0}
+            elif r["type"] == "decision_handoff" and r["decision_id"] in result:
+                d = result[r["decision_id"]]
+                d["handoffs"][r["option"]] = r["handoff"]
+                d["at"] = r["at"]
+                if "status" in r:
+                    d["status"] = r["status"]
+            elif r["type"] in {"decision_accepted", "action_started", "action_finished", "decision_closed",
+                               "condition_ready", "coordinator_started"}:
                 if r["decision_id"] in result:
+                    if r["type"] == "decision_accepted":
+                        result[r["decision_id"]]["revision"] += 1
                     result[r["decision_id"]].update(r)
         return result
 
-    def ask(self, decision_id, question, options, *, expires_at, actions=None):
+    def milestones(self):
+        return {r["milestone_id"]: r for r in self.events() if r["type"] == "milestone_completed"}
+
+    def ready_status(self, d, choice):
+        condition = d["handoffs"].get(choice, {}).get("condition")
+        if condition and condition not in self.milestones():
+            return "waiting_condition"
+        return "queued" if d["actions"].get(choice) else "waiting_coordinator"
+
+    def handoff_spec(self, *, coordinator, next_step, blocker="", condition=None):
+        spec = {"coordinator": checked_text(coordinator, 80), "next_step": checked_text(next_step, 500),
+                "blocker": checked_text(blocker, 500) if blocker else "", "condition": condition}
+        if condition is not None and not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", condition):
+            raise TaskError("條件須為已登記或將登記的里程碑編號。")
+        return spec
+
+    def handoff(self, decision_id, choice, **handoff):
+        """Local, factual routing metadata; never changes options or registers code."""
+        spec = self.handoff_spec(**handoff)
+        with transaction(self.root):
+            d = self.decisions().get(decision_id)
+            if not d or d["status"] not in UNSTARTED or choice not in d["options"]:
+                raise TaskError("只能補充未開始決策的既有選項交接。")
+            d["handoffs"][choice] = spec
+            state = {"status": self.ready_status(d, choice)} if d.get("choice") == choice else {}
+            self.record("decision_handoff", decision_id=decision_id, option=choice, handoff=spec, **state)
+
+    def complete_milestone(self, milestone_id, summary, *, source):
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", milestone_id):
+            raise TaskError("里程碑編號不合法。")
+        summary, source = checked_text(summary, 1000), checked_text(source, 500)
+        with transaction(self.root):
+            if milestone_id not in self.milestones():
+                self.record("milestone_completed", milestone_id=milestone_id, summary=summary, source=source)
+        self.refresh_conditions()
+
+    def refresh_conditions(self):
+        with transaction(self.root):
+            for d in self.decisions().values():
+                if d["status"] == "waiting_condition" and parse_iso(d["expires_at"]) > self.now():
+                    status = self.ready_status(d, d["choice"])
+                    if status != "waiting_condition":
+                        self.record("condition_ready", decision_id=d["decision_id"], status=status,
+                                    condition=d["handoffs"][d["choice"]]["condition"])
+
+    def claim(self, decision_id, *, coordinator, revision):
+        coordinator = checked_text(coordinator, 80)
+        with transaction(self.root):
+            d = self.decisions().get(decision_id)
+            if not d or d["status"] != "waiting_coordinator":
+                raise TaskError("此決策不是待人工接手；請先查最新狀態。")
+            if d["revision"] != revision:
+                raise TaskError("選項已修改；請重讀決策及版本再接手。")
+            if parse_iso(d["expires_at"]) <= self.now():
+                raise TaskError("決策已到期，不能開始；請發布新決策。")
+            self.record("coordinator_started", decision_id=decision_id, status="coordinator_running",
+                        executor=coordinator, started_at=to_iso(self.now()))
+
+    def notify(self, owner, summary, *, source):
+        summary, source = checked_text(summary, 3000), checked_text(source, 500)
+        with transaction(self.root):
+            self.events()
+            self.record("notice", owner=owner, summary=summary, source=source)
+
+    def health(self, *, worker_alive):
+        with transaction(self.root):
+            latest = next((r for r in reversed(self.events()) if r["type"] == "service_health"), None)
+            if not latest or latest["worker_alive"] != worker_alive or (self.now() - parse_iso(latest["at"])).total_seconds() >= 30:
+                self.record("service_health", worker_alive=worker_alive)
+
+    def health_text(self, events=None):
+        events = self.events() if events is None else events
+        latest = next((r for r in reversed(events) if r["type"] == "service_health"), None)
+        if not latest:
+            return "TG 執行器：尚無健康紀錄，無法確認自動續作可用。"
+        age = (self.now() - parse_iso(latest["at"])).total_seconds()
+        status = "在線" if 0 <= age <= 90 and latest["worker_alive"] else "離線或心跳過期；請在電腦檢查／重啟 TG 服務"
+        return f"TG 執行器：{status}（最後檢查 {latest['at']}）。這不是桌面主持人的在線證據。"
+
+    def ask(self, decision_id, question, options, *, expires_at, actions=None, handoffs=None):
         if not re.fullmatch(r"[A-Za-z0-9_-]{1,40}", decision_id):
             raise TaskError("決策編號不合法。")
         question = checked_text(question, limit=1200)
@@ -110,11 +201,15 @@ class Board:
             raise TaskError("續作必須對應既有選項。")
         # Store the reviewed script digest in the immutable decision itself.
         prepared = {key: self.action_spec(spec) for key, spec in actions.items()}
+        handoffs = handoffs or {}
+        if set(handoffs) - set(choices):
+            raise TaskError("交接必須對應既有選項。")
+        prepared_handoffs = {key: self.handoff_spec(**spec) for key, spec in handoffs.items()}
         with transaction(self.root):
             if decision_id in self.decisions():
                 raise TaskError("決策編號不可重用；修訂請使用新編號。")
             self.record("decision_open", decision_id=decision_id, question=question,
-                options=choices, actions=prepared, expires_at=expires_at)
+                options=choices, actions=prepared, handoffs=prepared_handoffs, expires_at=expires_at)
 
     def action_spec(self, spec):
         if not isinstance(spec, dict) or set(spec) != {"script", "sha256", "timeout"}:
@@ -137,53 +232,102 @@ class Board:
                 if r["type"] == "decision_accepted" and r.get("owner") == owner and r.get("key") == key:
                     return self.decisions()[r["decision_id"]]
             d = self.decisions().get(decision_id)
-            if not d or d["status"] != "open" or parse_iso(d["expires_at"]) <= self.now():
-                raise TaskError("此決策不存在、已處理或已到期；請查「待決事項」。")
+            if not d:
+                raise TaskError("此決策編號不存在；請查「待決事項」。")
+            if d["status"] == "closed":
+                raise TaskError("此決策已結案，不能修改；請主持人發布新決策。")
+            if d["status"] in {"running", "coordinator_running"}:
+                raise TaskError("此決策已開始執行，不能修改選項；請聯絡接手者。")
+            if d["status"] not in UNSTARTED:
+                label = {"succeeded": "已完成", "failed": "執行失敗", "unknown": "執行結果不明"}.get(d["status"], "狀態不明")
+                raise TaskError(f"此決策{label}，不能修改或重跑；請主持人查核。")
+            if parse_iso(d["expires_at"]) <= self.now():
+                raise TaskError("此決策已到期；未開始也不能新增核准，請主持人發布新決策。")
+            if d.get("owner") not in {None, owner}:
+                raise TaskError("此決策由其他配對帳號選定，不能修改。")
             if choice not in d["options"]:
                 raise TaskError("選項不在待決清單，未記錄決定。")
             action = d["actions"].get(choice)
             if action:
                 self.action_spec(action)
             self.record("decision_accepted", owner=owner, key=key, decision_id=decision_id,
-                choice=choice, status="queued" if action else "waiting_coordinator", action=action)
+                choice=choice, status=self.ready_status(d, choice), action=action,
+                revision=d["revision"] + 1, accepted_at=to_iso(self.now()))
             return self.decisions()[decision_id]
 
     def close(self, decision_id, summary):
         with transaction(self.root):
             d = self.decisions().get(decision_id)
-            if not d or d["status"] in {"running", "queued"}:
+            if not d or d["status"] in {"running", "queued", "closed"}:
                 raise TaskError("執行中／排隊續作不可直接關閉，或決策不存在。")
             self.record("decision_closed", decision_id=decision_id, status="closed", summary=checked_text(summary))
 
-    def decision_text(self):
-        rows = list(self.decisions().values())[-12:]
-        out = ["待決與續作狀態"]
+    def describe_decision(self, d):
         labels = {"open": "等你決定", "queued": "決定已收到／續作排隊", "running": "工作已開始",
             "waiting_coordinator": "決定已收到／待主持人接手", "succeeded": "續作完成",
-            "failed": "續作失敗，待檢查", "unknown": "執行結果不明，不會自動重跑", "closed": "已結案"}
-        for d in rows:
-            status = labels.get(d["status"], "狀態待確認")
-            if d["status"] == "open" and parse_iso(d["expires_at"]) <= self.now():
-                status = "已到期"
-            out.append(f"{d['decision_id']}：{status}\n{d['question']}")
-            if status == "等你決定":
-                out += [f"{k}：{v} → 決定 {d['decision_id']} {k}" for k,v in d["options"].items()]
-            elif d.get("choice"):
-                out.append(f"已選 {d['choice']}：{d['options'][d['choice']]}")
+            "failed": "續作失敗，待檢查", "unknown": "執行結果不明，不會自動重跑", "closed": "已結案",
+            "waiting_condition": "決定已收到／等待條件", "coordinator_running": "主持人已接手"}
+        expired = parse_iso(d["expires_at"]) <= self.now()
+        status = "已到期／不能開始或修改" if expired and d["status"] in UNSTARTED else labels.get(d["status"], "狀態待確認")
+        out = [f"{d['decision_id']}：{status}（版本 {d['revision']}；更新 {d['at']}）"]
+        if d["status"] == "closed":
+            out.append(d.get("summary", ""))
+            return "\n".join(out)
+        out.append(d["question"])
+        if d.get("choice"):
+            out.append(f"已選 {d['choice']}：{d['options'][d['choice']]}\n此選項範圍已核准，無須重複核准；不擴大到其他工作。")
+            spec = d["handoffs"].get(d["choice"], {})
+            if d["status"] in UNSTARTED and not expired:
+                if d["status"] == "queued":
+                    health = self.health_text()
+                    estimate = "預計前項工作結束後下一輪檢查（約 1 秒）開始；以開始通知為準。" if health.startswith("TG 執行器：在線") else "尚無可用執行器證據，開始時間無法估計；請在電腦檢查／重啟 TG 服務。"
+                    out.append("接手者：TG TeamWorker（已登記離線程式）。" + estimate + health)
+                elif d["status"] == "waiting_condition":
+                    out.append(f"接手負責人：{spec.get('coordinator', 'Claude')}；尚無接手登記。條件 {spec['condition']} 未登記完成，開始時間未定；主持人登記條件完成後會自動通知。")
+                else:
+                    out.append(f"接手負責人：{spec.get('coordinator', 'Claude（PLAN D95）')}；尚無接手登記。沒有登記自動續作，也沒有桌面 agent 喚醒機制，開始時間未定。")
+                    out.append(f"需要你做：在電腦開啟該主持人，請它查 project_control.py status 並接手 {d['decision_id']}；在 TG 點名只會問答，不會開工。")
+                if spec.get("condition") and d["status"] != "waiting_condition":
+                    out.append(f"條件 {spec['condition']} 已達成。")
+                if spec.get("blocker"):
+                    out.append("阻塞：" + spec["blocker"])
+                if spec.get("next_step"):
+                    out.append("下一步：" + spec["next_step"])
+            elif d["status"] == "coordinator_running":
+                out.append(f"實際接手者：{d['executor']}；開始 {d['started_at']}。此為接手紀錄，不是持續在線心跳。")
+            elif d["status"] == "failed":
+                out.append(d.get("reason", "離線續作未成功；請主持人在電腦檢查，未自動重跑。"))
+        if d["status"] in UNSTARTED and not expired:
+            out.append("可選／未開工可修改（以開始交易先後為準）：")
+            out += [f"{k}：{v} → 決定 {d['decision_id']} {k}" for k,v in d["options"].items()]
+        return "\n".join(out)
+
+    def decision_text(self, events=None):
+        rows = list(self.decisions(events).values())
+        out = [f"待決與續作狀態（查詢 {to_iso(self.now())} UTC；最新帳冊）"]
+        # Active decisions must never disappear behind historical closures.
+        rows = [d for d in rows if d["status"] != "closed"] + [d for d in rows if d["status"] == "closed"][-3:]
+        out += [self.describe_decision(d) for d in rows]
         if not rows:
             out.append("目前沒有主持人登記的待決事項。")
-        return public_text("\n".join(out), limit=3000)
+        return "\n\n".join(out)
 
     def snapshot(self):
-        latest = next((r for r in reversed(self.events()) if r["type"] == "progress"), None)
+        events = self.events()
+        latest = next((r for r in reversed(events) if r["type"] == "progress"), None)
         if not latest:
             head = "尚無主持人發布的專案進度；無法確認 M2／M3 完成情況。"
         else:
             age = (self.now() - parse_iso(latest["at"])).total_seconds()
-            head = f"進度更新：{latest['at']}（UTC）\n依據：{latest['source']}\n{latest['summary']}"
+            head = f"主持人進度更新：{latest['at']}（UTC）\n依據：{latest['source']}\n{latest['summary']}"
             if age > 3600:
                 head += "\n注意：此紀錄超過一小時，不能當作即時執行狀態。"
-        return public_text(head, limit=5500) + "\n\n" + self.decision_text()
+        return self.health_text(events) + "\n\n" + self.decision_text(events) + "\n\n以下是主持人摘要；若與上方較新決策衝突，以較新決策為準：\n" + public_text(head, limit=5500)
+
+    def state_token(self):
+        return next((r["event_id"] for r in reversed(self.events()) if r["type"] in {
+            "progress", "decision_open", "decision_accepted", "decision_handoff", "condition_ready",
+            "milestone_completed", "action_started", "action_finished", "coordinator_started", "decision_closed"}), None)
 
     def questions(self):
         result = {}
@@ -218,7 +362,9 @@ class Board:
         for q in self.questions().values():
             if q["owner"] == owner and q["request_id"] != request_id and q["status"] == "finished":
                 history.append({"player": q["player"], "question": q["question"], "answer": q["answer"]})
-        return {"facts": self.snapshot(), "recent_chat_untrusted": history[-4:]}
+        with transaction(self.root):
+            return {"facts": self.snapshot(), "as_of": to_iso(self.now()), "state_token": self.state_token(),
+                    "recent_chat_untrusted": history[-4:]}
 
 
 class TeamWorker(threading.Thread):
@@ -246,12 +392,13 @@ class TeamWorker(threading.Thread):
 
     def step(self):
         b = self.board
+        b.refresh_conditions()
         with transaction(b.root):
             # Only this paired owner can start queued work. Re-pairing cannot run old requests.
             d = next((d for d in b.decisions().values() if d["status"] == "queued" and d["owner"] == self.owner), None)
             if d:
                 if parse_iso(d["expires_at"]) <= b.now():
-                    b.record("action_finished", decision_id=d["decision_id"], status="failed")
+                    b.record("action_finished", decision_id=d["decision_id"], status="failed", reason="續作開始前決策已到期，未執行；請主持人發布新決策。")
                     return True
                 b.record("action_started", decision_id=d["decision_id"], status="running")
                 q = None
@@ -275,15 +422,17 @@ class TeamWorker(threading.Thread):
             with transaction(b.root):
                 b.record("action_finished", decision_id=d["decision_id"], status=outcome)
         else:
+            context = b.context(self.owner, q["request_id"])
             try:
-                result = self.answer(b.project, q["player"], q["question"], b.context(self.owner, q["request_id"]), self.halt)
+                result = self.answer(b.project, q["player"], q["question"], context, self.halt)
                 reply = checked_text(result, limit=2500)
                 outcome = "answered"
             except Exception:
                 reply = "本次模型暫時無法回答（可能忙碌、額度或連線問題），沒有重試或換模型。傳「進度」可直接查看紀錄。"
                 outcome = "unavailable"
             with transaction(b.root):
-                b.record("answer_finished", request_id=q["request_id"], status="finished", answer=reply, outcome=outcome)
+                b.record("answer_finished", request_id=q["request_id"], status="finished", answer=reply, outcome=outcome,
+                         context_at=context["as_of"], state_token=context["state_token"])
         return True
 
     def run(self):

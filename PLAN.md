@@ -1,6 +1,6 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.48（v1.0 凍結後的修訂，見 §16；Claude 依 D95 主持，D101 每週次數上限）
+> 版本：v1.49（v1.0 凍結後的修訂，見 §16；Claude 依 D95 主持，D103 TG 決策接手修正）
 > 初稿：Claude
 > 本回合整合者：Claude（D95；GPT 已完成 D82／D84～D94 的主持與交接）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
@@ -419,13 +419,15 @@ forecast-lab/
 └── launchd/                   macOS 排程設定（預測排程範本；org.forecast-lab.telegram 為常駐的手機控制台）
 ```
 
-手機工作對話（`telegram_ops_v3`、`team_chat_v1`，D91 取代 D73 的手機開發入口；操作見 `docs/telegram.md`）：
+手機工作對話（`telegram_ops_v4`、`team_chat_v2`，D91 取代 D73 的手機開發入口，D103 修正決策接手；操作見 `docs/telegram.md`）：
 
 - 沿用配對的私人 Telegram 帳號，拒絕群組、轉傳、bot 與代發；提問／決定超過 10 分鐘不執行。由 Louis 主動查進度，不定期推播；舊 DevWorker 與定期報告在此服務停用，歷史保留。
 - 三家共享主持人發布的開發進度、來源、UTC 時間與待決／續作狀態。`進度`、`待決事項` 與營運計數不呼叫模型；不讀取或傳送個別預測、理由、機率、原始輸出或憑證。超過一小時的進度標示過時風險，不冒充即時桌面對話。
 - 以 GPT／Claude／Gemini 點名問答，每問只叫一家，未點名預設 GPT。官方 CLI 使用 `gpt-6-sol`／low、`claude-sonnet-5-5`／low、`gemini-3.8-flash-low`／low；只影響開發進度問答，不改預測模型。專案外空白暫存、乾淨環境、無工具／網頁／MCP／子代理，僅允許結構化回傳功能。最多同時一項、排隊五問、UTC 每日六十問、模型執行 120 秒，沒有自動重試或換模型；與預測／成本量測鎖互斥。
 - 主持人透過 `src/project_control.py` 發布進度與不可重用編號的待決事項。手機只能選已發布且未過期的選項；接收、開始、完成分開記錄。預先審查並登記雜湊的本機 Python 離線續作可自動開始，最多 600 秒，不能由聊天／模型提供命令或參數；沒有登記續作就顯示待主持人接手。不是直接喚醒桌面 Codex 對話。重啟遇到啟動結果不明不得自動重跑。
 - `data/team_chat/events.jsonl` 只追加 UTC 事件；開發模型消耗使用既有訂閱、獨立於預測每週次數，沒有主動燒額度。主持人在工作檢查點查決策並更新進度。
+- D103：尚未開始且未到期的決策可以改選（版本遞增，保留歷史；開始後不能改選）；主持人以指定版本 `claim` 登記實際接手；`ask` 可為每個選項登記負責人、下一步、阻塞與條件，條件由本機有證據的 `milestone` 事件釋放並通知一次；較新的決策優先於較舊的主持人摘要；問答附資料截點，生成期間狀態改變就丟棄舊答案；服務與執行器心跳每 30 秒入帳、90 秒過期；長訊息依 UTF-16 上限分段。仍沒有喚醒桌面對話的機制。
+- Louis 多數時間在電腦前，以 Claude Code 對話做決定；只有他從 TG 詢問時才在 TG 決策。主持人的待決選項必須在桌面對話列出，進度板只是同步；桌面對話的決定是正式決定，主持人據此在進度板結案並註明來源。
 - 人工隔離驗收觀測 LaunchAgents 期間不得安裝、重載或修改服務。
 
 ### 5.3 模型轉接層（adapters）
@@ -1594,6 +1596,10 @@ view_image                  stable true
 - [§3.6 / §5.2 / §12 V15 / §16] 依 Louis 本輪指示，由 GPT 接續實作、Gemini 獨立審查。已修正 M3-W9 B1：`APITransport.tournament_index()` 共用 `poll(metadata_only=True)` 與 `TournamentIndex.from_polls()`，題組／條件題按既有規則記錄 skipped，不再中斷整批試驗送出；讀取失敗仍拒絕。`api_transport_v1` → `api_transport_v2`，CLI 將中繼資料紀錄寫入傳入的專案目錄。建議整合者於 §16 與版本號記錄本次修正，並將 B1 標為完成｜Gemini 透過官方 agy／`gemini-4-argon-high` 審查原始碼與追加修正均 PASS、無 blocking；隔離副本完整 1205 passed，最後路徑修正相關 247 passed；細節見 `docs/tasks/M3-W9.md`。本次未修改 PLAN 正文、§15／§16、設定、prompt 或固定 M2 管線｜non-blocking
 - [§7.6 / §10 M3 / §12 V15] 建議保留 V15 真實 API 驗收為未完成；此次共用索引與離線測試不能取代真實送出、讀回及平台重複提交驗證。測試在專案外的父工作目錄執行，`TMPDIR="$PWD/.tmp"` 位於專案外即可全數通過，不需要放寬 `workdir` 的隔離限制｜先前交接稱為「沙箱內 10 個已知失敗」的本次重現，實際原因是暫存工作目錄位於專案內；修正執行位置後通過。仍須等 M2 及其他既有條件完成後依 D78 切換試驗模式｜non-blocking
 
+#### TG 決策接手問題修正（GPT，2026-11-02）
+
+- [§5.2 / D91 / D95] 依 Louis 本輪要求已修正 `telegram_ops_v4`／`team_chat_v2`：未開始且未到期可改選、版本核對接手、條件里程碑通知、最新決策優先、資料截點與執行器心跳、明確負責人／阻塞／下一步；請整合者同步正文、§15／§16 與版本。根因是 D100／D101 未登記續作且沒有桌面 agent 喚醒機制，TG launchd 本來已在線；選項範圍已獲核准不得重問。實作與證據見 `docs/tasks/TELEGRAM-HANDOFF.md`，操作見 `docs/telegram.md`｜使用者已另行指示 Claude 執行 D100／D101，GPT 只修 TG，不改這兩項決定或預測設定。相關 94 passed、隔離完整 1641 passed；Gemini Argon medium 審查與修正後複查均 PASS。維持僅已審查離線續作可自動執行的 D91 界線，人工主持人須在開工前登記 claim；本輪未提交，由 Claude 整合｜non-blocking
+
 ### 14.3 Louis 與女友
 
 （待填）
@@ -1722,10 +1728,13 @@ view_image                  stable true
 | D99 | 2026-11-02 | 依 Louis「研究回來之後有一定答案了就直接開始繼續 M3，中間的 coding 還有審查你們三個可以輪流做」，以 D98 核對的官方原始碼為據：多選題在歷史選項順序被閘道遮罩為 null 時，不再於 POST 前拒絕；讀回改以身分、時間、非 None 個數與機率值多重集合的精確核對確認，收據記 `option_order_verified` | `api_transport_v5`。GPT（gpt-6-astra high，開發沙箱）實作，Claude 審查並收緊為只有 null 歷史才用多重集合；Gemini 審查指出 POST 前檢查需與讀回規則一致並已修正。歷史存在但異常的題目在 POST 前拒絕；是非題、已知歷史的逐位置比對、留言、退避／間隔、POST 次數上限、unknown 與預測永不重送規則不變。不是多選題實機驗收 |
 | D100 | 2026-11-02 | Louis 核准 D100-PROBE：加上請求間隔（D98）後做一次有界私人留言驗收（trial、bot testing area 另一個未用過的是非題、synthetic 50%、最多 1 次預測加 1 次私人留言、不重試、結束立即回 local）。UTC 11:00 切到 trial 執行唯讀前檢，bot testing area 開放中的是非題只剩原 V15 probe 用過的 43332，依規定不加第三次留言、不換題，因此無法執行；11:02 回 local。只有唯讀 GET，沒有任何寫入。開放中的支援題型只剩 1 題多選題，改用多選題需另行核准（D102） | 本輪指示；D84／D88 的原 probe 界線不變 |
 | D101 | 2026-11-02 | Louis 對 D101-CAPS 選 A（照建議）：Claude 與 GPT 每週嘗試次數上限各 130，Gemini 每週 200 次作為防失控上限。`quota_policy_v4` → `quota_policy_v5`；`config.py` 驗證 Gemini 的選填上限。正式覆蓋率情境事前登記後才執行，通過標準為支援題覆蓋率第 10 百分位 ≥ 90%；結果 100% | 本輪指示；Gemini（Argon high）獨立審查 PASS；不啟用排程 |
+| D103 | 2026-11-02 | Louis 回報 TG 決策問題並指派 GPT 修正（D100／D101 交由 Claude 執行）。根因：D100／D101 只記錄了選項，沒有登記續作，程式也沒有喚醒桌面對話的機制；TG 常駐服務本身正常。GPT 實作 `telegram_ops_v4`／`team_chat_v2`（§5.2）。Louis 另表示多數決定在 Claude Code 對話做出，TG 只在他從 TG 詢問時用於決策 | 本輪指示；Gemini（Argon medium）審查兩項 non-blocking 修正後複查 PASS；GPT 隔離完整 1641 passed；服務已重載 |
 
 ---
 
 ## 16. 變更紀錄
+
+- **v1.49**（2026-11-02）：D103，TG 決策接手修正。`telegram_ops_v3` → `telegram_ops_v4`、`team_chat_v1` → `team_chat_v2`：未開始決策可改選、版本核對的 `claim`、選項條件與 `milestone` 通知、最新決策優先、問答資料截點、心跳、長訊息分段（§5.2）。實作與審查 GPT／Gemini，見 `docs/tasks/TELEGRAM-HANDOFF.md`；§5.2 補記決定以桌面對話為主。預測、預算、prompt 不變。
 
 - **v1.48**（2026-11-02）：D100、D101。§9 填入 Claude／GPT 每週 130 次與 Gemini 200 次的防失控上限；`quota_policy_v4` → `quota_policy_v5`（`players.gemini.weekly_attempts_cap` 為選填正整數或 null，`continuous.register()` 既有的上限檢查因此也套用到 Gemini）。事前登記並執行正式覆蓋率情境 `d101_formal_c130_c130_g200_o300_n10`（支援題 100%）。D100 有界驗收因 bot testing area 沒有未用過的是非題而未執行，只有唯讀 GET。`quota_policy` 雜湊改變，已登記的舊題集不能再執行（本來就不得重啟）。隔離完整 1627 passed；Gemini 審查 PASS。
 
