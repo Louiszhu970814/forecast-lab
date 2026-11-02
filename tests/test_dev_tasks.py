@@ -95,8 +95,8 @@ def test_authorization_freshness_and_crash_replay_in_telegram(project):
     bot.handle(message(4, "補充：新需求"))
     bot.handle(message(5, "開發進度"))
     bot.deliver()
-    assert any(task["task_id"] in text for _, text in api.sent)
-    assert bot.tasks.tasks()[task["task_id"]]["revision"] == 2
+    assert any("工作對話" in text for _, text in api.sent)
+    assert bot.tasks.tasks()[task["task_id"]]["revision"] == 1  # retained, never extended by retired commands
 
 
 def test_completion_notifications_deduplicate_across_restart(project):
@@ -111,8 +111,7 @@ def test_completion_notifications_deduplicate_across_restart(project):
     bot = T.Service(project, api, 123, 42, now=lambda: NOW)
     bot.enqueue_dev_notifications()
     bot.deliver()
-    assert len(api.sent) == 2
-    assert "月份採 UTC" in api.sent[-1][1]
+    assert len(api.sent) == 0  # historical proactive notices are suppressed
 
 
 def test_task_request_does_not_change_prediction_files(project):

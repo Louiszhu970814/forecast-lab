@@ -1,7 +1,8 @@
-"""Private Telegram operations console with an isolated Codex development queue.
+"""Private Telegram workgroup: shared progress, bounded model Q&A and decisions.
 
 Uses the official Bot API via long polling. Only .env holds credentials. Bot state,
-command replies and delivery receipts are append-only; no incoming text is logged.
+command replies and delivery receipts are append-only; accepted workgroup questions
+are stored in the private shared journal after credential checks.
 """
 from __future__ import annotations
 
@@ -30,35 +31,17 @@ from flab.jsonl import append_record
 from flab.ops_report import ReportError, build_report, read_ledger, status_text
 from flab.timeutil import parse_iso, to_iso, utc_now
 from flab.dev_tasks import DEV_HELP, TaskError, TaskStore, parse_dev_command
+from flab.team_chat import Board, TeamWorker, LABELS, HELP as TEAM_HELP, parse_team
 
-VERSION = "telegram_ops_v2"
+VERSION = "telegram_ops_v3"
 PROJECT = Path(__file__).resolve().parents[1]
 TAIPEI = ZoneInfo("Asia/Taipei")
 LABEL = "org.forecast-lab.telegram"
-HELP = """Forecast Lab 手機控制台
-看報告 或 /report：近 24 小時摘要
-週報 或 /report 7d：近 7 天摘要
-狀態 或 /status：目前設定與最近週期紀錄
-排程 或 /schedule：查看報告排程
-/daily 21:00：每天台灣時間 21:00 傳近 1 天報告
-/weekly 1 21:00：每週一 21:00 傳近 7 天報告（1～7 代表週一～週日）
-停止報告 或 /pause：停止定期報告
-/help：這份說明
-開發模式 或 /dev：手機開發指令說明
-開發：你的需求 → 交辦功能，完成後通知
-開發進度 → 查最近任務進度
-
-也可以說「每天 21:00 傳報告」或「每週一 21:00 傳報告」。
-開發任務使用獨立程式副本與 Codex 訂閱額度，完成後待審查整合。
-首次配對後定期報告預設關閉。"""
-KEYBOARD = {"keyboard": [["看報告", "週報", "狀態"], ["開發模式", "開發任務", "開發進度"], ["排程", "停止報告", "/help"]],
-            "resize_keyboard": True}
+HELP = TEAM_HELP
+KEYBOARD = {"keyboard": [["進度", "待決事項"], ["看報告", "週報", "狀態"], ["/help"]], "resize_keyboard": True}
 COMMANDS = [{"command": command, "description": description} for command, description in (
-    ("report", "查看營運報告；可加 7d"), ("status", "查看專案狀態"),
-    ("schedule", "查看報告排程"), ("daily", "每天定時報告，例如 21:00"),
-    ("weekly", "每週定時報告，例如 1 21:00"), ("pause", "停止定期報告"), ("help", "操作說明"),
-    ("dev", "交辦開發需求"), ("tasks", "最近開發任務"), ("progress", "查開發進度"),
-    ("followup", "補充指定任務需求"), ("cancel", "停止指定開發任務"))]
+    ("progress", "共用開發進度，不耗模型額度"), ("decisions", "待決事項與續作狀態"),
+    ("report", "營運報告，可加 7d"), ("status", "服務設定"), ("help", "工作對話說明"))]
 
 
 class SetupError(ValueError):
@@ -275,6 +258,7 @@ class Service:
         self.failures = 0
         self.dev_owner = f"{bot_id}:{owner}"
         self.tasks = TaskStore(project, now=now)
+        self.board = Board(project, now=now)
         for row in read_ledger(self.log):
             if row.get("bot_id") == bot_id and row.get("owner") == owner:
                 self.state.apply(row)
@@ -292,7 +276,16 @@ class Service:
         if private_sender(update) != self.owner:
             self.record("ignored", update_id=uid)
             return
-        kind, value = parse_command(update["message"].get("text"))
+        incoming = update["message"].get("text")
+        team = parse_team(incoming)
+        kind, value = team or parse_command(incoming)
+        if kind.startswith("dev_"):
+            kind, value = "team_help", None
+        elif kind == "help" and isinstance(incoming, str) and incoming.strip() and not incoming.startswith("/"):
+            kind, value = "question", ("gpt", incoming)
+        if kind in {"question", "decision", "board", "decisions", "team_help", "decision_help"}:
+            self.handle_team(update, kind, value)
+            return
         extra = {}
         # Expired commands must not silently change a schedule after a long outage.
         sent_at = update["message"].get("date")
@@ -308,8 +301,8 @@ class Service:
                 elif kind == "schedule":
                     reply = self.state.schedule.label()
                 elif kind == "set_schedule":
-                    extra["schedule"] = vars(value)
-                    reply = value.label()
+                    extra["schedule"] = vars(Schedule())
+                    reply = "已採主動查詢模式，定期報告關閉；傳「進度」或「看報告」即可。"
                 elif kind.startswith("dev_"):
                     reply = self.dev_command(kind, value, f"update:{uid}")
                 else:
@@ -320,6 +313,40 @@ class Service:
                 reply = str(exc)
         # Schedule and consumed update are committed together before any network send.
         self.record("outbox", key=f"update:{uid}", update_id=uid, text=reply, **extra)
+
+    def handle_team(self, update, kind, value):
+        uid = update["update_id"]
+        sent = update["message"].get("date")
+        fresh = type(sent) is int and abs(self.now().timestamp() - sent) <= 600
+        try:
+            if kind in {"question", "decision"} and not fresh:
+                reply = "這則操作指令已超過 10 分鐘，請重新傳送。"
+            elif kind == "board":
+                reply = self.board.snapshot()
+            elif kind == "decisions":
+                reply = self.board.decision_text()
+            elif kind == "question":
+                q = self.board.submit(self.dev_owner, f"update:{uid}", *value)
+                reply = f"[{LABELS[q['player']]}] 已收到，會依共用專案紀錄回答。"
+            elif kind == "decision":
+                d = self.board.choose(self.dev_owner, f"update:{uid}", *value)
+                state = "續作已排隊；傳「待決事項」查看是否開始。" if d["status"] == "queued" else "傳「待決事項」查看接手與執行狀態。"
+                reply = f"決定已收到：{d['decision_id']} 選 {d['choice']}。{state}"
+            elif kind == "decision_help":
+                reply = "請先查「待決事項」，再傳「決定 <編號> <選項>」，例如「決定 M3-1 B」。"
+            else:
+                reply = TEAM_HELP
+        except TaskError as exc:
+            reply = str(exc)
+        from flab.dev_tasks import public_text
+        self.record("outbox", key=f"update:{uid}", update_id=uid, text=public_text(reply, limit=3900))
+
+    def enqueue_answers(self):
+        for q in self.board.questions().values():
+            key = "answer:" + q["request_id"]
+            if q["owner"] != self.dev_owner or q["status"] != "finished" or key in self.state.messages:
+                continue
+            self.record("outbox", key=key, text=f"[{LABELS[q['player']]} · {q['model']}]\n{q['answer']}")
 
     def dev_command(self, kind, value, key):
         if kind == "dev_help":
@@ -370,6 +397,9 @@ class Service:
             return
         pending = [r for k, r in self.state.messages.items() if k not in self.state.delivered]
         for row in pending[:10]:
+            if row["key"].startswith("dev_notice:"):
+                self.record("delivered", key=row["key"], outcome="cancelled")
+                continue
             # Pausing/changing schedule cancels unsent periodic messages, including after restart.
             if "scheduled_for" in row and (self.state.schedule.mode == "off"
                     or not row["key"].startswith(f"schedule:{self.state.schedule_id}:")
@@ -392,8 +422,9 @@ class Service:
 
     def run(self):
         self.api.call("setMyCommands", {"commands": COMMANDS, "scope": {"type": "chat", "chat_id": self.owner}})
-        from flab.dev_runner import DevWorker
-        worker = DevWorker(self.project, self.dev_owner)
+        # Explicit migration: retain history but no old task worker or periodic pushes.
+        self.record("workgroup_mode", key="workgroup_mode", schedule=vars(Schedule()))
+        worker = TeamWorker(self.project, self.dev_owner)
         worker.start()
         try:
             self.poll_loop()
@@ -408,8 +439,7 @@ class Service:
                 # Drain queued commands (especially /pause) before scheduled deliveries.
                 for update in self.api.updates(self.state.offset, timeout=3):
                     self.handle(update)
-                self.enqueue_dev_notifications()
-                self.enqueue_due()
+                self.enqueue_answers()
                 self.deliver()
                 backoff = 2
             except TelegramError as exc:
@@ -418,7 +448,7 @@ class Service:
                 print(str(exc), file=sys.stderr, flush=True)
                 time.sleep(min(60, max(backoff, exc.retry_after)))
                 backoff = min(backoff * 2, 60)
-            except ReportError:
+            except (ReportError, TaskError):
                 # A partial ledger must never kill the command console or expose data.
                 print("定期報告暫停本輪：資料讀取失敗。", file=sys.stderr, flush=True)
                 self.deliver()

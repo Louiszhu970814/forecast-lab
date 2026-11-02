@@ -1,5 +1,14 @@
 # 給下一個對話的接手紀錄
 
+## 2026-11-02：D91 TG 工作對話（最新）
+
+Louis 修正手機需求：三家共享專案進度／待決事項，點名問答，中階模型，Louis 主動 polling；手機選已發布選項後可啟動事先登記的離線續作，否則待主持人接手。PLAN v1.39，`telegram_ops_v3`、`team_chat_v1`。相關 105 passed／隔離完整 1473 passed，Gemini 獨立審查 PASS。詳見 `docs/telegram.md`、`docs/tasks/TELEGRAM-TEAM.md`。TG 服務於 UTC 01:31:06 重載並確認 running、定期推播關閉，共用進度板已發布；當時沒有待決事項。
+
+主持人開始與每個檢查點執行 `.venv/bin/python src/project_control.py status` 查看決定；將最新完成、阻塞、待決、下一步整理為不含個別預測的文字，透過 `publish` 追加進度板。沒有實際待決事項不要捏造；不能把收到決定寫成工作已開始。這個入口不會直接喚醒同一個桌面對話。
+
+本輪沒有啟動補充成本量測或預測／留言請求。M2 最新報告仍 13/14 通過，Gemini 可信成本 0、原 21 筆不確定；M3 尚未完成。下一步回到下段的有界補充量測方案與報告契約準備，再整理容量／覆蓋率；平台詢問只送過一次，不重寄。原預算停線保持。
+
+
 ## 2026-11-02T00:56:36Z：量測環境已乾淨
 
 Louis 回報已關閉程式後，`quota.detect_agy_activity()` 回傳空程序計數、無錯誤；沒有互動式 agy、Antigravity IDE 或其他 headless agy。此狀態已追加到 `data/development_checks.jsonl`，取代下方「仍須關閉程序」的待辦；不回填原 21 筆不確定成本，不解除既有預算熔斷。

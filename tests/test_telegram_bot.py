@@ -167,7 +167,7 @@ def test_schedule_timezone_restart_catchup_and_no_duplicates(project):
     clock = [parse_iso("2026-11-02T12:00:00Z")]
     api = FakeAPI()
     bot = service(project, api, now=lambda: clock[0])
-    bot.handle(message(1, "/weekly 1 21:00", date=int(clock[0].timestamp())))
+    bot.record("outbox", key="legacy", text="legacy", schedule=vars(T.Schedule("weekly")))
     bot.enqueue_due()
     assert len(bot.state.messages) == 1
     clock[0] = NOW  # Monday 21:01 Taipei
@@ -195,7 +195,7 @@ def test_enabling_after_slot_waits_until_next_day_and_stale_command_rejected(pro
     bot.enqueue_due()
     assert len(bot.state.messages) == 1
     bot.handle(message(2, "/pause", date=1))
-    assert bot.state.schedule.mode == "daily"
+    assert bot.state.schedule.mode == "off"
     assert "超過 10 分鐘" in bot.state.messages["update:2"]["text"]
 
 
@@ -203,7 +203,7 @@ def test_pause_cancels_pending_periodic_and_survives_restart(project):
     clock = [parse_iso("2026-11-02T12:00:00Z")]
     api = FakeAPI()
     bot = service(project, api, now=lambda: clock[0])
-    bot.handle(message(1, "/daily 21:00", date=int(clock[0].timestamp())))
+    bot.record("outbox", key="legacy", text="legacy", schedule=vars(T.Schedule("daily")))
     bot.deliver()
     clock[0] = NOW
     bot.enqueue_due()
@@ -225,7 +225,7 @@ def test_network_failure_keeps_outbox_and_recovers_without_reapplying(project):
     bot.handle(message(1, "/daily 21:00"))
     bot.deliver()
     assert not bot.state.delivered
-    assert bot.state.schedule.mode == "daily" and bot.state.offset == 2
+    assert bot.state.schedule.mode == "off" and bot.state.offset == 2
     assert bot.retry_at > T.time.monotonic()
     api.error = None
     bot = service(project, api)
@@ -244,7 +244,7 @@ def test_service_polls_commands_and_sends_report(project):
     assert "近 1 天" in api.sent[0][1]
     assert api.calls[0][0] == "setMyCommands"
     assert api.calls[-1] == 3
-    assert bot.state.schedule.mode == "daily"
+    assert bot.state.schedule.mode == "off"
 
 
 def test_pairing_requires_local_random_secret_and_preserves_existing_env(project, monkeypatch):
@@ -354,7 +354,7 @@ def test_reports_do_not_change_forecast_configuration_or_ledgers(project):
 def test_outdated_queued_report_is_cancelled_after_long_outage(project):
     clock = [parse_iso("2026-11-02T12:00:00Z")]
     bot = service(project, now=lambda: clock[0])
-    bot.handle(message(1, "/daily 21:00", date=int(clock[0].timestamp())))
+    bot.record("outbox", key="legacy", text="legacy", schedule=vars(T.Schedule("daily")))
     bot.deliver()
     clock[0] = NOW
     bot.enqueue_due()  # old report queued before an outage
@@ -372,7 +372,7 @@ def test_two_schedule_changes_in_same_millisecond_have_distinct_revisions(projec
     revision = bot.state.schedule_id
     bot.handle(message(2, "/weekly 1 21:00"))
     assert revision != bot.state.schedule_id
-    assert service(project).state.schedule.mode == "weekly"
+    assert service(project).state.schedule.mode == "off"
 
 
 def test_install_and_uninstall_only_telegram_launchagent(project, monkeypatch, capsys):

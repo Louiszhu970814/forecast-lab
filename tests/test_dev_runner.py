@@ -223,7 +223,7 @@ def test_status_queries_stay_responsive_during_development(repo, tmp_path, monke
     fake_cli(tmp_path, monkeypatch, sleep=30)
     api = FakeAPI()
     bot = T.Service(repo, api, 123, 42, now=lambda: NOW)
-    bot.handle(message(1, "開發：測試工作"))
+    bot.tasks.submit(bot.dev_owner, "legacy", "測試工作")  # offline legacy worker coverage
     w = R.DevWorker(repo, bot.dev_owner, base=tmp_path / "workspaces", now=lambda: NOW)
     w.start()
     deadline = time.monotonic() + 8
@@ -235,7 +235,7 @@ def test_status_queries_stay_responsive_during_development(repo, tmp_path, monke
     bot.handle(message(3, "開發進度"))
     bot.deliver()
     assert time.monotonic() - before < 2
-    assert any("執行中" in text for _, text in api.sent)
+    assert any("無法確認 M2／M3" in text for _, text in api.sent)
     bot.handle(message(4, "停止任務"))
     w.stop()
     w.join(6)
