@@ -22,10 +22,11 @@ def reserve(ledger, tier=1, player="claude", aid="new", qid=7, **kw):
                           pending_tier1=kw.get("pending", 0), expected_new=kw.get("incoming", 0), repair_reserve=kw.get("repair", 0))
 
 
-def attempt(ledger, aid="old", tier=1, player="claude", qid=7, total=30):
+def attempt(ledger, aid="old", tier=1, player="claude", qid=7, total=30, started=None):
+    started = started or NOW - timedelta(minutes=5)
     r = {"type": "forecast_attempt", "attempt_id": aid, "tier": tier, "player": player, "question_id": qid,
-         "attempt_kind": "initial", "model_check": "verified", "started_at_utc": to_iso(NOW - timedelta(minutes=5)),
-         "finished_at_utc": to_iso(NOW - timedelta(minutes=4)),
+         "attempt_kind": "initial", "model_check": "verified", "started_at_utc": to_iso(started),
+         "finished_at_utc": to_iso(started + timedelta(minutes=1)),
          "usage": {"input_tokens": total // 2, "output_tokens": total - total // 2} if total is not None else {}}
     append_record(ledger.root / "forecasts.jsonl", r)
     return r

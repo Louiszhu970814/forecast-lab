@@ -5,6 +5,8 @@ supplies explicit weekly caps and expected incoming work before viewing any fore
 """
 from __future__ import annotations
 
+import argparse
+import json
 import math
 import statistics
 from dataclasses import dataclass
@@ -18,7 +20,57 @@ from flab.jsonl import append_record
 from flab.ledger import transaction, read_complete
 from flab.timeutil import parse_iso, to_iso, utc_now
 
-VERSION = "budget_v4"
+VERSION = "budget_v5"
+LIFT_AUTHORIZATION = "PLAN D107 A3"
+LIFT_PLAYERS = ("gpt", "gemini")
+LIFT_REASONS = frozenset({"weekly_tier2_token_breaker", "weekly_tier2_argon_breaker"})
+
+
+def _player_lifts(events: list[dict], player: str, now: datetime) -> list[dict]:
+    # A future-dated event cannot forgive usage before its effective time.
+    return [r for r in events if r["type"] == "budget_upgrade_stop_lifted"
+            and r["player"] == player and parse_iso(r["at"]) <= now]
+
+
+def _stop_lifted(stop: dict, lifts: list[dict]) -> bool:
+    return any(r["player"] == stop["player"] and stop["at"] in r["lifted_stop_ats"]
+               and parse_iso(stop["at"]) < parse_iso(r["at"]) for r in lifts)
+
+
+def lift_tier2_stops(root: Path, players: list[str], authorization: str, *,
+                     now: Callable[[], datetime] = utc_now) -> list[dict]:
+    """Append D107 A3 lifts for unexpired, unlifted persisted weekly stops.
+
+    Validate every requested player before writing. No quota query or campaign/forecast
+    read is needed; admission retains its existing Argon layout/reset checks.
+    """
+    if authorization != LIFT_AUTHORIZATION:
+        raise ValueError(f"authorization must be {LIFT_AUTHORIZATION!r}")
+    if not players or any(p not in LIFT_PLAYERS for p in players):
+        raise ValueError("only gpt and gemini tier 2 stops may be lifted")
+    with transaction(root):
+        log = root / "budget_events.jsonl"
+        events = read_complete(log)
+        # Compare the timestamp we actually persist, including its millisecond precision.
+        at = to_iso(now())
+        current = parse_iso(at)
+        records = []
+        for player in dict.fromkeys(players):
+            lifts = _player_lifts(events, player, current)
+            stops = [r for r in events if r["type"] == "budget_upgrade_stop"
+                     and r["player"] == player and r["reason"] in LIFT_REASONS
+                     and current < parse_iso(r["until"]) and not _stop_lifted(r, lifts)]
+            if not stops:
+                raise ValueError(f"{player}: no active tier 2 stops to lift")
+            if any(parse_iso(r["at"]) >= current for r in stops):
+                raise ValueError(f"{player}: lift time must be later than every stop")
+            records.append({"type": "budget_upgrade_stop_lifted", "player": player,
+                            "lifted_reasons": list(dict.fromkeys(r["reason"] for r in stops)),
+                            "lifted_stop_ats": list(dict.fromkeys(r["at"] for r in stops)),
+                            "authorization": authorization, "at": at, "version": VERSION})
+        for record in records:
+            append_record(log, record)
+        return records
 
 
 def quantile(values: list[float], q=.9) -> float | None:
@@ -141,15 +193,20 @@ class Budget:
             scoped = [r for r in forecasts if r.get("player") == player and r.get("tier") == 2
                       and start <= parse_iso(r["started_at_utc"]) < end]
             if tier == 2:
+                lifts = _player_lifts(events, player, self.now())
+                latest_lift = max((parse_iso(r["at"]) for r in lifts), default=None)
                 measured = [n for r in scoped if (n := tokens(r)) is not None and n > 0]
                 estimate_tokens = quantile(measured[-50:]) or limit_tokens
                 if limit_tokens is None:
                     reason = "tier1_token_baseline_unmeasured"
                 per_question = {}
+                breaker_questions = {}
                 for r in scoped:
                     per_question.setdefault(r["question_id"], []).append(tokens(r))
+                    if latest_lift is None or parse_iso(r["started_at_utc"]) > latest_lift:
+                        breaker_questions.setdefault(r["question_id"], []).append(tokens(r))
                 if any(any(v is None for v in vals) or (limit_tokens is not None and sum(vals) > limit_tokens)
-                       for vals in per_question.values()):
+                       for vals in breaker_questions.values()):
                     breach_reason = "weekly_tier2_token_breaker"
                 own = per_question.get(qid, [])
                 if limit_tokens is not None and (any(v is None for v in own) or sum(own) + estimate_tokens > limit_tokens):
@@ -177,7 +234,7 @@ class Budget:
                 # D96/D97: `/usage` reads are inconsistent, so per-call before/after deltas are never
                 # costs. Estimates come from window-level usage (capped at the old fallback), and
                 # Gemini tier 2 is bounded by the shared token breaker above, not by quota deltas.
-                # Persisted weekly_tier2_argon_breaker stops are still honoured until they expire.
+                # Persisted Argon stops are honoured until expiry or an explicit D107 A3 lift.
                 fallback = self.policy["players"][player]["tier2_per_question_cap"]
                 settings = quota.estimate_settings(self.policy)
                 argon_estimate, estimate_calls = quota.estimate(forecasts, snapshots, current=before,
@@ -191,6 +248,7 @@ class Budget:
             if tier == 2:
                 paused = next((r for r in reversed(events) if r["type"] == "budget_upgrade_stop"
                                and r["player"] == player and self.now() < parse_iso(r["until"])
+                               and not _stop_lifted(r, lifts)
                                and (r["reason"] != "weekly_tier2_argon_breaker" or
                                     (r.get("quota_layout", "legacy_argon") == buckets.layout and r["until"] == reset))), None)
                 if paused:
@@ -231,3 +289,27 @@ class Budget:
             append_record(self.log, {"type": "budget_outcome", "attempt_id": attempt_id,
                 "decision_id": reservation["decision_id"], "status": "started" if started else "released",
                 "at": to_iso(self.now()), "version": VERSION})
+
+
+def main(argv=None):
+    parser = argparse.ArgumentParser(description="Append an authorized tier 2 breaker lift.")
+    commands = parser.add_subparsers(dest="command", required=True)
+    lift = commands.add_parser("lift-tier2-stops")
+    lift.add_argument("--root", type=Path, default=Path(__file__).resolve().parents[1] / "data",
+                      help="ledger directory containing budget_events.jsonl")
+    lift.add_argument("--player", action="append", choices=LIFT_PLAYERS, required=True)
+    lift.add_argument("--authorization", required=True)
+    args = parser.parse_args(argv)
+    try:
+        records = lift_tier2_stops(args.root, args.player, args.authorization, now=utc_now)
+    except (ValueError, OSError):
+        # Ledger parse errors can embed row contents; never print those or other data.
+        parser.exit(1, "tier 2 lift refused: check authorization, active stops and ledger timestamps\n")
+    for record in records:
+        print(json.dumps({key: record[key] for key in
+                          ("player", "lifted_reasons", "lifted_stop_ats", "at")}, ensure_ascii=False))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

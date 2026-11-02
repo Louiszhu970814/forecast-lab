@@ -1,6 +1,6 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.54（v1.0 凍結後的修訂，見 §16；Claude 依 D95 主持，D105 主站試驗題實作）
+> 版本：v1.55（v1.0 凍結後的修訂，見 §16；Claude 依 D95 主持，D107 A3 熔斷解除）
 > 初稿：Claude
 > 本回合整合者：Claude（D95；GPT 已完成 D82／D84～D94 的主持與交接）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
@@ -1739,6 +1739,8 @@ view_image                  stable true
 ---
 
 ## 16. 變更紀錄
+
+- **v1.55**（2026-11-02）：D107 A3 實作，`budget_v4` → `budget_v5`。新增追加式事件 `budget_upgrade_stop_lifted`（player、被解除的 reason 與 stop 的 `at`、固定授權字串 `PLAN D107 A3`），只解除事件明列、同一 player、在解除時間之前寫入且仍未到期的 stop；之後新寫入的 stop 照常生效。第 2 層 token 熔斷的違規判定只看最近一次解除之後開始的紀錄，避免解除前的違規立即重新觸發；沒有解除紀錄時行為不變。每題 token 上限、每週次數上限、Gemini 的 credits／五小時桶／版面檢查不變。CLI `budget.py lift-tier2-stops --player gpt --player gemini --authorization "PLAN D107 A3"`：只限 GPT／Gemini，全部驗證後才寫入，沒有可解除的 stop 時拒絕，不輸出帳冊內容。GPT 實作，Claude 審查未修改，完整 1846 passed；Gemini（Argon high）獨立審查 PASS、無發現。規格 `docs/tasks/D107-A3-TIER2-BREAKER-LIFT.md`。
 
 - **v1.54**（2026-11-02）：D105 實作，`continuous_v7` → `continuous_v8`，新增 `main_site_trial_v1`。campaign 的 `venues` 含 `main_site_questions` 時必須帶 `main_site_trial`（每窗口最多 N 題，1～6；每次掃描最多 P 頁，1～5，每頁 50 筆），否則不得帶；舊版 campaign 含主站一律拒絕。持續模式的 Poller 在 local／trial 對主站改走有界的主站列表（`poll_questions.main_site_pages`，`m2_prepare` 改為引用，20 頁行為不變），候選須通過 `trial_membership_error`（bot testing area 以外的任何 tournament 都排除）、site_main 歸屬、`is_synced_copy`、題型、已開題、`F.eligible` 與決策截止，並排除本地任何紀錄過或被 probe 保留的題目；選題先涵蓋是非題與多選題，再依決策截止與題號補滿。新選題的決策截止至少在 150 分鐘以後（比照比賽 3 小時窗口減送出餘裕）。選題寫入追加式 `data/main_site_trial_selections.jsonl`（只存 ID、型別、時間與原因），同窗口不補位，作廢後該窗口停止新增；已選滿時只逐題刷新已選題目。候選的 project 歸屬無法辨識時跳過、不讓整輪失敗（唯讀預檢顯示主站前 250 題有 154 題屬此情況）。bot testing area、MiniBench 與 live 行為不變；送出、讀回、prompt、模型、整合與預算不變。GPT 實作，Claude 審查修改上述最後兩點，完整 1813 passed；Gemini（Argon high）獨立審查 PASS、無發現。規格 `docs/tasks/M3-MAINSITE-TRIAL-D105.md`。
 
