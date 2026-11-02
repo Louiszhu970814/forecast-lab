@@ -1,4 +1,4 @@
-"""Authenticated API transport, api_transport_v4. No write retries; V15 checks below.
+"""Authenticated API transport, api_transport_v5. No write retries; V15 checks below.
 
 Only normalized allowlisted receipts leave this boundary. Remote bodies and exception
 messages may contain credentials and are never used as diagnostics or ledger evidence.
@@ -26,7 +26,7 @@ from submit_contract import ConfirmedFailure, Readback, own_forecast_records
 FORECAST_PATH = "/api/questions/forecast/"
 COMMENT_PATH = "/api/comments/create/"
 
-VERSION = "api_transport_v4"
+VERSION = "api_transport_v5"
 # V15: verify every endpoint, field and query on bot testing area before live.
 ACCOUNT_PATH = "users/me/"
 ACCOUNT_ID, ACCOUNT_IS_BOT = "id", "is_bot"
@@ -42,6 +42,12 @@ COMMENT_TIME, COMMENT_TEXT = "created_at", "text"
 COMMENT_AUTHOR, COMMENT_POST = "author", "on_post"
 PAGE_RESULTS, PAGE_NEXT = "results", "next"
 MAX_COMMENT_PAGES = 20
+
+
+def valid_current_options(options):
+    return isinstance(options, list) and bool(options) \
+        and all(isinstance(option, str) for option in options) \
+        and len(set(options)) == len(options)
 
 
 def known_option_order(question):
@@ -67,8 +73,8 @@ def serialized_forecast_receipt(question, row, intent, payload, started):
     """Match the official MyForecastSerializer without inventing a database ID.
 
     Its identity is (question_id, author_id, start_time), start_time is Unix
-    seconds, and forecast_values is an ordered vector. Missing option-order
-    metadata is ambiguous and must leave the request unknown.
+    seconds, and forecast_values is an ordered vector. Without usable historical
+    option order, D99 matches the exact multiset and records order verification.
     """
     qid, author, stamp = (row.get(k) for k in ("question_id", "author_id", "start_time"))
     if type(qid) is not int or type(author) is not int or qid != intent["question_id"] or author != intent["bot_id"] \
@@ -83,6 +89,7 @@ def serialized_forecast_receipt(question, row, intent, payload, started):
     expected = payload[0]
     if type(expected.get("question")) is not int or expected["question"] != qid:
         return None
+    option_order_verified = None
     if "probability_yes" in expected:
         if question.get("type") != "binary":
             return None
@@ -91,21 +98,38 @@ def serialized_forecast_receipt(question, row, intent, payload, started):
         options = known_option_order(question)
         current = question.get("options")
         probabilities = expected.get("probability_yes_per_category")
-        if question.get("type") != "multiple_choice" or not isinstance(options, list) or not options \
-                or any(not isinstance(v, str) for v in options) or len(set(options)) != len(options) \
-                or not isinstance(current, list) or any(not isinstance(v, str) for v in current) \
-                or len(set(current)) != len(current) or not isinstance(probabilities, dict) \
-                or set(current) != set(probabilities) or not set(current) <= set(options):
+        if question.get("type") != "multiple_choice" or not valid_current_options(current) \
+                or not isinstance(probabilities, dict) or set(current) != set(probabilities):
             return None
-        wanted = [probabilities.get(option) for option in options]
+        # Only a gateway-masked (null) history may fall back to the multiset match; a present
+        # but unusable history is anomalous data and stays unknown.
+        if options is None and question.get("all_options_ever") is not None:
+            return None
+        if options is not None:
+            wanted = [probabilities.get(option) for option in options]
+            option_order_verified = True
+        else:
+            if any(type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= 1
+                   for value in probabilities.values()) or any(
+                       value is not None and (type(value) not in (int, float)
+                       or not math.isfinite(value) or not 0 <= value <= 1) for value in values):
+                return None
+            active_values = [value for value in values if value is not None]
+            wanted = [probabilities[option] for option in current]
+            option_order_verified = active_values == wanted
+            # Sorting preserves multiplicity without assigning probabilities to labels.
+            values, wanted = sorted(active_values), sorted(wanted)
     if len(values) != len(wanted) or any(
             (actual is not None if target is None else type(actual) not in (int, float) or
              not math.isfinite(actual) or not 0 <= actual <= 1 or actual != target)
             for actual, target in zip(values, wanted)):
         return None
     identity = forecast_identity(row)
-    return {"id": identity, "id_kind": "question_author_start_time", "bot_id": author,
+    receipt = {"id": identity, "id_kind": "question_author_start_time", "bot_id": author,
         "question_id": qid, "start_time_unix": stamp, "payload": copy.deepcopy(payload)}
+    if option_order_verified is not None:
+        receipt["option_order_verified"] = option_order_verified
+    return receipt
 
 
 class TransportError(RuntimeError):
@@ -192,9 +216,13 @@ class APITransport:
         return self.client.get_post(post_id)
 
     def can_reconcile_forecast(self, post):
+        """Must accept exactly what serialized_forecast_receipt can later verify (D99)."""
         question = post.get("question") or {}
-        return question.get("type") == "binary" or (question.get("type") == "multiple_choice"
-            and known_option_order(question) is not None)
+        if question.get("type") == "binary":
+            return True
+        if question.get("type") != "multiple_choice" or not valid_current_options(question.get("options")):
+            return False
+        return known_option_order(question) is not None or question.get("all_options_ever") is None
 
     def forecast_readback_baseline(self, post):
         question = post.get("question") or {}

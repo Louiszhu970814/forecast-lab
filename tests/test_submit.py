@@ -519,9 +519,13 @@ def test_cli_keeps_local_offline_and_selects_transport_for_trial(environment, mo
     assert "probability" not in capsys.readouterr().out
 
 
-def test_multiple_choice_end_to_end_and_option_reordering(environment):
+def test_multiple_choice_end_to_end_and_option_reordering(environment, monkeypatch):
+    from submit_transport import APITransport
+
     e = environment
-    e["post"]["question"].update(type="multiple_choice", options=["B", "A", "C"])
+    e["post"]["question"].update(type="multiple_choice", options=["B", "A", "C"], all_options_ever=None)
+    monkeypatch.setattr(e["transport"], "can_reconcile_forecast",
+        lambda post: APITransport.can_reconcile_forecast(e["transport"], post), raising=False)
     snap = {**snapshot_from_post(e["post"], "bot-testing-area"), "snapshot_id": "s1", "tournament_id": 32977}
     agg, _ = e["seed"](snap, p={"A": .3, "B": .2, "C": .5})
     e["post"]["question"]["options"] = ["A", "B", "C"]
@@ -533,6 +537,9 @@ def test_multiple_choice_end_to_end_and_option_reordering(environment):
     assert list(payload) == snap["options"]
     assert sum(Decimal(str(p)) for p in payload.values()) == 1
     assert payload == pytest.approx(agg["option_probabilities"], abs=.000001)
+    assert rows(e)[-1]["status"] == "comment_ok"
+    assert e["make"]().run() == {"events": 0, "statuses": {}}
+    assert [w[0] for w in e["transport"].writes] == ["forecast", "comment"]
 
 
 @pytest.mark.parametrize("operation", ["forecast", "comment"])
