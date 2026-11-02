@@ -1,6 +1,6 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.51（v1.0 凍結後的修訂，見 §16；Claude 依 D95 主持，D104 私人留言讀回修正）
+> 版本：v1.54（v1.0 凍結後的修訂，見 §16；Claude 依 D95 主持，D105 主站試驗題實作）
 > 初稿：Claude
 > 本回合整合者：Claude（D95；GPT 已完成 D82／D84～D94 的主持與交接）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
@@ -249,7 +249,7 @@
 - 有沒有報名費；有的話依 §1.1 處理。
 - 人類賽：是否允許使用 AI 輔助，以及「最終判斷須為本人」的規定（§8）。
 
-FutureEval 主賽與 MiniBench 的核對已依 Louis 提供的資源頁與正式規則完成，摘要見 `docs/tournament_checks/futureeval.md`。
+FutureEval 主賽與 MiniBench 的核對已依 Louis 提供的資源頁與正式規則完成，摘要見 `docs/tournament_checks/futureeval.md`；Louis 於 2026-11-02 核准（D106）。核准不等於列入送出白名單，切換 `live` 仍依 §3.6。
 
 ---
 
@@ -1732,10 +1732,19 @@ view_image                  stable true
 | D102 | 2026-11-02 | Louis 於桌面對話核准 D102（照建議 A）：改在 bot testing area 唯一未用過、系統支援的多選題（question 46450）做有界驗收，trial、均勻 synthetic 預測最多 1 次、私人留言最多 1 次、不重試，遇 4xx／429／unknown 即停，結束立即回 local；同時驗證請求間隔後的私人留言（D98）與歷史選項順序為 null 時的多選題送出／讀回（D99）。`v15_probe_v2` → `v15_probe_v3` | 本輪指示；GPT 實作、Claude 審查（留言屬性核對改走文件允許的列表端點）、Gemini（Argon high）審查 PASS 並修正一項 non-blocking |
 | D103 | 2026-11-02 | Louis 回報 TG 決策問題並指派 GPT 修正（D100／D101 交由 Claude 執行）。根因：D100／D101 只記錄了選項，沒有登記續作，程式也沒有喚醒桌面對話的機制；TG 常駐服務本身正常。GPT 實作 `telegram_ops_v4`／`team_chat_v2`（§5.2）。Louis 另表示多數決定在 Claude Code 對話做出，TG 只在他從 TG 詢問時用於決策 | 本輪指示；Gemini（Argon medium）審查兩項 non-blocking 修正後複查 PASS；GPT 隔離完整 1641 passed；服務已重載 |
 | D104 | 2026-11-02 | D102 實測：多選題預測 1 次讀回 found（順序也相符），私人留言 1 次由伺服器接受並附內容（無 429），但留言讀回記為 unknown。唯讀查證與官方後端原始碼確認：留言列表只在帶 `is_private=true` 時列出請求者自己的私人留言，且分頁在最後一頁後仍附 `next`，讀回因此翻完 20 個空頁。`api_transport_v5` → `api_transport_v6`：私人留言查詢加上 `is_private=true`、空頁即結束、逐筆核對 `is_private`；正式送出流程共用此讀回 | 主持人依 Louis 持續推進 M3 的指示修正；Gemini（Argon high）審查 PASS，兩項 non-blocking 已採納；unknown 的留言只做唯讀對帳，不重送 |
+| D105 | 2026-11-02 | Louis 於桌面對話核准（照建議 A）：M3 第二項的端到端改以主站題目作為持續模式的試驗題來源。bot testing area 支援的兩題都已用過；持續模式對 `main_site_questions` 會列出主站全部開放題（超過分頁上限而失敗，也會耗盡額度）。`continuous_v7` → `continuous_v8`：campaign 含主站時必須帶 `main_site_trial_v1`（每窗口最多 N≤6 題、列表最多 P≤5 頁），沿用 `m2_prepare` 的排除規則（任何 bot testing area 以外的 tournament、同步題、本地已預測題一律排除），先確保是非題與多選題各至少 1 題，選題寫入追加式帳冊、同窗口不補位 | 本輪指示；規格 `docs/tasks/M3-MAINSITE-TRIAL-D105.md`。GPT 實作、Claude 與 Gemini 審查；送出／讀回規則、prompt、模型、整合與預算不變。實際登記窗口、切 trial 與安裝 launchd 另依規格的執行計畫，launchd 安裝時 Louis 在場（D78） |
+| D106 | 2026-11-02 | Louis 於桌面對話核准 FutureEval 主賽與 MiniBench 的規則核對（§3.7，`docs/tournament_checks/futureeval.md`），滿足 §10 M3 第七項的規則核准部分。主持人另提醒：使用條款要求不要讓 AI 寄信給 Metaculus，D89 經官網 Contact Us 由 AI 代送的詢問已送出、不撤回、不重寄，之後與 Metaculus 的聯絡一律由 Louis 本人處理。該詢問的回信寄到 Louis 本人帳號的登記信箱，Louis 目前無法查看；其中多選題讀回與留言 429 已由 D99／D102 實測解決，只剩留言長度上限 | 本輪指示。送出白名單仍全為 false；切換 `live` 仍須 M3 全部通過並經 Louis 另行核准（§3.6） |
+| D107 | 2026-11-02 | Louis 指示開發階段全力衝刺，放寬專案自訂、只影響試驗場地與開發流程的限制（A1～A4；女友同意 A3 對 GPT 線額度的影響）。A1：`trial` 模式、試驗場地、機器人 311763 的有界寫入改為常設授權，主持人可直接執行：事先在凍結的計畫中固定請求上限，遵守請求間隔，遇 4xx／429 即停，unknown 只對帳不重送，結束回 `local`，事後在交接檔與 TG 回報；不再逐次請 Louis 核准（取代 D100／D102 的作法）。A2：bot testing area 允許重送，取消原 V15 probe 不加第三次留言、46450 不再寫入等自訂限制，用於留言長度上限、只補送留言與重複送出的實測（以新 probe 版本實作）。A3：提前解除 GPT 與 Gemini 第 2 層的週期熔斷（原至 UTC 11/8），以追加式解除紀錄實作，不刪歷史；D101 每週次數上限、每題 token 上限與其他保護不變。A4：審查分級，只有送出、讀回、預算、權限隔離相關的改動需要 Gemini 獨立審查，文件、報表、工具與測試由 Claude 審查 | 本輪指示。六條硬性規則、不在主賽／MiniBench 題目作答、正式參賽後不得人為介入、Cup 排除（D79）、Metaculus 使用條款，以及 launchd 安裝時 Louis 在場（D78）都不在放寬範圍 |
 
 ---
 
 ## 16. 變更紀錄
+
+- **v1.54**（2026-11-02）：D105 實作，`continuous_v7` → `continuous_v8`，新增 `main_site_trial_v1`。campaign 的 `venues` 含 `main_site_questions` 時必須帶 `main_site_trial`（每窗口最多 N 題，1～6；每次掃描最多 P 頁，1～5，每頁 50 筆），否則不得帶；舊版 campaign 含主站一律拒絕。持續模式的 Poller 在 local／trial 對主站改走有界的主站列表（`poll_questions.main_site_pages`，`m2_prepare` 改為引用，20 頁行為不變），候選須通過 `trial_membership_error`（bot testing area 以外的任何 tournament 都排除）、site_main 歸屬、`is_synced_copy`、題型、已開題、`F.eligible` 與決策截止，並排除本地任何紀錄過或被 probe 保留的題目；選題先涵蓋是非題與多選題，再依決策截止與題號補滿。新選題的決策截止至少在 150 分鐘以後（比照比賽 3 小時窗口減送出餘裕）。選題寫入追加式 `data/main_site_trial_selections.jsonl`（只存 ID、型別、時間與原因），同窗口不補位，作廢後該窗口停止新增；已選滿時只逐題刷新已選題目。候選的 project 歸屬無法辨識時跳過、不讓整輪失敗（唯讀預檢顯示主站前 250 題有 154 題屬此情況）。bot testing area、MiniBench 與 live 行為不變；送出、讀回、prompt、模型、整合與預算不變。GPT 實作，Claude 審查修改上述最後兩點，完整 1813 passed；Gemini（Argon high）獨立審查 PASS、無發現。規格 `docs/tasks/M3-MAINSITE-TRIAL-D105.md`。
+
+- **v1.53**（2026-11-02）：D106（§3.7 規則核對經 Louis 核准，§3.7 補記）與 D107（開發階段放寬 A1～A4）的決定紀錄。A2 的新 probe 版本與 A3 的熔斷解除紀錄屬程式改動，實作與審查後另行升版整合；本版不改程式。
+
+- **v1.52**（2026-11-02）：D105 決定紀錄：M3 端到端的試驗題改由持續模式選取主站題目（`continuous_v8`、`main_site_trial_v1`，規格 `docs/tasks/M3-MAINSITE-TRIAL-D105.md`）。本版只記錄決定與規格；程式待實作與審查後另行升版整合。
 
 - **v1.51**（2026-11-02）：D104，`api_transport_v5` → `api_transport_v6`：留言讀回要求凍結 payload 的 `is_private` 為 bool，私人留言查詢加上 `is_private=true`，空的結果頁視為列表結束，每筆紀錄若帶 `is_private` 必須與 payload 相同；`v15_probe` 的留言屬性核對同樣加旗標。測試以接近後端行為的假伺服器補強。D102 實測紀錄見 `docs/tasks/M3-MC-PROBE-D102.md`。
 

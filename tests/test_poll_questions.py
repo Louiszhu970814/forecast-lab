@@ -202,3 +202,25 @@ def test_client_stops_at_empty_page_even_if_next_is_set() -> None:
     client = MetaculusClient(TOKEN, opener=_opener(pages, seen))
     assert [p["id"] for p in client.list_posts(32977)] == [1]
     assert len(seen) == 2
+
+
+@pytest.mark.parametrize("limit", [1, 2, 5, 20])
+def test_shared_main_feed_stops_at_limit_without_fetching_next(limit):
+    pages = [{"results": [_post(i, i, "binary", "Synthetic")],
+              "next": f"https://www.metaculus.com/api/posts/?offset={i+1}"} for i in range(limit+1)]
+    seen = []
+    client = MetaculusClient(TOKEN, opener=_opener(pages, seen))
+    assert len(list(pq.main_site_pages(client, max_pages=limit))) == limit
+    assert len(seen) == limit
+    assert "main_feed=true" in seen[0].full_url
+
+
+@pytest.mark.parametrize("url", ["https://evil.example/api/posts/", "http://www.metaculus.com/api/posts/",
+    "https://www.metaculus.com/elsewhere/", "https://www.metaculus.com/api/../posts/",
+    "https://www.metaculus.com/api/posts/#fragment"])
+def test_shared_main_feed_rejects_unsafe_pagination(url):
+    seen = []
+    client = MetaculusClient(TOKEN, opener=_opener([{"results": POSTS[:1], "next": url}], seen))
+    with pytest.raises(MetaculusError, match="outside the API host"):
+        list(pq.main_site_pages(client, max_pages=2))
+    assert len(seen) == 1

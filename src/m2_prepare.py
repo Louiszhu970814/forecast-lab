@@ -19,29 +19,15 @@ from flab.config import load_tournaments
 from project_policy import trial_membership_error
 from metaculus import MetaculusClient
 from poll_questions import (poll, TournamentIndex, latest_snapshots, snapshot_from_post,
-                            is_synced_copy, record_snapshots)
+                            is_synced_copy, record_snapshots, main_site_pages as _main_site_pages)
 
 PREPARATION_VERSION = "m2_prepare_v5"
 MAX_MAIN_PAGES = 20
 
 
 def main_site_pages(client):
-    """Bound the candidate search; the existing GET client validates pagination URLs."""
-    page = client.get("posts/", {"main_feed": "true", "statuses": "open", "forecast_type": "binary,multiple_choice",
-                                 "limit": 50, "offset": 0, "include_description": "true"})
-    visited = set()
-    for _ in range(MAX_MAIN_PAGES):
-        if not isinstance(page, dict) or not isinstance(page.get("results"), list):
-            raise SystemExit("Unrecognized main-site page; no campaign file written")
-        yield page["results"]
-        nxt = page.get("next")
-        if not page["results"] or not nxt:
-            return
-        if not isinstance(nxt, str) or nxt in visited:
-            raise SystemExit("Invalid main-site pagination; no campaign file written")
-        visited.add(nxt)
-        if len(visited) < MAX_MAIN_PAGES:
-            page = client._get_url(nxt)
+    """Keep M2's existing twenty-page limit and public entry point."""
+    yield from _main_site_pages(client, max_pages=MAX_MAIN_PAGES)
 
 
 def prepare(attempt_cap: int, *, question_count=20, parent_campaign=None):

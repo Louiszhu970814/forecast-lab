@@ -1,5 +1,15 @@
 # 給下一個對話的接手紀錄
 
+## 2026-11-02：D105 審查中、D106 核准、D107 放寬（最新，UTC 約 13:30）
+
+**PLAN v1.53，模式 local；沒有排程。** 本段取代下一段的「M3 剩下」。
+
+1. Louis 回到電腦，桌面對話決定：D105（M3 端到端改用主站題目，照建議 A）、D106（§3.7 規則核對核准）、D107（開發階段放寬 A1～A4，女友同意 A3）。PLAN §15／§16 已記錄。
+2. D105：GPT 沙箱實作 `continuous_v8`／`main_site_trial_v1`（任務 `claudedev_1793623284147_c86b2c29`），已套進工作區（未提交）。Claude 審查修兩處：主站候選的 project 歸屬無法辨識時改為跳過（不讓整輪失敗）；新選題的決策截止至少在 150 分鐘後。完整 1813 passed。唯讀預檢：主站前 5 頁 250 題，154 題歸屬無法辨識、合格是非題 40／多選題 7。Gemini 獨立審查進行中。
+3. D107 A3（`docs/tasks/D107-A3-TIER2-BREAKER-LIFT.md`）與 A2（`docs/tasks/D107-A2-BTA-REUSE-PROBE.md`）已派 GPT 沙箱並行實作，結果在 `~/Library/Application Support/Forecast Lab/claude-dev/` 下最新的兩個任務目錄。
+4. 下一步：D105 審查通過 → 提交 → 登記 24 小時窗口（venues 只有主站、N=4、P=5、各線 40 次）→ 切 trial → Louis 在場安裝 `org.forecast-lab.cycle`。A1 已給常設授權，試驗場地的有界寫入不必再逐次請示，但 launchd 安裝仍需 Louis 在場（D78）。
+5. 留言長度上限改由 A2 實測；Metaculus 的回信 Louis 無法查看，不重寄，之後聯絡由 Louis 本人處理（D106）。
+
 ## 2026-11-02：D102 多選題有界驗收完成、D104 讀回修正（最新，UTC 約 11:55）
 
 **PLAN v1.51，模式 local；沒有背景程序、排程。** 本段取代下一段的 D102 進行中狀態。

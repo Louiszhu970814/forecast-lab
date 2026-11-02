@@ -21,6 +21,7 @@ from flab.timeutil import to_iso
 from project_policy import trial_membership_error
 from test_poll_questions import _post
 from test_submit import environment, rows, set_mode, update_cfg, NOW
+from test_cycle import policy as continuous_policy
 
 TOKEN = 'synthetic-private-token-73491'
 BOT, MAIN, MINI, SITE = 32977, 33121, 33122, 144
@@ -76,7 +77,8 @@ class HTTP:
             '/api/projects/minibenches/': self.rounds,
         }
         if url.path == '/api/posts/':
-            pid = int(urllib.parse.parse_qs(url.query)['tournaments'][0])
+            query = urllib.parse.parse_qs(url.query)
+            pid = SITE if query.get('main_feed') == ['true'] else int(query['tournaments'][0])
             return Response({'results': self.posts.get(pid, []), 'next': None})
         return Response(data[url.path])
 
@@ -190,6 +192,8 @@ def test_trial_memberships_in_poller(tmp_path, monkeypatch, kind):
     http = HTTP()
     post = copy.deepcopy(http.post)
     post['projects'] = memberships(kind)
+    post['question'].update(open_time=to_iso(NOW - timedelta(minutes=10)),
+                            scheduled_close_time=to_iso(NOW + timedelta(hours=3)))
     http.posts[SITE] = [post]
     cfg = {'tournaments': {'main': {'id': MAIN}, 'minibench': {'id': None},
                           'bot_testing_area': {'id': BOT}, 'main_site_questions': {'id': SITE}},
@@ -200,13 +204,13 @@ def test_trial_memberships_in_poller(tmp_path, monkeypatch, kind):
         http.posts[BOT] = [post]
     monkeypatch.setattr(Q, 'load_tournaments', lambda: copy.deepcopy(cfg))
     monkeypatch.setattr(Q, 'load_submit_mode', lambda: {'mode': 'trial'})
-    poller = Q.Poller(transport(http).client, tmp_path, {'venues': [venue]}, now=lambda: NOW)
-    if kind in ('missing', 'unknown', 'unknown_type'):
-        with pytest.raises(F.PreflightError, match='membership'):
-            poller()
-    else:
-        result = poller()
-        assert bool(result) is (kind in ('site', 'bot'))
+    policy = {**continuous_policy(), 'venues': [venue]}
+    if venue == 'main_site_questions':
+        policy['main_site_trial'] = {'version': Q.MAIN_SITE_VERSION, 'max_questions': 4, 'max_pages': 2}
+    poller = Q.Poller(transport(http).client, tmp_path, policy, now=lambda: NOW)
+    # D105 review: unknown main-site membership is skipped (never selected), not a cycle failure.
+    result = poller()
+    assert bool(result) is (kind in ('site', 'bot'))
     stored = read_complete(tmp_path / 'questions.jsonl')
     assert bool(stored) is (kind in ('site', 'bot'))
     if kind not in ('site', 'bot'):
@@ -321,6 +325,8 @@ def test_trial_poller_with_future_ongoing_alias_still_excludes_its_copies(tmp_pa
     http = HTTP()
     http.rounds[0]['start_date'] = to_iso(NOW + timedelta(hours=8))
     http.post['projects'] = memberships('site')
+    http.post['question'].update(open_time=to_iso(NOW - timedelta(minutes=10)),
+                                scheduled_close_time=to_iso(NOW + timedelta(hours=3)))
     http.posts[SITE] = [http.post]
     if synced:
         http.posts[MINI] = [_post(22, 32, 'binary', http.post['title'])]
@@ -329,7 +335,9 @@ def test_trial_poller_with_future_ongoing_alias_still_excludes_its_copies(tmp_pa
            'trial_ground_types': ['bot_testing_area', 'main_site_questions']}
     monkeypatch.setattr(Q, 'load_tournaments', lambda: copy.deepcopy(cfg))
     monkeypatch.setattr(Q, 'load_submit_mode', lambda: {'mode': 'local'})
-    result = Q.Poller(transport(http).client, tmp_path, {'venues': ['main_site_questions']}, now=lambda: NOW)()
+    policy = {**continuous_policy(), 'venues': ['main_site_questions'],
+              'main_site_trial': {'version': Q.MAIN_SITE_VERSION, 'max_questions': 4, 'max_pages': 2}}
+    result = Q.Poller(transport(http).client, tmp_path, policy, now=lambda: NOW)()
     assert bool(result) is not synced
     assert bool(read_complete(tmp_path / 'questions.jsonl')) is not synced
 

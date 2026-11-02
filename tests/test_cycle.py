@@ -519,14 +519,18 @@ def test_tree_cleanup_failure_still_kills_stopped_worker(monkeypatch):
     assert (100, signal.SIGKILL) in signals
 
 
-def test_multiple_trial_venues_do_not_create_false_revisions(fake_api, tmp_path):
+def test_multiple_trial_venues_do_not_create_false_revisions(fake_api, tmp_path, monkeypatch):
     client, cfg = fake_api
     cfg["trial_ground_types"].append("main_site_questions")
     cfg["tournaments"]["main_site_questions"] = {"id": 40000, "submit_whitelisted": False}
     client.posts[40000] = copy.deepcopy(client.posts[32977][1:])
     for post in client.posts[32977][1:] + client.posts[40000]:
         post["projects"]["site_main"] = [{"id": 40000}]
-    poller = Q.Poller(client, tmp_path, {**policy(), "venues": ["main_site_questions", "bot_testing_area"]}, now=lambda: NOW)
+    original_get = client.get
+    monkeypatch.setattr(client, "get", lambda path, params=None:
+                        {"results": client.posts[40000], "next": None} if path == "posts/" else original_get(path))
+    poller = Q.Poller(client, tmp_path, {**policy(), "venues": ["main_site_questions", "bot_testing_area"],
+        "main_site_trial": {"version": Q.MAIN_SITE_VERSION, "max_questions": 4, "max_pages": 1}}, now=lambda: NOW)
     first, second = poller(), poller()
     assert set(first) == set(second) == {21, 22}
     assert all(first[q]["snapshot_id"] == second[q]["snapshot_id"] for q in first)

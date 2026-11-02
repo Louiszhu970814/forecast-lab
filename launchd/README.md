@@ -12,12 +12,22 @@ supervisor 的硬上限 = 510 秒准入窗口 + 單一工作最壞耗時 + 120 �
 
 持續題集需要事先準備 `config/cycle_campaign.json`（不含憑證）；不沿用 M2 的 64 次量測值作預設。欄位如下：
 
-- `version`: `continuous_v2`；`campaign_id`: 唯一字串。
+- `version`: `continuous_v8`；`campaign_id`: 唯一字串。
 - `venues`: 已允許的場地名稱清單。local/trial 僅允許 `trial_ground_types`；live 每場都須 `submit_whitelisted`。
 - `budget_window_start`／`budget_window_end`: UTC ISO 8601，有效窗口最多七天。
 - `weekly_attempt_caps`: claude、gemini、gpt 各線明確正整數上限，包含舊嘗試與驗收；不得高於 quota policy 已設定上限。
 - `expected_new_questions`、`repair_reserve`、`urgent_slack_s`: 事先固定的非負整數；前兩項為第 1 層與修復保留容量。
 - `run_config_sha256`／`quota_policy_sha256`: 使用 `flab.ids.hash_obj` 計算目前設定的 hash。
+
+local／trial 的 `venues` 包含 `main_site_questions` 時，必須使用 `continuous_v8`，並加上
+`"main_site_trial": {"version": "main_site_trial_v1", "max_questions": 4, "max_pages": 5}`。
+`max_questions` 是每窗口最多 1～6 題，`max_pages` 是每次主站掃描最多 1～5 頁（每頁 50 筆），兩者只接受整數。
+不含主站場地時不得帶此欄位。選題先涵蓋 binary、multiple_choice，再依決策截止與題號排序；
+N=1 時依上述順序優先 binary。已選滿只刷新已選題；作廢仍占名額，而且該窗口停止新增，不補位。
+選題帳冊 `data/main_site_trial_selections.jsonl` 僅追加 ID、型別、時間與原因；跨窗口不重選。
+若追加中斷留下不完整 JSONL 行，拒絕繼續選題，交由人工檢查帳冊。
+有限週系列沿用 `rollover: {"version": "weekly_rollover_v1", "windows": K}`，起始窗口必須恰為七天，
+每個解析後的週窗口各自計算題數上限。未使用主站的既有 v7 系列維持相容；live 的場地白名單不變。
 
 政策首次登記後不能修改。同名窗口不可變動，異名窗口不可重疊；到期即停止模型工作，不自動增加上限或續期。下一窗口須在看輸出前設定。原本的 `budget.py` 繼續管理每次嘗試、token、Argon 及保留線。此處不提供會改寫送出設定的命令。
 

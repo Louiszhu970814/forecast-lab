@@ -1,8 +1,9 @@
-"""Append-only snapshot queue and bounded campaign registration for continuous_v7."""
+"""Append-only snapshot queue and bounded campaign registration for continuous_v8."""
 from __future__ import annotations
 
 import copy
 import threading
+from collections import Counter
 from datetime import timedelta
 from pathlib import Path
 
@@ -14,18 +15,39 @@ from flab.jsonl import append_record
 from flab.ledger import read_complete, transaction
 from flab.timeutil import parse_iso, to_iso, utc_now
 from m2_campaign import discover_tournaments
-from poll_questions import TournamentIndex, latest_snapshots, poll
-from project_policy import MEMBERSHIP_UNKNOWN
+from poll_questions import (TournamentIndex, latest_snapshots, poll, main_site_pages,
+                            snapshot_from_post, is_synced_copy, record_snapshots)
+from project_policy import MEMBERSHIP_UNKNOWN, trial_membership_error
+from submit import probe_reservations
+from submit_contract import own_forecast_records
 
-VERSION = "continuous_v7"
+VERSION = "continuous_v8"
+MAIN_SITE_VERSION = "main_site_trial_v1"
+# Competition questions are open three hours; a new main-site pick must leave at least
+# that window minus the run_config submit margins (20 + 5 minutes) before its deadline.
+MIN_SELECTION_LEAD = timedelta(minutes=150)
 ROLLOVER_VERSION = "weekly_rollover_v1"
 STRUCTURAL = ("question_type", "options", "scheduled_close_time", "post_id", "tournament_id")
 
 
+def validate_main_site_policy(policy):
+    if "main_site_questions" not in policy.get("venues", []):
+        if "main_site_trial" in policy:
+            raise ValueError("main_site_trial requires main_site_questions")
+        return
+    setting = policy.get("main_site_trial")
+    if policy.get("version") != VERSION or not isinstance(setting, dict) or \
+            set(setting) != {"version", "max_questions", "max_pages"} or \
+            setting["version"] != MAIN_SITE_VERSION or \
+            type(setting["max_questions"]) is not int or not 1 <= setting["max_questions"] <= 6 or \
+            type(setting["max_pages"]) is not int or not 1 <= setting["max_pages"] <= 5:
+        raise ValueError("continuous_v8 requires bounded main_site_trial_v1 policy")
+
+
 def register(root: Path, policy: dict, *, now=utc_now):
     """Freeze an explicit budget window and venue selection before polling any outputs."""
-    if policy.get("version") not in ("continuous_v2", "continuous_v3", "continuous_v4", "continuous_v5", "continuous_v6", VERSION) or not isinstance(policy.get("campaign_id"), str) or not policy["campaign_id"]:
-        raise ValueError("continuous_v2 through continuous_v7 campaign identity required")
+    if policy.get("version") not in ("continuous_v2", "continuous_v3", "continuous_v4", "continuous_v5", "continuous_v6", "continuous_v7", VERSION) or not isinstance(policy.get("campaign_id"), str) or not policy["campaign_id"]:
+        raise ValueError("continuous_v2 through continuous_v8 campaign identity required")
     if "rollover" in policy:
         raise ValueError("resolve the rollover template before registering a window")
     start, end = parse_iso(policy["budget_window_start"]), parse_iso(policy["budget_window_end"])
@@ -45,6 +67,7 @@ def register(root: Path, policy: dict, *, now=utc_now):
     if not isinstance(venues, list) or not venues or len(set(venues)) != len(venues) \
             or any(v not in ("main", "minibench", "bot_testing_area", "metaculus_cup", "main_site_questions") for v in venues):
         raise ValueError("explicit known venues required")
+    validate_main_site_policy(policy)
     if policy.get("run_config_sha256") != hash_obj(load_run_config()) or policy.get("quota_policy_sha256") != hash_obj(load_quota_policy()):
         raise ValueError("continuous policy must pin current configuration")
     with transaction(root):
@@ -74,7 +97,7 @@ def active_campaign(root: Path, template: dict, *, now=utc_now) -> dict:
         register(root, template, now=now)
         return copy.deepcopy(template)
     setting = template["rollover"]
-    if template.get("version") != VERSION or not isinstance(setting, dict) or \
+    if template.get("version") not in ("continuous_v7", VERSION) or not isinstance(setting, dict) or \
             set(setting) != {"version", "windows"} or setting["version"] != ROLLOVER_VERSION or \
             type(setting["windows"]) is not int or setting["windows"] < 1:
         raise ValueError("explicit finite weekly rollover required")
@@ -160,6 +183,7 @@ class Poller:
         self.records = []
 
     def __call__(self):
+        validate_main_site_policy(self.policy)
         cfg = load_tournaments()
         mode = load_submit_mode()["mode"]
         if mode != "live" or "minibench" in self.policy["venues"]:
@@ -186,6 +210,15 @@ class Poller:
                    for pid in (cfg["ongoing_minibench_ids"] if mode == "live" and v == "minibench"
                                else [entries[v]["id"]])]
         for venue, project in targets:
+            if venue == "main_site_questions" and mode in ("local", "trial"):
+                # The CLI passes the original template, so resolve the window here
+                # too. The ledger must use the week ID, never the series ID.
+                campaign = active_campaign(self.root, self.policy, now=self.now)
+                selected, rec = self._main_site(campaign, project, entries["bot_testing_area"]["id"],
+                                                index, set(current))
+                records.append(rec)
+                current.update(selected)
+                continue
             rec = poll(self.client, project, questions_log=self.root / "questions.jsonl",
                        poll_log=self.root / "poll_log.jsonl", exclude=index, seen_question_ids=set(current),
                        trial_bot_project_id=entries["bot_testing_area"]["id"] if mode != "live" else None)
@@ -206,6 +239,152 @@ class Poller:
                                     "priority": "minibench" if venue == "minibench" else "main"}
         self.records.extend(records)
         return current
+
+    def _main_site(self, campaign, project, bot_project, index, seen):
+        path = self.root / "main_site_trial_selections.jsonl"
+        limit = campaign["main_site_trial"]["max_questions"]
+        identity = campaign["campaign_id"]
+        with transaction(self.root):
+            before = read_complete(path)
+        selected = {r["question_id"]: r for r in before
+                    if r["type"] == "main_site_trial_selected" and r["campaign_id"] == identity}
+        dropped = {r["question_id"] for r in before
+                   if r["type"] == "main_site_trial_dropped" and r["campaign_id"] == identity}
+        if len(selected) > limit:
+            raise F.PreflightError("main-site selection limit exceeded")
+        # Network work stays outside the ledger lock. A concurrent selection
+        # invalidates this observation and is retried by the next cycle.
+        refreshed = {qid: self.client.get_post(row["post_id"]) for qid, row in selected.items()
+                     if qid not in dropped}
+        pages = []
+        if len(selected) < limit and not dropped:
+            try:
+                pages = list(main_site_pages(self.client, max_pages=campaign["main_site_trial"]["max_pages"],
+                                             validate_next_at_limit=True))
+            except SystemExit:
+                raise F.PreflightError("invalid main-site pagination") from None
+        with transaction(self.root):
+            if read_complete(path) != before:
+                raise F.PreflightError("main-site selections changed during refresh")
+            observed = self.now()
+            if not parse_iso(campaign["budget_window_start"]) <= observed < parse_iso(campaign["budget_window_end"]):
+                raise F.PreflightError("main-site window is inactive")
+            cfg = load_run_config()
+            previous = {r.get("question_id") for name in
+                        ("forecasts.jsonl", "forecast_attempt_starts.jsonl", "submissions.jsonl")
+                        for r in read_complete(self.root / name)}
+            previous.update(q["question_id"] for r in read_complete(self.root / "campaigns.jsonl")
+                            for q in r.get("campaign", {}).get("questions", []))
+            previous.update(qid for _, qid, _ in probe_reservations(self.root))
+            previous.update(r["question_id"] for r in before)
+            reasons, valid, pool = Counter(), {}, {}
+            newly_dropped = {}
+            for qid, post in refreshed.items():
+                snap, reason = self._main_site_snapshot(post, project, bot_project, index, cfg, observed)
+                if reason is None and (snap["question_id"] != qid or snap["post_id"] != selected[qid]["post_id"]):
+                    reason = "selected identity changed"
+                if reason:
+                    newly_dropped[qid] = reason
+                    reasons[reason] += 1
+                else:
+                    valid[qid] = snap
+            for posts in pages:
+                for post in posts:
+                    snap, reason = self._main_site_snapshot(post, project, bot_project, index, cfg, observed)
+                    if reason is None:
+                        qid = snap["question_id"]
+                        if qid in previous:
+                            reason = "previously recorded or reserved"
+                        elif qid in seen:
+                            reason = "already polled through another allowed venue"
+                        elif qid in pool:
+                            reason = "duplicate candidate"
+                        elif F.decision_deadline(snap, cfg) < observed + MIN_SELECTION_LEAD:
+                            # New picks get at least a competition-length window to finish.
+                            reason = "decision deadline too soon for a new selection"
+                        else:
+                            try:
+                                if own_forecast_records(post):
+                                    reason = "platform forecast already exists"
+                            except ValueError:
+                                pass  # Missing/unknown history still requires submit's platform check.
+                    if reason:
+                        reasons[reason] += 1
+                    else:
+                        pool[qid] = snap
+            for qid, reason in newly_dropped.items():
+                append_record(path, {"type": "main_site_trial_dropped", "campaign_id": identity,
+                    "question_id": qid, "reason": reason, "at": to_iso(observed)})
+            rec = {"type": "main_site_trial_poll", "version": MAIN_SITE_VERSION,
+                   "campaign_id": identity, "tournament_id": project, "polled_at": to_iso(observed),
+                   "pages": len(pages), "n_posts": sum(map(len, pages)), "reasons": dict(reasons)}
+            append_record(self.root / "poll_log.jsonl", rec)
+            # Unknown membership is never selected (a selected post with unknown membership is
+            # dropped above). Skipping, not failing the cycle, keeps one unrecognized post in a
+            # large main feed from blocking every later cycle; m2_prepare skips the same way.
+            # A dropped slot is never reused. Conservatively stop all additions
+            # after a drop, even if an earlier scan did not fill the window.
+            additions = []
+            if not dropped and not newly_dropped:
+                ordered = sorted(pool.values(), key=lambda s: (F.decision_deadline(s, cfg), s["question_id"]))
+                covered = {r["question_type"] for r in selected.values()}
+                for kind in ("binary", "multiple_choice"):
+                    if len(selected) + len(additions) < limit and kind not in covered:
+                        candidate = next((s for s in ordered if s["question_type"] == kind), None)
+                        if candidate is not None:
+                            additions.append(candidate)
+                for snap in ordered:
+                    if len(selected) + len(additions) >= limit:
+                        break
+                    if snap not in additions:
+                        additions.append(snap)
+            for snap in additions:
+                qid = snap["question_id"]
+                append_record(path, {"type": "main_site_trial_selected", "version": MAIN_SITE_VERSION,
+                    "campaign_id": identity, "question_id": qid, "post_id": snap["post_id"],
+                    "question_type": snap["question_type"],
+                    "decision_deadline": to_iso(F.decision_deadline(snap, cfg)), "selected_at": to_iso(observed)})
+                valid[qid] = snap
+            # Persist reservations before snapshots; a crash between these writes
+            # re-fetches the reserved post without consuming another slot.
+            record_snapshots((snap for qid, snap in valid.items() if qid not in seen),
+                             log=self.root / "questions.jsonl", now=to_iso(observed))
+            saved = latest_snapshots(self.root / "questions.jsonl")
+            return {qid: {**saved[qid], **snap, "status": "open", "ground": "main_site_questions",
+                          "priority": "main"} for qid, snap in valid.items() if qid not in seen}, rec
+
+    @staticmethod
+    def _main_site_snapshot(post, project, bot_project, index, cfg, observed):
+        """Validate without persisting candidate content or remote error text."""
+        if not isinstance(post, dict):
+            return None, "unrecognized main-site post"
+        reason = trial_membership_error(post, bot_project)
+        if reason:
+            return None, reason
+        if any(post.get(k) is not None for k in ("group_of_questions", "conditional", "notebook")):
+            return None, "not a single-question post"
+        snap = snapshot_from_post(post, "main_site_questions")
+        if snap is None or any(type(snap[k]) is not int or snap[k] <= 0 for k in ("question_id", "post_id")):
+            return None, "invalid single-question identity"
+        if snap["question_type"] not in ("binary", "multiple_choice"):
+            return None, "unsupported_type"
+        if project not in snap["project_ids"]:
+            return None, "post does not belong to main site"
+        reason = is_synced_copy(snap, index)
+        if reason:
+            return None, reason
+        if snap["status"] != "open":
+            return None, "question is not open"
+        try:
+            if not snap["open_time"] or parse_iso(snap["open_time"]) > observed:
+                return None, "open time missing or in the future"
+            reason = F.eligible(snap, cfg, observed)
+            if reason or F.decision_deadline(snap, cfg) is None:
+                return None, reason or "decision deadline unavailable"
+        except (TypeError, ValueError):
+            return None, "invalid question timing"
+        snap["tournament_id"] = project
+        return snap, None
 
 
 def committed_questions(root: Path) -> set[int]:

@@ -16,6 +16,7 @@ import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Iterable
+from urllib.parse import urlsplit, unquote
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -25,7 +26,7 @@ from flab.ids import hash_obj, new_id, sha256_hex  # noqa: E402
 from flab.jsonl import append_record, read_records  # noqa: E402
 from flab.timeutil import to_iso, utc_now, parse_iso  # noqa: E402
 from flab.workdir import PROJECT_ROOT  # noqa: E402
-from metaculus import MetaculusClient  # noqa: E402
+from metaculus import API_BASE, MetaculusClient  # noqa: E402
 from project_policy import trial_membership_error, VERSION as PROJECT_POLICY_VERSION  # noqa: E402
 
 QUESTIONS_LOG = PROJECT_ROOT / "data" / "questions.jsonl"
@@ -34,6 +35,41 @@ SUPPORTED_TYPES = ("binary", "multiple_choice")       # numeric and discrete com
 CONTENT_FIELDS = ("type", "title", "description", "resolution_criteria", "fine_print", "options")
 TIME_FIELDS = ("open_time", "scheduled_close_time", "scheduled_resolve_time")
 METADATA_VERSION = "exclusion_metadata_v2"
+
+
+def main_site_pages(client, *, max_pages=20, validate_next_at_limit=False):
+    """Bound main-feed discovery; optionally validate even the unfollowed final URL.
+
+    The default preserves M2's existing pagination behavior. Continuous selection
+    additionally rejects unsafe links at the limit without issuing another GET.
+    """
+    if type(max_pages) is not int or max_pages < 1:
+        raise ValueError("positive main-site page limit required")
+    page = client.get("posts/", {"main_feed": "true", "statuses": "open", "forecast_type": "binary,multiple_choice",
+                                 "limit": 50, "offset": 0, "include_description": "true"})
+    visited = set()
+    for _ in range(max_pages):
+        if not isinstance(page, dict) or not isinstance(page.get("results"), list):
+            raise SystemExit("Unrecognized main-site page; no campaign file written")
+        yield page["results"]
+        nxt = page.get("next")
+        if not page["results"] or not nxt:
+            return
+        if not isinstance(nxt, str) or nxt in visited:
+            raise SystemExit("Invalid main-site pagination; no campaign file written")
+        visited.add(nxt)
+        if len(visited) < max_pages:
+            page = client._get_url(nxt)
+        elif validate_next_at_limit:
+            try:
+                parts = urlsplit(nxt)
+                base = urlsplit(getattr(client, "_base", API_BASE))
+                if parts.scheme != "https" or parts.netloc != base.netloc or parts.fragment \
+                        or not parts.path.startswith(base.path.rstrip("/") + "/") \
+                        or ".." in unquote(parts.path).split("/"):
+                    raise ValueError("unsafe next URL")
+            except ValueError:
+                raise SystemExit("Invalid main-site pagination; no campaign file written") from None
 
 
 def safe_remote_id(value):
