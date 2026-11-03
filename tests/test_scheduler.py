@@ -36,8 +36,12 @@ class Adapter:
             self.tracker["active"].add(self.player)
             self.tracker["max"] = max(self.tracker["max"], len(self.tracker["active"]))
             self.tracker["calls"].append((self.player, req.profile, req.schema["properties"]["question_id"]["const"]))
-        time.sleep(.005)
         qid = req.schema["properties"]["question_id"]["const"]
+        barrier = self.tracker.get('first_wave')
+        if barrier is not None and req.profile == 'tier1' and qid == 100:
+            barrier.wait(timeout=5)
+        else:
+            time.sleep(.005)
         probability = {"claude": .2, "gemini": .8, "gpt": .5}[self.player] if req.profile == "tier1" else .5
         output = _good(question_id=qid, probability=probability, change_reason="The verified evidence resolves the dispute." if req.profile == "tier2" else None)
         (req.raw_dir / "stdout.jsonl").write_text("{}\n")
@@ -82,6 +86,8 @@ def environment(tmp_path, monkeypatch):
 
 def test_three_lines_parallel_breadth_first_then_tier2_and_comments(environment):
     scheduler, _, tracker, counter = environment()
+    # Require real overlap without assuming the OS schedules three threads in 5 ms.
+    tracker['first_wave'] = threading.Barrier(3)
     result = scheduler.run()
     assert result["jobs_completed"] == 12 and result["paused_players"] == []
     assert tracker["max"] == 3

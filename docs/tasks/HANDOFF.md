@@ -1,5 +1,51 @@
 # 給下一個對話的接手紀錄
 
+## D124 維護與 observe 已上線（UTC 2026-11-03 13:10，PLAN v1.77）
+
+GPT 接手主持後完成隔離實作；Claude 親自完整審查曾提出六項阻擋，修正後 Claude／Gemini 最終兩批均 PASS。完整隔離 **2789 passed**，相關恢復／額度 **302 passed**。正式部署 12 檔與受審及測試 SHA 完全相同；固定設定、M5 開關、adapters／runner／netguard 不變。原 e76f1fc 已 push；本批 commit／push 狀態見最新進度，不從這段推定。
+
+- UTC 13:06：六鎖互斥套用 autoload_v2、autoload_maintenance_v1、forecast_pipeline_v8，含寫前意圖、衝突保留、崩潰／主持人結案、未結案前檢。
+- 單次實測 run `autoload_1793711226166_c2e156fc`：三線各一次；全域檔案完整還原、restore_failures=[]、manifest closed，受保護項相符、三線兩層六項前檢全過，STOP_SUBMIT 不存在。
+- **量測不是 PASS**：GPT completed=true、工具零呼叫／零違規，但既有 adapter 的 reported_model_id=None、model_check=unverified。整批維持 measurement_failed，沒有重跑，也沒有核准基準或重新分類。Claude 個人 skill 標記記 not_loaded，GPT 指示／skill 記 loaded，其餘多為 unknown；都不可藉此略過證據限制。
+- UTC 13:10：互斥套用 auto_reaccept_v1 **observe** 與 run.sh 週期後單一接點（上限 120 秒），只記候選雜湊／格式代碼，沒有 enforce 或自動驗收／核准功能。部署後自然 cycle_1793711623971_6626bb2a 於 UTC 13:15:09 complete、三線 ready、errors 空；其後 observe 三線 no_candidate、model_calls=0，接點已確認。
+- 新 numeric 題 46655 已由原排程完成；預測 reconciled=true、私人留言獨立讀回 found，各 POST 一次。沒有讀取任何開放題的預測內容。
+
+證據：`reviews/claude-d124-final-code-review.md`、`reviews/gemini-d124-final-code-review.md`、`docs/tasks/D124-BATCH2-OPERATIONS.md`；ignored 操作與備份在 `data/operations/d124-batch2-20261103/`。
+
+下一批：依 D121 C 繼續真正自動重驗的預算／24 小時限制／候選與驗收精確綁定，另經雙審後開放；先處理 GPT 模型身分證據的限制，不能偷換測試標準或擅自增加這批模型次數。CLI 升版或載入來源重新分類另案，不在本批自動處理。
+
+## D124 期間：首筆正式 numeric 讀回完成（UTC 2026-11-03 13:03:43）
+
+既有 live 排程自然處理新 numeric 題 46655；三線第一層 valid，forecast_ok reconciled=true，私人留言 comment_ok 且獨立讀回 found。forecast/comment 各只有 1 筆 request_started，無重送；沒有查看題目輸出、機率或理由。週期 cycle_1793710573121_efff37b8 完成（attention、errors 空）；最新唯讀檢查無未結模型／平台請求。D124 程式仍在隔離副本，2789 passed，Gemini 最終雙批 PASS，Claude 最終複審進行中。
+
+## D124 第二批已開工（2026-11-03T12:12Z，PLAN v1.75）
+
+Louis 回覆「今晚就開工如何 目前似乎題目較少該預測的都預測完了」，已接受今晚開始 R2-C／R12 與載入實測的維護時段，不再等待時段確認。
+
+- GPT 已接手、確認無未完成模型嘗試／送出請求，建立無正式資料的隔離副本 `~/Library/Application Support/Forecast Lab/gpt-dev/d124-batch2-20261103/work`。
+- Claude Opus 5.5 high 於 12:12:06Z 由官方 CLI 開始規格定稿，工具關閉、上限 15 分鐘。紀錄 `data/operations/d124-batch2-20261103/reviews.jsonl`，輸出在同目錄 `claude-spec-r1/`。接手時查實際結果，不由本段推定已通過。
+- GPT 同時執行隔離副本基線回歸。現有 `autoload.Placement.restore()` 可能覆蓋外來修改，需先修復並加入還原衝突測試；全域 canary 尚未放入。
+- 後續：Claude 規格 → Gemini 獨立審查 → 隔離實作／完整回歸 → Gemini 與 Claude 親自完整審查 → 空檔互斥套用／載入實測／還原前檢。新題由既有排程先做，不中止在途工作。
+- 正式第二批尚未套用。固定設定、adapters／runner／netguard 與 D118 截止不變。Claude 額度不足仍延後其審查，不找其他模型替代。
+
+## GPT 已接手並完成首輪核對（2026-11-03T12:00Z，PLAN v1.74）
+
+Louis 在本對話要求讀交接繼續任務，並表示可以先 push。GPT 已讀最新 PLAN／D121～D123、查詢 TG 決定，並將既有提交 `e76f1fc` 成功 push 到 `origin/main`。
+
+**營運核對**
+- 自然排程 `cycle_1793707118939_284e6d42`：11:58:38.934Z～11:59:58.018Z，`complete`、`errors=[]`，Claude／Gemini／GPT 全部 ready；本輪沒有新增待答題與 POST。
+- D118 目前四題 46647／46648／46653／46654 的預測與留言各一次 POST；四筆預測全部 `forecast_ok` 且 `reconciled=true`，四筆留言全部 `comment_ok` 且獨立讀回 `found`。按 request ID 取末態，未對帳 unknown 與未完成 request 均為 0。
+- M5 第一題離散題 46654 的留言讀回時間為 11:48:37.721Z。正式 numeric 題的第一筆讀回仍待既有排程產生；試驗場地的合成 numeric 證據不能冒充正式數值題。
+- 無 `STOP_SUBMIT`。M5 兩個開關開啟，六份執行設定與接手初查 SHA-256 相同；正式程式未修改。
+- 證據只含 ID／狀態／計數／時間：`data/operations/gpt-takeover-20261103/observations.jsonl`。未讀取或顯示開放題答案／理由，未做 API 寫入或額外模型呼叫。
+
+**第二批準備**
+- 新增 [D121-BATCH2-PREPARATION.md](D121-BATCH2-PREPARATION.md)：已核准 R2-C 的範圍、舊載入證據、12 個 canary 目標的唯讀盤點、R12 接點、還原與測試清單。這是待定稿準備筆記，尚未實作或送審。
+- 已在桌面詢問 Louis 實測時段，尚未收到回覆；沒有放入 canary，也沒有變更全域檔案。R2 的 C 方向已核准，不必重問。
+- 下一步：持續按既有排程核對 numeric／discrete 讀回；第二批由 Claude 定稿、GPT 隔離實作、Gemini 獨立審查與 Claude 親自完整審查，再依已約定的時段驗證及互斥套用。11/10 設定遷移及舊暫存目錄清理仍在待辦。
+
+**監看與版本狀態**：本次桌面唯讀核對已完成；未新增背景 watcher，既有 cycle／TG LaunchAgent 繼續。本段與第二批準備筆記尚未 commit；原 `e76f1fc` 已 push。PLAN 仍 v1.74，預測行為未改。以下保留前任主持人的歷史交接。
+
 ## 交接給 GPT 主持（UTC 11:58，PLAN v1.74）
 
 Louis 指示：「commit 一下 可以把監控停了接下來就交給gpt接手了」。Claude 已停止背景監看，本輪全部改動已 commit（未 push）。GPT 接手主持，依 D91 先執行 `.venv/bin/python src/project_control.py status`，再讀下方「M5 已上線」與 PLAN v1.72～v1.74、D121～D123。

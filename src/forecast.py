@@ -53,7 +53,7 @@ LOCK_PATH = DATA / "forecast.lock"
 PROMPTS = PROJECT_ROOT / "prompts"
 PROMPT_VERSION = "forecast_v2"
 REPAIR_PROMPT_VERSION = "repair_v1"
-PIPELINE_VERSION = "forecast_pipeline_v7"
+PIPELINE_VERSION = "forecast_pipeline_v8"
 QUOTA_BACKOFF_S = 1800  # V5 reset-time formats are not yet measured; use the §7.5 fixed fallback.
 RERUN_ERRORS = ("quota_exhausted", "timeout", "tool_denied", "cli_error", "interrupted", "model_mismatch")
 # Mismatches recorded before D121 keep their hard-stop meaning. Every later pipeline
@@ -273,6 +273,10 @@ def preflight(player: str, *, cfg: dict[str, Any] | None = None, allow_unapprove
     cfg = cfg or load_run_config()
     recover_acceptance(acceptance_log, player, cfg)
     pf = Preflight(player, tier=tier)
+    import autoload
+    if autoload.unclosed(acceptance_log):
+        pf.problems.append("autoload_unclosed: global markers may remain; maintenance recovery required")
+        return pf
     if tier == 2 and cfg["players"][player]["tier2"].get("subagents_enabled") is not False:
         pf.problems.append("tier-2 subagents are not enabled by this pipeline")
     enabled = players_enabled if players_enabled is not None else load_players_enabled()

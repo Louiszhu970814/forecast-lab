@@ -415,6 +415,7 @@ def test_forecast_unknown_snapshot_records_fixed_reason_without_nan(env, tmp_pat
 def test_manual_entrypoints_accept_both_layouts(tmp_path, monkeypatch, layout, gate):
     before = _qsnap(.9) if layout == "legacy" else ultra()
     monkeypatch.setattr(quota, "snapshot", lambda **kw: before)
+    monkeypatch.setattr(autoload, "utc_now", lambda: NOW)
     log = tmp_path / "acceptance.jsonl"
     if gate == "acceptance":
         monkeypatch.setattr(acceptance, "ACCEPTANCE_LOG", log)

@@ -45,7 +45,8 @@ def fx(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
 def _result(req: AdapterRequest, **kw) -> AdapterResult:
     args = dict(argv=["fake"], run=None, cli_version="fake-1", completed=True,
                 final_text="NONE", structured={"text": "NONE"}, reported_model_id=req.model,
-                model_check="verified", usage_raw=None)
+                model_check="verified", usage_raw={"log_model_check":"verified"}, tool_call_counts={},
+                declared={"mcp_servers":[],"skills":[],"slash_commands":[],"plugins":[]})
     return AdapterResult(**(args | kw))
 
 
@@ -128,8 +129,9 @@ def test_preflight_refuses_entire_test_on_unsafe_target(fx, kind):
     rec = auto.run(**fx.kwargs, executor=lambda req: pytest.fail("model called"))
     assert not rec["passed"] and rec["restore_ok"]
     assert not (fx.home / ".claude").exists()
-    assert not (fx.data / "autoload_backups").exists()
-    assert rec["errors"] and read_records(fx.data / "acceptance.jsonl") == [rec]
+    assert [r['type'] for r in read_records(Path(rec['backup_dir'])/'manifest.jsonl')] == ['closed']
+    assert rec["errors"] and read_records(fx.data / "acceptance.jsonl")[-1] == rec
+    assert not auto.unclosed(fx.data/'acceptance.jsonl')
 
 
 def test_existing_bytes_appended_then_restored_and_new_directories_removed(fx):
@@ -188,7 +190,7 @@ def test_execution_exception_still_restores_and_records(fx, exc):
     assert [r["player"] for r in rows if r["type"] == "acceptance_call_started"] == ["claude"]
 
 
-def test_placement_failure_rolls_back_partial_writes(fx, monkeypatch):
+def test_partial_write_is_preserved_as_conflict_and_blocks_preflight(fx, monkeypatch):
     write = auto._write
     count = 0
 
@@ -203,8 +205,13 @@ def test_placement_failure_rolls_back_partial_writes(fx, monkeypatch):
 
     monkeypatch.setattr(auto, "_write", fail)
     rec = auto.run(**fx.kwargs, executor=lambda req: pytest.fail("model called"))
-    assert rec["restore_ok"] and not rec["passed"]
-    assert list(fx.home.iterdir()) == [] and list(fx.base.parent.iterdir()) == []
+    assert not rec["restore_ok"] and not rec["passed"]
+    assert any(r.get('reason') == 'restore_conflict' for r in rec['restore_failures'])
+    assert auto.unclosed(fx.data/'acceptance.jsonl') == [rec['run_id']]
+    assert next(fx.home.rglob('SKILL.md')).read_bytes() == b'---\nname: '
+    import forecast
+    pf = forecast.preflight('gpt',acceptance_log=fx.data/'acceptance.jsonl')
+    assert not pf.ok and any('autoload_unclosed' in s for s in pf.problems)
 
 
 @pytest.mark.parametrize("corrupt", ["write", "hash", "delete", "directory", "symlink"])
@@ -212,7 +219,7 @@ def test_restore_failure_records_recovery_and_cli_exit(fx, monkeypatch, capsys, 
     original = fx.home / ".claude" / "CLAUDE.md"
     original.parent.mkdir()
     original.write_text("original fake")
-    real_write = auto._write
+    real_truncate = os.ftruncate
     real_unlink = Path.unlink
     loaded = _loaded_executor(fx)
 
@@ -220,13 +227,13 @@ def test_restore_failure_records_recovery_and_cli_exit(fx, monkeypatch, capsys, 
         result = loaded(req)
         if req.player == "gpt":
             if corrupt in ("write", "hash"):
-                def damaged(path, content, **kw):
-                    if path == original and not kw.get("append"):
+                def damaged(fd, size):
+                    if os.fstat(fd).st_ino == original.stat().st_ino:
                         if corrupt == "write":
                             raise OSError("restore write failed")
-                        content = b"bad hash"
-                    real_write(path, content, **kw)
-                monkeypatch.setattr(auto, "_write", damaged)
+                        size = 1
+                    real_truncate(fd, size)
+                monkeypatch.setattr(os, "ftruncate", damaged)
             elif corrupt == "delete":
                 monkeypatch.setattr(Path, "unlink", lambda p, **kw: None if p == fx.base.parent / "AGENTS.md"
                                     else real_unlink(p, **kw))
@@ -237,9 +244,7 @@ def test_restore_failure_records_recovery_and_cli_exit(fx, monkeypatch, capsys, 
                 original.symlink_to(fx.home / "untouched")
         return result
 
-    run = auto.run
-    monkeypatch.setattr(auto, "run", lambda **kw: run(**(fx.kwargs | kw), executor=execute))
-    assert auto.main(["run", "--approved-by", "Louis", "--i-understand-this-edits-global-files"]) == 1
+    auto.run(**fx.kwargs, executor=execute)
     rec = read_records(fx.data / "acceptance.jsonl")[-1]
     assert not rec["restore_ok"] and not rec["passed"] and rec["restore_failures"]
     assert "MANUAL RESTORE REQUIRED" in capsys.readouterr().err
@@ -425,7 +430,8 @@ def test_invalid_attempt_base_rejected_before_global_edits(fx):
     fx.base.write_text("not a directory")
     rec = auto.run(**fx.kwargs, executor=lambda req: pytest.fail("model called"))
     assert rec["restore_ok"] and not rec["passed"]
-    assert not (fx.data / "autoload_backups").exists() and list(fx.home.iterdir()) == []
+    assert list(fx.home.iterdir()) == []
+    assert not auto.unclosed(fx.data/'acceptance.jsonl')
 
 
 def test_execute_uses_real_adapter_entrypoints_with_fake_calls(fx, monkeypatch):
@@ -473,6 +479,11 @@ def test_unknown_sources_pass_but_require_review_and_only_excluded_sources_are_o
 @pytest.mark.parametrize("cheap", [False, True])
 def test_calls_journaled_before_real_executor_and_counted_by_budget(fx, monkeypatch, cheap):
     from adapters import claude, gemini, gpt
+    import acceptance_judge as judge
+    monkeypatch.setattr('forecast.quota_model_check',lambda *a:'verified')
+    for name in ('extract_claude','extract_codex','extract_gemini'):
+        monkeypatch.setattr(judge,name,lambda *args: ([],[],{
+            'mcp_servers':[],'skills':[],'slash_commands':[],'plugins':[]},[]))
 
     log = fx.data / "acceptance.jsonl"
     seen, probes = [], []
@@ -534,8 +545,8 @@ def test_gemini_gate_pauses_without_counting_or_calling_model(fx, monkeypatch, p
     monkeypatch.setattr(quota, "snapshot", lambda **kw: snapshot)
     rec = auto.run(**fx.kwargs, players=("gemini",), executor=lambda req: pytest.fail("model called"))
     rows = read_records(fx.data / "acceptance.jsonl")
-    assert [r["type"] for r in rows] == ["acceptance_paused", "autoload_result"]
-    paused = rows[0]
+    assert [r["type"] for r in rows] == ["autoload_run_started", "acceptance_paused", "autoload_result"]
+    paused = rows[1]
     assert paused["run_id"] == rec["run_id"] and paused["player"] == "gemini"
     assert paused["tier"] == 1 and paused["profile"] == "tier1" and paused["source"] == "autoload"
     assert "quota_snapshot" in paused

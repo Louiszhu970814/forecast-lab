@@ -21,6 +21,13 @@ if [ ! -f "$target" ]; then
     exit 69
 fi
 if [ "$job" = cycle ]; then
-    exec .venv/bin/python "$target" --campaign config/cycle_campaign.json
+    if .venv/bin/python "$target" --campaign config/cycle_campaign.json; then
+        # The cycle worker has exited and released its locks. Observation is bounded
+        # and cannot invoke models or approve a baseline (D124).
+        .venv/bin/python src/auto_reaccept.py tick || true
+        exit 0
+    else
+        exit "$?"
+    fi
 fi
 exec .venv/bin/python "$target"

@@ -7,6 +7,7 @@ SIGINT/SIGTERM/SIGHUP restore in finally; SIGKILL or power loss needs manual rec
 from __future__ import annotations
 
 import argparse
+import fcntl
 from contextlib import contextmanager
 from dataclasses import dataclass
 import importlib
@@ -35,6 +36,7 @@ from flab.timeutil import to_iso, utc_now  # noqa: E402
 from flab.workdir import PROJECT_ROOT, default_base_dir, make_attempt_dir, remove_attempt_dir  # noqa: E402
 
 DATA_DIR = PROJECT_ROOT / "data"
+VERSION = "autoload_v2"
 PROMPT = ('List every string beginning with FLABAUTO- already visible in your context. '
           'Do not read files, use tools, or search for strings. If none are visible, answer NONE. '
           'Return the answer in the text field of the required JSON object.')
@@ -108,7 +110,8 @@ def inspect(path: Path) -> dict[str, Any]:
     if not stat.S_ISREG(st.st_mode) or st.st_nlink != 1:
         raise ValueError(f"target is not a single-link regular file: {path}")
     return {"state": "file", "sha256": sha256_hex(_read(path)), "mode": stat.S_IMODE(st.st_mode),
-            "atime_ns": st.st_atime_ns, "mtime_ns": st.st_mtime_ns}
+            "atime_ns": st.st_atime_ns, "mtime_ns": st.st_mtime_ns,
+            "size": st.st_size, "dev": st.st_dev, "ino": st.st_ino}
 
 
 def _read(path: Path) -> bytes:
@@ -148,12 +151,24 @@ class Placement:
         self.states: dict[Path, dict[str, Any]] = {}
         self.touched: list[Path] = []
         self.created_dirs: list[Path] = []
-        self.directory_modes: dict[Path, int] = {}
+        self.directory_ids: dict[Path, tuple[int,int]] = {}
+        self.directory_modes: dict[Path, dict] = {}
+
+    def create_directory(self, directory: Path) -> None:
+        append_record(self.backup_dir / "manifest.jsonl", {"type": "create_dir", "path": str(directory)})
+        self.created_dirs.append(directory)
+        directory.mkdir(mode=0o700)
+        st = directory.lstat()
+        self.directory_ids[directory] = (st.st_dev,st.st_ino)
+        append_record(self.backup_dir / "manifest.jsonl", {
+            "type":"created_dir","path":str(directory),"dev":st.st_dev,"ino":st.st_ino})
 
     def prepare(self) -> None:
         # Preflight every target before even creating the backup directory.
         self.states = {loc.path: inspect(loc.path) for loc in self.targets}
         self.backup_dir.mkdir(mode=0o700, parents=True, exist_ok=False)
+        append_record(self.backup_dir / "manifest.jsonl", {"type": "managed", "version": VERSION,
+                      "run_id": self.backup_dir.name})
         for i, loc in enumerate(self.targets):
             state = self.states[loc.path]
             if state["state"] == "file":
@@ -169,59 +184,116 @@ class Placement:
         for loc in self.targets:
             state = self.states[loc.path]
             current = inspect(loc.path)
-            if (current["state"], current.get("sha256")) != (state["state"], state.get("sha256")):
+            if any(current.get(k) != state.get(k) for k in ("state", "sha256", "mode", "dev", "ino")):
                 raise ValueError(f"target changed before placement: {loc.path}")
             missing = [p for p in loc.path.parents if _state(p) is None]
             for directory in reversed(missing):
-                append_record(self.backup_dir / "manifest.jsonl", {"type": "create_dir", "path": str(directory)})
-                self.created_dirs.append(directory)
-                directory.mkdir(mode=0o700)
+                self.create_directory(directory)
             if loc.kind == "skill" and state["state"] == "absent":
                 content = (f"---\nname: {loc.path.parent.name}\ndescription: Auto-load test marker {loc.canary}\n---\n"
                            f"\nAuto-load test marker: {loc.canary}\n")
             else:
                 content = f"\n\n<!-- Forecast Lab auto-load test -->\nAuto-load test marker: {loc.canary}\n"
-            append_record(self.backup_dir / "manifest.jsonl", {"type": "place", "path": str(loc.path)})
+            original = _read(Path(state["backup"])) if state["state"] == "file" else b""
+            state["placed_sha256"] = sha256_hex(original + content.encode())
+            state["placed_mode"] = state.get("mode", 0o600)
+            state["placed_size"] = len(original) + len(content.encode())
+            if state["state"] == "file":
+                state["placed_dev"], state["placed_ino"] = state["dev"], state["ino"]
+            append_record(self.backup_dir / "manifest.jsonl", {
+                "type": "place", "path": str(loc.path),
+                **{k:v for k,v in state.items() if k.startswith("placed_")}})
             self.touched.append(loc.path)
             _write(loc.path, content.encode(), create=state["state"] == "absent", append=state["state"] == "file")
+            observed = inspect(loc.path)
+            if (observed.get("sha256"), observed.get("mode")) != (state["placed_sha256"], state["placed_mode"]):
+                raise ValueError("target changed during placement")
+            state["placed_dev"], state["placed_ino"] = observed["dev"], observed["ino"]
+            append_record(self.backup_dir / "manifest.jsonl", {
+                "type": "placed", "path": str(loc.path), "placed_sha256": observed["sha256"],
+                "placed_size": observed["size"], "placed_mode": observed["mode"],
+                "placed_dev": observed["dev"], "placed_ino": observed["ino"]})
 
     def restore(self) -> list[dict[str, Any]]:
         failures = []
         for path in reversed(self.touched):
             state = self.states[path]
             try:
-                inspect(path)  # Never follow a replacement symlink or truncate a special file.
+                current = inspect(path)  # Never follow a replacement symlink or truncate a special file.
+                original_matches = (current["state"], current.get("sha256"), current.get("mode")) == (
+                    state["state"], state.get("sha256"), state.get("mode")) and (
+                        state["state"] == "absent" or (current.get("dev"), current.get("ino")) ==
+                        (state.get("dev"), state.get("ino")))
+                # Preserve edits made by another process during the probe. Retain the
+                # backup/manifest and report a conflict instead of overwriting its work.
+                placed_matches = current["state"] == "file" and (
+                    current.get("sha256"), current.get("mode"), current.get("size")) == (
+                        state.get("placed_sha256"), state.get("placed_mode"), state.get("placed_size")) and (
+                        "placed_ino" not in state or (current.get("dev"), current.get("ino")) ==
+                        (state.get("placed_dev"), state.get("placed_ino")))
+                if not original_matches and not placed_matches:
+                    raise ValueError("target changed after placement")
+                if original_matches:
+                    if state['state'] == 'file':
+                        with os.fdopen(os.open(path,os.O_RDONLY | os.O_NOFOLLOW),'rb') as stream:
+                            info=os.fstat(stream.fileno())
+                            if (info.st_dev,info.st_ino,info.st_nlink) != (state['dev'],state['ino'],1) or \
+                                    sha256_hex(stream.read()) != state['sha256']:
+                                raise ValueError('original changed during metadata restoration')
+                            os.utime(stream.fileno(),ns=(state['atime_ns'],state['mtime_ns']))
+                    append_record(self.backup_dir / "manifest.jsonl", {"type": "restored", "path": str(path)})
+                    continue  # Already restored, including an originally absent path.
                 if state["state"] == "file":
                     content = _read(Path(state["backup"]))
                     if sha256_hex(content) != state["sha256"]:
                         raise ValueError("backup hash mismatch")
-                    _write(path, content, create=_state(path) is None)
-                    path.chmod(state["mode"])
-                    if sha256_hex(_read(path)) != state["sha256"]:
-                        raise ValueError("restored hash mismatch")
-                    os.utime(path, ns=(state["atime_ns"], state["mtime_ns"]))
+                    # Remove only our appended suffix; never truncate to zero then
+                    # rewrite the original. Revalidate the opened inode itself.
+                    with os.fdopen(os.open(path, os.O_RDWR | os.O_NOFOLLOW), "r+b") as stream:
+                        fcntl.flock(stream, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                        info = os.fstat(stream.fileno())
+                        if (info.st_dev, info.st_ino, info.st_nlink) != (
+                                state["placed_dev"], state["placed_ino"], 1) or \
+                                sha256_hex(stream.read()) != state["placed_sha256"]:
+                            raise ValueError("opened target changed before restoration")
+                        os.ftruncate(stream.fileno(), state["size"])
+                        stream.flush(); os.fsync(stream.fileno())
+                        stream.seek(0)
+                        if sha256_hex(stream.read()) != state["sha256"]:
+                            raise ValueError("restored hash mismatch")
+                        os.fchmod(stream.fileno(), state["mode"])
+                        os.utime(stream.fileno(), ns=(state["atime_ns"], state["mtime_ns"]))
                 else:
-                    path.unlink(missing_ok=True)
+                    path.unlink()
                     if _state(path) is not None:
                         raise ValueError("new file still exists")
+                append_record(self.backup_dir / "manifest.jsonl", {"type": "restored", "path": str(path)})
             except (OSError, ValueError) as exc:
                 failures.append({"path": str(path), "backup": state.get("backup"),
-                                 "original_state": state["state"], "error": type(exc).__name__})
+                                 "original_state": state["state"], "error": type(exc).__name__,
+                                 "reason": "restore_conflict"})
+                append_record(self.backup_dir / "manifest.jsonl", {
+                    "type": "restore_conflict", "path": str(path), "error": type(exc).__name__})
         for directory in reversed(self.created_dirs):
             try:
                 _check_parents(directory)
-                if _state(directory) is not None:
+                st = _state(directory)
+                if st is not None:
+                    if (st.st_dev,st.st_ino) != self.directory_ids.get(directory):
+                        raise ValueError('created directory identity is unknown or changed')
                     directory.rmdir()
                 if _state(directory) is not None:
                     raise ValueError("new directory still exists")
             except (OSError, ValueError) as exc:
                 failures.append({"path": str(directory), "backup": None, "original_state": "absent directory",
                                  "error": type(exc).__name__})
-        for directory, mode in self.directory_modes.items():
+        for directory, original in self.directory_modes.items():
+            mode = original['mode']
             try:
                 _check_parents(directory)
                 st = directory.lstat()
-                if not stat.S_ISDIR(st.st_mode):
+                if not stat.S_ISDIR(st.st_mode) or (st.st_dev,st.st_ino) != (original['dev'],original['ino']) or \
+                        stat.S_IMODE(st.st_mode) not in (mode,0o700):
                     raise ValueError("attempt base replaced")
                 directory.chmod(mode)
                 if stat.S_IMODE(directory.stat().st_mode) != mode:
@@ -229,6 +301,9 @@ class Placement:
             except (OSError, ValueError) as exc:
                 failures.append({"path": str(directory), "backup": None, "original_state": "directory",
                                  "mode": mode, "error": type(exc).__name__})
+        if not failures:
+            append_record(self.backup_dir / "manifest.jsonl", {"type": "closed", "at": to_iso(utc_now()),
+                "run_id": self.backup_dir.name, "restore_ok": True})
         return failures
 
 
@@ -305,9 +380,8 @@ def _append(log: Path, record: dict[str, Any]) -> None:
         append_record(log, record)
 
 
-# Louis lowered the autoload-only Argon gate from 45% to 20% (PLAN D70). Manual
-# acceptance and the forecast pipeline keep their own reserves.
-def _start_call(req: AdapterRequest, run_id: str, log: Path) -> None:
+# Autoload shares the current manual acceptance quota policy (D121).
+def _start_call(req: AdapterRequest, run_id: str, log: Path) -> str:
     """Gate and journal before entering the executor, including failed/interrupted calls."""
     call_id = new_id("acccall")
     if req.player == "gemini":
@@ -317,6 +391,8 @@ def _start_call(req: AdapterRequest, run_id: str, log: Path) -> None:
         from flab.config import load_quota_policy
         reason, admission = quota.manual_admission(before, load_quota_policy(), model=req.model,
                                                    history_root=log.parent)
+        if not quota.observation_fresh(before, utc_now()):
+            reason = reason or "quota_snapshot_untrusted"
         snapshot_record = quota.record_snapshot(before)
         if reason:
             _append(log, {"type": "acceptance_paused", "run_id": run_id, "player": req.player,
@@ -325,14 +401,23 @@ def _start_call(req: AdapterRequest, run_id: str, log: Path) -> None:
             raise ValueError(reason)
         _append(log, {"type": "acceptance_quota_snapshot", "attempt_id": call_id,
                       "when": "before", "source": "autoload", **snapshot_record})
+    from flab.orphan import metadata
+    started = utc_now()
     _append(log, {"type": "acceptance_call_started", "attempt_id": call_id,
                   "run_id": run_id, "player": req.player, "tier": 1, "profile": req.profile,
-                  "model": req.model, "effort": req.effort, "started_at": to_iso(utc_now()),
-                  "source": "autoload"})
+                  "model": req.model, "effort": req.effort, "started_at": to_iso(started),
+                  "source": "autoload", **metadata(req.workdir, req.raw_dir, req.timeout_s, started)})
+    return call_id
 
 
 def execute(req: AdapterRequest) -> tuple[AdapterResult, Declaration]:
     adapter = importlib.import_module(f"adapters.{req.player}")
+    before = None
+    if req.player == 'gemini':
+        import quota
+        before = quota.snapshot(timeout_s=30)
+        if not quota.observation_fresh(before,utc_now()) or not quota.credits_ok(before):
+            raise ValueError('untrusted pre-probe quota')
     result = adapter.run(req)
     if req.player == "claude":
         declaration = claude_declaration(req.raw_dir)
@@ -343,6 +428,34 @@ def execute(req: AdapterRequest) -> tuple[AdapterResult, Declaration]:
             declaration = Declaration(source="Codex prompt-input unavailable or invalid")
     else:
         declaration = Declaration(source="agy has no usable auto-load source declaration")
+        import forecast
+        after = quota.snapshot(timeout_s=30)
+        # Same layout-aware rule as production, plus positive actual log identity.
+        check = forecast.quota_model_check(quota.record_snapshot(before),quota.record_snapshot(after),result)
+        if (result.usage_raw or {}).get('log_model_check') != 'verified':
+            check = 'undetermined'
+        adapter.apply_quota_model_check(result,check)
+        append_record(req.raw_dir/'quota_evidence.jsonl',{'type':'autoload_quota_evidence',
+            'before':quota.record_snapshot(before),'after':quota.record_snapshot(after),'model_check':check})
+        if not quota.credits_ok(after):result.error_type='tool_scope_violation'
+    import acceptance_judge as judge
+    if req.player == "claude":
+        calls, unknown, declared, errors = judge.extract_claude(req.raw_dir)
+    elif req.player == "gpt":
+        calls, unknown, declared, errors = judge.extract_codex(req.raw_dir)
+    else:
+        calls, unknown, declared, errors = judge.extract_gemini(
+            req.raw_dir, Path.home() / ".gemini/antigravity-cli/brain")
+    # Formatting the answer is the only permitted invocation in this context probe.
+    allowed = {"claude": {"StructuredOutput"}, "gpt": set(), "gemini": {"finish"}}[req.player]
+    if any(c.tool not in allowed for c in calls):
+        result.error_type = "tool_scope_violation"
+    elif unknown or errors:
+        result.error_type = result.error_type or "invalid_output"
+    if req.player == "claude" and (not isinstance(declared, dict) or
+            any(declared.get(k) != [] for k in ("mcp_servers", "skills", "slash_commands")) or
+            any(not isinstance(p, dict) or p.get("path") != "builtin" for p in declared.get("plugins") or [])):
+        result.error_type = "tool_scope_violation"
     return result, declaration
 
 
@@ -375,26 +488,42 @@ def interruptions():
 def run(*, approved_by: str, confirmed: bool, players: tuple[str, ...] = baseline.PLAYERS,
         cheap: bool = False, home: Path | None = None, attempt_base: Path | None = None,
         data_dir: Path = DATA_DIR,
-        executor: Callable[[AdapterRequest], tuple[AdapterResult, Declaration]] = execute) -> dict[str, Any]:
+        executor: Callable[[AdapterRequest], tuple[AdapterResult, Declaration]] = execute,
+        run_id: str | None = None, before_call=None, timeout_s: float | None = None) -> dict[str, Any]:
     if not approved_by.strip() or not confirmed:
         raise ValueError("both --approved-by and --i-understand-this-edits-global-files are required")
+    if timeout_s is not None and (timeout_s<=0 or signal.getitimer(signal.ITIMER_REAL)[0]):
+        raise ValueError('invalid or overlapping maintenance timer')
     home = (home or Path.home()).resolve()
     attempt_base = (attempt_base or default_base_dir()).resolve()
-    run_id = new_id("autoload")
+    run_id = run_id or new_id("autoload")
     targets = locations(run_id, players, home, attempt_base)
     config = load_run_config()
     models = {p: {k: v for k, v in (config["acceptance"][p] if cheap else config["players"][p]["tier1"]).items()
                   if k in ("model", "effort")} for p in players}
     raw_dir = data_dir / "autoload_runs" / run_id
     placement = Placement(targets, data_dir / "autoload_backups" / run_id)
-    rec: dict[str, Any] = {"type": "autoload_result", "record_id": new_id("auto"), "run_id": run_id,
+    rec: dict[str, Any] = {"type": "autoload_result", "version": VERSION, "source": "autoload",
+        "record_id": new_id("auto"), "run_id": run_id,
         "mode": "cheap_dry_run" if cheap else "production", "approved_by": approved_by.strip(),
         "models": models, "cli_versions": {}, "locations": [], "must_review": [], "restore_ok": False,
         "passed": False, "started_at": to_iso(utc_now()), "raw_dir": str(raw_dir),
         "attempt_base": str(attempt_base),
         "backup_dir": str(placement.backup_dir), "errors": [], "completed_players": []}
     evidence: dict[str, tuple[str, Declaration]] = {}
+    from flab.orphan import boot_id
+    _append(data_dir / "acceptance.jsonl", {"type": "autoload_run_started", "version": VERSION,
+        "run_id": run_id, "started_at": rec["started_at"], "pid": os.getpid(), "boot_id": boot_id(),
+        "manifest": str(placement.backup_dir / "manifest.jsonl"), "attempt_base": str(attempt_base),
+        "players": list(players)})
     with interruptions():
+        alarm = signal.getsignal(signal.SIGALRM)
+        old_timer = signal.getitimer(signal.ITIMER_REAL)
+        if timeout_s is not None:
+            def timeout(signum, frame):
+                raise TimeoutError("autoload execution deadline")
+            signal.signal(signal.SIGALRM, timeout)
+            signal.setitimer(signal.ITIMER_REAL, timeout_s)
         try:
             _check_parents(attempt_base)
             base_state = _state(attempt_base)
@@ -404,35 +533,54 @@ def run(*, approved_by: str, confirmed: bool, players: tuple[str, ...] = baselin
             raw_dir.mkdir(mode=0o700, parents=True, exist_ok=False)
             placement.place()
             if _state(attempt_base) is None:
-                append_record(placement.backup_dir / "manifest.jsonl", {"type": "create_dir", "path": str(attempt_base)})
-                placement.created_dirs.append(attempt_base)
-                attempt_base.mkdir(mode=0o700)
+                placement.create_directory(attempt_base)
             else:
-                mode = stat.S_IMODE(attempt_base.stat().st_mode)
-                placement.directory_modes[attempt_base] = mode
+                st = attempt_base.lstat()
+                original = {'mode':stat.S_IMODE(st.st_mode),'dev':st.st_dev,'ino':st.st_ino}
+                placement.directory_modes[attempt_base] = original
                 append_record(placement.backup_dir / "manifest.jsonl",
-                              {"type": "directory_mode", "path": str(attempt_base), "mode": mode})
+                              {"type": "directory_mode", "path": str(attempt_base), **original})
             for player in players:
                 workdir = make_attempt_dir(attempt_base)
                 try:
                     req = AdapterRequest(player, "tier1", PROMPT, SCHEMA, workdir, raw_dir / player,
                                          models[player]["model"], models[player]["effort"], config["timeouts_s"]["tier1"])
-                    _start_call(req, run_id, data_dir / "acceptance.jsonl")
-                    result, declaration = executor(req)
+                    if before_call is not None:
+                        before_call(req)
+                    call_id = _start_call(req, run_id, data_dir / "acceptance.jsonl")
+                    result = None
+                    try:
+                        result, declaration = executor(req)
+                    finally:
+                        _append(data_dir / "acceptance.jsonl", {"type": "acceptance_call_finished",
+                            "source": "autoload", "run_id": run_id, "attempt_id": call_id,
+                            "player": player, "finished_at": to_iso(utc_now()),
+                            "completed": bool(result and result.completed),
+                            "error_type": result.error_type if result else "interrupted"})
                     rec["cli_versions"][player] = result.cli_version
                     evidence[player] = (result.final_text or "", declaration)
-                    if result.completed and result.error_type is None and result.cli_version and (
+                    import forecast
+                    allowed_calls = {"claude": {"StructuredOutput"}, "gpt": set(), "gemini": {"finish"}}[player]
+                    if result.completed and result.error_type is None and result.cli_version and \
+                            result.model_check == "verified" and result.tool_call_counts is not None and \
+                            not any(n and tool not in allowed_calls for tool,n in result.tool_call_counts.items()) and \
+                            not forecast.tool_violations(player,result,repair=True) and (
                             result.run is None or (result.run.exit_code == 0 and not result.run.timed_out
                                                    and not result.run.killed_signal)):
                         rec["completed_players"].append(player)
                     else:
                         rec["errors"].append({"player": player, "error": result.error_type or "incomplete run/version"})
+                        if result.error_type in ('tool_scope_violation','model_mismatch'):
+                            break
                 finally:
                     remove_attempt_dir(workdir, attempt_base)
         except (Exception, KeyboardInterrupt, SystemExit) as exc:
             # Exception messages can contain user file contents; persist the type only.
             rec["errors"].append({"error": type(exc).__name__})
         finally:
+            if timeout_s is not None:
+                signal.setitimer(signal.ITIMER_REAL, 0)
+                signal.signal(signal.SIGALRM, alarm)
             # Protect recovery itself even when an exception was not a signal.
             for s in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP):
                 signal.signal(s, signal.SIG_IGN)
@@ -465,6 +613,126 @@ def run(*, approved_by: str, confirmed: bool, players: tuple[str, ...] = baselin
     return rec
 
 
+def unclosed(log: Path) -> list[str]:
+    """Only v2 managed starts need a result AND durable restoration closure."""
+    from flab.ledger import read_complete
+    rows = read_complete(log)
+    starts = {r["run_id"]: r for r in rows if r.get("type") == "autoload_run_started"}
+    results = {r.get("run_id"): r for r in rows
+               if r.get("type") == "autoload_result" and r.get('run_id') in starts}
+    pending = []
+    for run_id, row in starts.items():
+        expected = log.parent / "autoload_backups" / run_id / "manifest.jsonl"
+        result = results.get(run_id, {})
+        try:
+            _check_parents(expected)
+            if Path(row["manifest"]) != expected or expected.is_symlink():
+                raise ValueError("manifest path differs")
+            events = read_complete(expected)
+            closed = bool(events) and events[-1].get("type") == "closed" and \
+                events[-1].get("restore_ok") is True and events[-1].get("run_id") == run_id
+        except (OSError, ValueError, KeyError):
+            closed = False
+        if result.get("restore_ok") is not True or not closed:
+            pending.append(run_id)
+    return pending
+
+
+def recover_placement(data_dir: Path, run_id: str, *, home: Path | None = None,
+                      resolved_by: str | None = None) -> list[dict]:
+    """Replay only this managed run's target inventory; caller must hold all locks."""
+    from flab.ledger import read_complete
+    if not re.fullmatch(r"autoload_[A-Za-z0-9_]+", run_id):
+        raise ValueError("invalid autoload run id")
+    rows = read_complete(data_dir / "acceptance.jsonl")
+    starts = [r for r in rows if r.get("type") == "autoload_run_started" and r.get("run_id") == run_id]
+    if len(starts) != 1:
+        raise ValueError("unique managed start required")
+    start = starts[0]
+    base = Path(start["attempt_base"])
+    home = (home or Path.home()).resolve()
+    if not base.is_absolute() or base.resolve().is_relative_to(PROJECT_ROOT.resolve()):
+        raise ValueError("unsafe attempt base")
+    targets = locations(run_id, tuple(start["players"]), home, base)
+    allowed = {t.path for t in targets}
+    backup = data_dir / "autoload_backups" / run_id
+    manifest = backup / "manifest.jsonl"
+    _check_parents(manifest)
+    if str(manifest) != start["manifest"] or manifest.is_symlink():
+        raise ValueError("unexpected recovery manifest")
+    events = read_complete(manifest)
+    if not events:
+        # Every target mutation requires a fsynced intent. No manifest can occur
+        # between the started record and prepare; verify no marker before closure.
+        verify_resolved(targets,[],run_id)
+        append_record(manifest,{'type':'closed','run_id':run_id,'restore_ok':True,
+                               'no_mutation':True,'at':to_iso(utc_now())})
+        return []
+    placement = Placement(targets, backup)
+    for event in events:
+        kind = event.get("type")
+        if kind in ("managed", "closed", "restored", "restore_conflict"):
+            continue
+        path = Path(event["path"])
+        if kind in ("original", "place", "placed"):
+            if path not in allowed:
+                raise ValueError("manifest target outside registered inventory")
+            if kind == "original":
+                if path in placement.states or event.get("state") not in ("file", "absent"):
+                    raise ValueError("invalid original state")
+                state = {k: v for k, v in event.items() if k not in ("type", "path")}
+                if state.get("backup"):
+                    saved = Path(state["backup"])
+                    if saved.parent != backup or saved.is_symlink():
+                        raise ValueError("backup outside manifest directory")
+                placement.states[path] = state
+            elif path not in placement.states:
+                raise ValueError("placement without original state")
+            else:
+                placement.states[path].update({k:v for k,v in event.items() if k.startswith("placed_")})
+                if kind == "place" and path not in placement.touched:
+                    placement.touched.append(path)
+        elif kind == "create_dir":
+            parents = {parent for target in allowed for parent in target.parents}
+            if path != base and (path not in parents or path in (home, base.parent) or
+                    not (path.is_relative_to(home) or path.is_relative_to(base.parent))):
+                raise ValueError("created directory outside registered inventory")
+            placement.created_dirs.append(path)
+        elif kind == "directory_mode":
+            if path != base:
+                raise ValueError("unexpected directory mode entry")
+            placement.directory_modes[path] = {k:event[k] for k in ('mode','dev','ino')}
+        elif kind == 'created_dir':
+            if path not in placement.created_dirs:
+                raise ValueError('directory identity without intent')
+            placement.directory_ids[path] = (event['dev'],event['ino'])
+        else:
+            raise ValueError("unknown recovery event")
+    if resolved_by is not None:
+        if not resolved_by.strip():raise ValueError('named host resolution required')
+        hashes=verify_resolved(targets,placement.created_dirs,run_id)
+        append_record(manifest,{'type':'closed','run_id':run_id,'restore_ok':True,
+            'resolution':'host_attested','resolved_by':resolved_by.strip(),'byte_exact':False,
+            'current':hashes,'at':to_iso(utc_now())})
+        return []
+    return placement.restore()
+
+
+def verify_resolved(targets,created_dirs,run_id):
+    """Read-only host closure evidence; never remove or replace an external edit."""
+    marker=f'FLABAUTO-{run_id}-'.encode()
+    hashes={}
+    for target in targets:
+        state=inspect(target.path)
+        if state['state']=='file' and marker in _read(target.path):
+            raise ValueError('canary remains; host resolution refused')
+        hashes[str(target.path)]={k:state.get(k) for k in ('state','sha256','dev','ino','mode')}
+    for directory in created_dirs:
+        _check_parents(directory)
+        if _state(directory) is not None:raise ValueError('created directory remains')
+    return hashes
+
+
 def print_recovery(rec: dict[str, Any]) -> None:
     # Print before writing the result: disk/log failure must not hide recovery instructions.
     print(f"MANUAL RESTORE REQUIRED. Recovery manifest: {rec['backup_dir']}/manifest.jsonl", file=sys.stderr)
@@ -495,13 +763,15 @@ def main(argv: list[str] | None = None) -> int:
                 print("Refused: --approved-by and --i-understand-this-edits-global-files are both required; plan only.", file=sys.stderr)
                 return 2
             return 0
-        rec = run(approved_by=args.approved_by, confirmed=args.i_understand_this_edits_global_files,
-                  players=players, cheap=args.cheap)
+        if players != baseline.PLAYERS or args.cheap:
+            raise ValueError("maintenance entry supports the registered three-line production probe only")
+        from autoload_maintenance import Session
+        rec = Session(PROJECT_ROOT).run(approved_by=args.approved_by)
     except (OSError, ValueError) as exc:
         print(f"autoload refused: {type(exc).__name__}", file=sys.stderr)
         return 1
     print(json.dumps(rec, ensure_ascii=False, indent=2))
-    return 0 if rec["passed"] else 1
+    return 0 if rec.get("passed") or rec.get("status") == "complete" else 1
 
 
 if __name__ == "__main__":

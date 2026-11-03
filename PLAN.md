@@ -1,11 +1,11 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.74（v1.0 凍結後的修訂，見 §16；D108 起由 GPT 主持，D120 將 D119 後續交 Claude 並已完成）
+> 版本：v1.77（v1.0 凍結後的修訂，見 §16；D108 起由 GPT 主持，D120 將 D119 後續交 Claude 並已完成）
 > 初稿：Claude
 > 本回合整合者：GPT（D108；Claude 依 D95 主持至 D107，交接見 `docs/tasks/M3-E2E-D105-MONITOR.md`）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
 > 最後更新：2026-11-03
-> 狀態：D118 MiniBench 進行中（固定截止 UTC 11/10 04:00）；M5 數值題與離散題於 UTC 11/3 11:38 上線（D122 驗證完成，M5-1 試驗場地探測 4 項讀回 found）；D121 第一批放寬與 D123 已套用，三線 ready（v1.0 於 2026-10-31 經 Louis 核准凍結，D54）
+> 狀態：D118 MiniBench 進行中（固定截止 UTC 11/10 04:00）；M5、D121 第一批與 D123 已上線，三線 ready。D124：維護修正已互斥套用，完整 2789 passed、Claude／Gemini 最終雙審查 PASS；單次載入量測已還原，六項前檢通過；GPT 身分證據不足使量測未 PASS，observe 已上線、真正自動重驗未開放（v1.0 於 2026-10-31 經 Louis 核准凍結，D54）
 
 ---
 
@@ -687,6 +687,7 @@ token 欄位的對應（D29）：
   - 全域指示、記憶、skills、hooks、plugins 或 MCP 的內容改變，包括設定檔中相關欄位的改變：停止該線並通知 Louis，經人工審查後再重跑驗收。自動測試只能確認這些來源會不會被載入，無法判斷新內容是否含有答案或危險指令。
   - CLI 支援關閉自動更新時就關閉；不支援時，以執行前的版本檢查處理。
   - D119：比賽啟動環境以專案 wrapper 固定已驗收的官方 Claude 2.1.316，核對複本 SHA-256 並設 DISABLE_AUTOUPDATER=1；全域 CLI 不降版。外掛盤點 `claude_plugin_inventory_v2` 僅將精確 synced UUID bucket 的合法 round token、etag、updated_at 值列資訊，listedFor／來源／版本／未知欄位與其餘檔案仍受內容保護；新舊格式不得自動核准。候選以固定 SHA 綁定人工接受，且必須有對應候選的新隔離驗收通過證據，才可只替換 claude.plugins 一個來源，其他已核准來源保持不變。
+- **D124 分階段落地**：D121 C 的第一批只啟用 `auto_reaccept_v1` 觀察模式；在正常週期結束後、鎖已釋放時最多觀察 120 秒。只針對 8 個 instruction／rule／skill 白名單來源記錄格式代碼與受保護指紋，沒有模型呼叫、基準核准或來源重新分類；CLI 版本變更只觀察。真正自動重驗仍待原子預算、24 小時限制、驗收與候選精確綁定等另批審查，不能把 observe 當成已實作 D21／D121 自動恢復。純文字格式篩選不能證明內容沒有比賽資訊，禁止人工介入個別預測仍適用。
 - 不接續任何舊 session：不使用 claude 的 `--continue`／`--resume`、codex 的 `resume`／`fork`、agy 的 `-c`／`--continue`／`--conversation`。
 - 各線使用帳號本人以官方 CLI 在本機登入的狀態；不複製、也不解析任何 CLI 的登入憑證。
 - 環境變數的清除見 §5.3 的共同規定。
@@ -837,6 +838,7 @@ token 欄位的對應（D29）：
   7. 自動載入（只在人工驗收時進行；自動重驗不修改使用者的全域檔案）：
      - 在全域指示與記憶等位置放入含 canary 的假內容，測試後還原；核對實際載入的來源，並確認模型輸出中沒有出現 canary。
      - 無法避免載入的來源記為「會載入」，納入 §7.2 的基準審查。
+     - D124 的有界載入量測須先持 cycle／scheduler／submit／三線鎖，完成空檔、正式 PATH／pin、額度及基準前檢；三線各最多一次，僅零呼叫失敗可重試一次。寫入前先持久化意圖；只在內容、inode、權限相符時還原，衝突保留備份並建立 STOP。未結案的 managed run 會阻擋三線前檢；恢復須有 result.restore_ok 與最後一筆 closed 的雙證據，人工排除衝突的結案另標 host_attested、byte_exact=false，不判量測 PASS。還原後再比對受保護項並執行六項前檢。結果只供載入證據，不直接核准基準或改類別；操作與殘餘風險見 docs/tasks/D124-BATCH2-OPERATIONS.md。
 - **必須成功的測試**：
   - 網路搜尋；
   - 開啟測試網頁並取得內容（以頁面中的 canary 驗證）；
@@ -1792,9 +1794,17 @@ view_image                  stable true
 | D123 | 2026-11-03 | Claude 線自 UTC 06:21 起 preflight_blocked：互動式 Claude Code 把 claude.ai 帳號的官方技能同步到 `~/.claude/skills/synced/`（docx 06:14Z、pdf 08:28Z、manifest 09:01Z），baseline `claude.skills` 判為內容變更。Louis 在桌面 CLI 選「A 根治並重新核准」：同步資料夾改為資訊性來源 `claude.skills_synced`（`claude.skills` 排除 `synced`，個人技能仍為內容）；`forecast.tool_violations` 在 Claude init 宣告任何 skills、slash_commands、MCP 伺服器或非 builtin plugin 時視為工具越權並停線；之後以逐線核准只重新認證 Claude 線基準。同時選「M5-1 合成 CDF 探測」作為 D122 的試驗場地驗證：bot testing area 數值題與離散題各送 1 次合成 CDF 與 1 則私人留言並讀回，執行時持排程鎖暫切 trial 模式、結束後逐位元還原 live 檔；主站數值題改為上線後監看第一題的讀回 | 證據：D120 驗收 init 事件在同步資料夾存在時宣告 `skills=[]`、`slash_commands=[]`，adapter 參數含 `--disable-slash-commands` 與 `--tools`。A 的 patch 完整回歸 2577 passed；UTC 11:03 互斥套用，逐線核准 `base_1793703798304_8e157584`（取代 `base_1793681992038_7cf51691`，Gemini／GPT 沿用原核准），Claude 第 1、2 層 preflight 通過。影響：06:21～11:03 Claude 未參與作答，是非題 46653 由 Gemini、GPT 兩線作答。M5-1 規格 `docs/tasks/M5-PROBE-SPEC.md`，涉及送出與模式切換，須 Gemini 與 Claude 審查後才執行 |
 
 
+| D124 | 2026-11-03 | Louis 回覆「今晚就開工如何 目前似乎題目較少該預測的都預測完了」，接受今晚開始 D121 第二批 R2-C／R12 及載入實測的維護時段；C 方向沿用 D121，不重問 | GPT 接手，Claude 定稿與親自完整審查，Gemini 獨立審查。先核對無在途工作，準備安全還原與有界控制器，通過後在空檔持 cycle／scheduler／submit／三線鎖實測；若有新工作先等自然結束。不得繞過基準或讀開放題答案，不改 D118 三份固定設定及 adapters／runner／netguard；既有 live 截止、預算與場地不變。Claude 額度不足則延後其審查，不以其他模型代替。決策當下未改預測行為；後續已雙審 PASS、2789 passed，UTC 13:06 套用維護修正、13:10 套用 observe。單次三線載入量測完整還原、六項前檢通過，但 GPT model_check=unverified，保留 measurement_failed、不重跑、不核准或重新分類；真正自動重驗續作仍待完成 |
+
 ---
 
 ## 16. 變更紀錄
+
+- **v1.77**（2026-11-03）：D124 單次載入量測 run autoload_1793711226166_c2e156fc，UTC 13:07:42～13:08:19 三線各呼叫一次並寫入原週上限；全域檔案還原無衝突、manifest closed，S_pre/S_post 受保護項相符、六項 preflight 全過、無 STOP。整批為 measurement_failed：Claude／Gemini 合格，既有 GPT adapter 回報 completed=true、工具零呼叫／零違規，但 reported_model_id=None、model_check=unverified，不能標 PASS；不重跑、不自動核准或重新分類。UTC 13:10 在六鎖互斥下套用 auto_reaccept_v1 observe 與單一 run.sh 週期後接點，只記候選、不呼叫模型／不改基準。12 個部署檔案與最終雙審及 2789 passed 的雜湊一致，D118 三份固定設定、M5 開關與驗收指紋檔案未變。§7.2／§7.6 補入實際分階段行為與恢復要求；真正自動恢復未開放。 部署後首輪自然 cycle_1793711623971_6626bb2a 於 UTC 13:15:09 complete，三線 ready、errors 空；隨後 observe 三線 no_candidate、model_calls=0。
+
+- **v1.76**（2026-11-03）：D124 第一階段維護修正已於 UTC 13:06 持 cycle／scheduler／submit／三線鎖互斥套用，版本 autoload_v2、autoload_maintenance_v1、forecast_pipeline_v8。新增寫前意圖、有條件還原、衝突保留、崩潰與主持人結案流程、未結案三線前檢阻擋、正式 PATH／pin、額度／模型／工具／程序核對；不改預測內容與固定設定。隔離完整 2789 passed，Claude 親自完整審查及最終複審 PASS、Gemini 獨立最終複審 PASS（reviews/claude-d124-final-code-review.md、reviews/gemini-d124-final-code-review.md）。備份與套用紀錄在 data/operations/d124-batch2-20261103/。已啟動單次全域載入量測的前檢，尚未宣稱量測成功；auto_reaccept_v1 observe 待還原後套用，真正自動重驗尚未開放。同日晚間既有 live 排程自然完成首筆正式 numeric 題 46655：預測 reconciled=true、私人留言獨立讀回 found，各 POST 一次，未查看預測內容。
+
+- **v1.75**（2026-11-03）：D124，記錄 Louis 選今晚開工 D121 第二批 R2-C／R12。GPT 實際接手並確認目前無未完成模型嘗試／送出請求；已建立無正式資料的隔離工作副本，Claude Opus 5.5 high 透過官方 CLI、工具關閉定稿。實測時段已獲接受，仍須在途工作自然結束、互斥取得、還原保護與 Gemini／Claude 審查完成才執行。未放入全域 canary、未改預測行為或固定設定。
 
 - **v1.74**（2026-11-03）：M5 上線（重大更新，D122 選項 A）。M5-1 探測工具 `v15_probe_v5`（single 情境支援 numeric／discrete 合成 CDF）、`m5_probe_session_v1`（持六把鎖暫切 trial，finally 逐位元還原 live 檔，失敗即建立 STOP_SUBMIT）與 `Submitter(probe_question_types=...)`（只在 trial 且 bot testing area 32977 放行未啟用題型）由 GPT 實作；Gemini 審查有條件 PASS（`reviews/gemini-m5-probe-review.md`，阻擋條件為 golden 雜湊與完整回歸，已處理），Claude 審查後修正：兩次探測間隔 60 秒、4xx 分支補寫正式帳冊 unknown、`m5_legacy_golden.json` 移除 PLAN.md 雜湊（PLAN 為持續修訂的規格，不屬執行期保護檔）。正常環境完整回歸 2694 passed。UTC 11:27 互斥套用；11:27:44～11:38:15 探測工作階段：數值題 46451 與離散題 45708 的預測及私人留言共 4 次 POST，全部讀回 found，確認 `NUMERIC_READBACK_FIELD = "forecast_values"` 與 5e-10 容差；live 檔還原後 SHA-256 與原值相同，無 STOP_SUBMIT。期間持鎖約 10.5 分鐘（題目列表與讀回的禮貌間隔比預估的 2 分鐘長），排程輪次以 overlap_skipped 略過，該時段沒有支援題接近決策期限。D122 驗證定義全部滿足（主站數值題依 D123 改為上線後監看第一題讀回）。UTC 11:38:40 在 cycle／scheduler 鎖下把 `config/question_types.json` 改為 numeric、discrete 皆 true（`data/operations/m5-probe/`）。撤回方式：改回 false，作答、整合與送出前檢查都會動態拒絕。
 - **v1.73**（2026-11-03）：D123。`baseline_v2` 新增資訊性來源 `claude.skills_synced`，`claude.skills` 排除 `synced`；`forecast.tool_violations` 新增 Claude init 宣告檢查（skills、slash_commands、MCP、非 builtin plugin 即為工具越權）。新增 `tests/test_d123_synced_skills.py`，`tests/test_baseline.py` 的技能變更案例改用個人技能。正常環境完整回歸 2577 passed。UTC 11:03 在全部鎖取得的空檔套用（`data/operations/d123-synced-skills/`），以 `baseline.approve(..., player="claude")` 寫入 `base_1793703798304_8e157584`，三線比對皆 ok，Claude 第 1、2 層 preflight 通過。M5-1 探測規格 `docs/tasks/M5-PROBE-SPEC.md` 交 GPT 實作。
