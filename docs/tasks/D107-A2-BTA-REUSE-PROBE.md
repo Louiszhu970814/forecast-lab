@@ -1,5 +1,7 @@
 # D107 A2：bot testing area 重送驗收（`v15_probe_v4`）
 
+D115 後續更新：官方回信確認私人留言硬上限為 150000 Unicode code points；實際超過 500 字元者在 30 天後封存，API 回摘錄與全文連結且不可編輯。下文保留當時的實測／原始碼推論，不再把「上限未知」或「只留 200 字元」當作現行平台契約。429 與 MC gateway 更新見 [官方回信評估](PLATFORM-REPLY-D115.md)。
+
 ## D113 實機結果（UTC 2026-11-02 16:35）
 
 D105 四題均已自動讀回完成、unknown 0 後，GPT 取得 cycle 互斥鎖執行既有已審查的 v15_probe_v4；source 與 ac5edf2 相同。三情境全部完成，結束已回 local；這不代表完整 M3 或 live 核准。

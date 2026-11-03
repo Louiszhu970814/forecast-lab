@@ -1,0 +1,26 @@
+{
+  "version": "continuous_v9",
+  "campaign_id": "d118_minibench_20261103T0400Z",
+  "venues": [
+    "minibench"
+  ],
+  "budget_window_start": "2026-11-03T04:00:00.000Z",
+  "budget_window_end": "2026-11-10T04:00:00.000Z",
+  "weekly_attempt_caps": {
+    "claude": 130,
+    "gemini": 200,
+    "gpt": 130
+  },
+  "expected_new_questions": 10,
+  "repair_reserve": 2,
+  "urgent_slack_s": 120,
+  "run_config_sha256": "42936cd6c04e4e547dbe3369f868f1e338da04ab00a754cbe219037b8f196572",
+  "quota_policy_sha256": "3e11aeab8eca0fae1987e202779f49f60704f13737e3665a18c49e48e0a6ee23",
+  "budget_handoff": {
+    "version": "budget_handoff_v1",
+    "source_campaign_id": "d105_e2e_20261102T1303Z",
+    "source_sha256": "26596bf61b4d9e5c03ca6a01da22356e6a9bbe336228ec4eafef103d384770d5",
+    "accounting_start": "2026-11-02T13:03:00.000Z",
+    "authorization": "PLAN D118"
+  }
+}

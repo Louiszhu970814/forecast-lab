@@ -1,11 +1,11 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.62（v1.0 凍結後的修訂，見 §16；D108 起由 GPT 主持，Claude 待命）
+> 版本：v1.74（v1.0 凍結後的修訂，見 §16；D108 起由 GPT 主持，D120 將 D119 後續交 Claude 並已完成）
 > 初稿：Claude
 > 本回合整合者：GPT（D108；Claude 依 D95 主持至 D107，交接見 `docs/tasks/M3-E2E-D105-MONITOR.md`）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
-> 最後更新：2026-11-02
-> 狀態：M2 報告 14／14（D97）；M3 部分驗收完成（v1.0 於 2026-10-31 經 Louis 核准凍結，D54）
+> 最後更新：2026-11-03
+> 狀態：D118 MiniBench 進行中（固定截止 UTC 11/10 04:00）；M5 數值題與離散題於 UTC 11/3 11:38 上線（D122 驗證完成，M5-1 試驗場地探測 4 項讀回 found）；D121 第一批放寬與 D123 已套用，三線 ready（v1.0 於 2026-10-31 經 Louis 核准凍結，D54）
 
 ---
 
@@ -88,6 +88,7 @@
   - 排除同步題（D53）：試驗場地的題目若與主賽或 MiniBench 中開放中、即將開放的題目是同一題（例如同步到主站的題目），一律排除，而且排除優先於場地允許。判斷以平台的 ID 與歸屬對應為主；標題相同只當作疑似重複的訊號，標題不同也不代表安全。無法確定時，改選其他題目。
 - 額度不足時採「先廣後深」：先完成所有比賽的第 1 層，再依優先序做第 2 層，最後才做人類賽輔助（§9）。
 - 每場比賽參加前都要完成規則核對並記錄（§3.7）。核對完成並經 Louis 核准的比賽，才會列入 `config/tournaments.json` 的送出白名單。
+- D117：已依 §3.6 的有限七天授權啟用 MiniBench 系列白名單；其他場地維持 false。官方每輪數字 ID 仍須逐次發現與核對，不能把系列核准當成任意場地核准。
 - 以上比賽資訊來自主辦方的資源頁與正式規則，摘要見 `docs/tournament_checks/futureeval.md`。
 
 ### 3.2 題目取得
@@ -181,7 +182,7 @@
 ### 3.5 截止時間
 
 - **送出截止時間** = 題目關閉時間 − 安全餘裕（初始 20 分鐘）。超過送出截止時間才完成的答案不採用（`validation_status = "late"`）。
-- **決策截止點** = 送出截止時間 − 送出所需時間（組成留言、送出前檢查與送出，初始 5 分鐘）。到了決策截止點，所有等待中的工作都停止等待，依 §3.4 第 9 點送出已有的合格結果。
+- **決策截止點** = 送出截止時間 − 送出所需時間（組成留言、送出前檢查與送出，D116 為 10 分鐘；原初始值 5 分鐘）。到了決策截止點，所有等待中的工作都停止等待，依 §3.4 第 9 點送出已有的合格結果。D116 的 `run_config_v3` 保持關題前 20 分鐘的送出截止，決策截止改為關題前 30 分鐘；設定檔路徑沿用 `config/run_config_v2.json`。
 - 只有預估完成時間早於決策截止點，才會啟動第 2 層（D52）。
   - 預估時間 = 同一條線、同一層近期耗時的第 90 百分位數 + 驗證與稽核所需的時間。
   - 還沒有資料時，以單次執行上限計算（§7.5）。
@@ -203,6 +204,9 @@
   - Louis 在 §15 記錄核准。
 
   每場比賽還須另外列入送出白名單（§3.1）。
+  - D117：Louis 於 2026-11-03 明確回覆「OK 請參賽」，接受 D116 已揭露限制的條件式 M3-4／V11 依據，並核准 bot 311763 僅參加 MiniBench 系列，UTC 11/3 13:03～11/10 13:03，無自動續期。此有限准入以既有試驗端到端、歷史全樣本與固定壓力情境為據；完整 D114 新觀測保留為補充，未冒稱原完整實測已完成。晚接手不延後截止。其他場地與主賽未獲此授權。
+  - D117 啟用紀錄：UTC 11/3 01:53:56 已載入 `org.forecast-lab.cycle` 並驗證 `waiting`；runtime 為帶有固定窗口合約的 `live`，僅 MiniBench 白名單為 true。每 600 秒檢查，窗口開始後下一輪以當時時間登記與前檢，並非保證 13:03 整點作答。開始前不呼叫模型／API；到期不啟動新 worker 或 POST，不自動續期。安裝驗證新增模型嘗試與 POST 均為 0。
+  - D118：Louis 明確要求提前，七天窗口前移至 UTC 11/3 04:00～11/10 04:00（台灣12:00～12:00）；經測試／複審後以真正現在時間接手，晚接手不順延截止。bot311763、僅MiniBench、130／200／130上限與D117條件式依據不變；所有舊D105窗口用量併入上限。新接續登記保留舊紀錄並禁止舊窗口再取額度，唯一允許重疊的是明確綁定且完整保留用量的來源。D117未登記的21:03候選由此取代，不並存兩份額度；無自動續期。詳見 `docs/tasks/MINIBENCH-EARLY-D118.md`。
 - **MiniBench 不另設固定的試驗天數**（D77）：§10 M3 的必要驗收全部通過，而且 Louis 在 §15 記錄核准後，就可以進入 MiniBench。第一輪即是正式參賽，同時作為觀察期（§10 M4）；仍然每題只送一次，不得人為介入。
   - MiniBench 每輪換一個 project ID。白名單以系列（slug `minibench`）核准，每一輪的數字 ID 由執行時的官方 API 發現並記錄，送出前逐題核對。M3-W9 已實作系列白名單；可送出集合要求 `is_ongoing = true`，且 API 若提供 `start_date`，必須已到開始時間。API 提前標為 ongoing 的未來輪次仍列入試驗排除索引，但不列入可送出集合（D83）。此離線實作不代表真實 V15 或正式參賽核准完成。
 - **每題只送一次**（D44）：白名單比賽的每一題，只送出一次預測與一則留言（§3.4 第 9 點）。試驗場地允許重送，但流程和正式參賽相同，以便驗證。
@@ -682,6 +686,7 @@ token 欄位的對應（D29）：
   - CLI 版本改變，或一般設定改變（例如預設模型、介面偏好、權限規則）：自動重跑 §7.6 驗收。通過就繼續並更新基準；未通過就停止該線，並通知 Louis。
   - 全域指示、記憶、skills、hooks、plugins 或 MCP 的內容改變，包括設定檔中相關欄位的改變：停止該線並通知 Louis，經人工審查後再重跑驗收。自動測試只能確認這些來源會不會被載入，無法判斷新內容是否含有答案或危險指令。
   - CLI 支援關閉自動更新時就關閉；不支援時，以執行前的版本檢查處理。
+  - D119：比賽啟動環境以專案 wrapper 固定已驗收的官方 Claude 2.1.316，核對複本 SHA-256 並設 DISABLE_AUTOUPDATER=1；全域 CLI 不降版。外掛盤點 `claude_plugin_inventory_v2` 僅將精確 synced UUID bucket 的合法 round token、etag、updated_at 值列資訊，listedFor／來源／版本／未知欄位與其餘檔案仍受內容保護；新舊格式不得自動核准。候選以固定 SHA 綁定人工接受，且必須有對應候選的新隔離驗收通過證據，才可只替換 claude.plugins 一個來源，其他已核准來源保持不變。
 - 不接續任何舊 session：不使用 claude 的 `--continue`／`--resume`、codex 的 `resume`／`fork`、agy 的 `-c`／`--continue`／`--conversation`。
 - 各線使用帳號本人以官方 CLI 在本機登入的狀態；不複製、也不解析任何 CLI 的登入憑證。
 - 環境變數的清除見 §5.3 的共同規定。
@@ -952,7 +957,18 @@ M2 執行時透過官方 API 發現已允許試驗場地類型的數字 ID，不
 
 ## 10. 里程碑
 
+**D117 最新決定（2026-11-03）：Louis 已接受 D116 條件式 M3-4／V11 並核准該七天 MiniBench 正式窗口。**以下 M3 原始完整實測標準保留；本次有限准入例外只適用此 MiniBench 窗口，不自動適用主賽或之後窗口。既有 M3 其餘驗收依 D113～D115 證據，新觀測繼續補充。授權、排程已載入、窗口開始及實際送出須分別記錄，不互相冒充。
+
+**D118 後續（2026-11-03）：Louis 要求提前，窗口改為UTC11/3 04:00～11/10 04:00；沿用同一個有限MiniBench准入與條件式依據。**保留D105用量後接續，不重置、延期或擴大場地；完整隔離2181passed、Gemini／Claude複審通過、前檢6/6ready；04:12:32正式登記接續並kickstart，第一輪已抓到2題。詳見D118報告。
+
+D117 啟用完成：三線兩層真實前檢 6/6 ready，官方 GET 核對 bot 311763；最終正式程式完整隔離 2154 passed，另補三個邊界測試後相關 19 passed，Claude／Gemini 靜態複審均 PASS。UTC 11/3 01:53:56 載入並驗證排程 `waiting`；尚未到正式窗口、尚未實際作答。舊 runtime 設定已逐位元封存，D105 登記與用量保留；新 campaign 未提前登記。具體證據見 `docs/tasks/MINIBENCH-LIVE-D117.md`。以下 D113～D116 為當時狀態。
+
 截至 2026-11-02 UTC 16:35（D113），**D105 四題的 launchd 自動端到端與 D107 A2 三情境均已完成**。是非題 41219／41418／41628、多選題 42336 的預測及私人留言各一次 POST、全部自動 found、unknown 0；A2 同題重複預測保留歷史、四階合成私人留言立即完整讀回，以及本地注入確認失敗後只補留言均通過。已回 `local`，卸載本次預測 LaunchAgent 並封存安裝副本；原凍結窗口與帳冊保留，不另補題或續期。**M3 尚未全部完成**：V11 與第四項所需的實際可見性／輪詢／修訂及 launchd 觸發重播仍有缺口；既有模擬通過只限其凍結假設。沒有 live 核准。證據與下一步見 `docs/tasks/M3-READINESS-D113.md`、`data/e2e_acceptance_checks.jsonl`、`data/a2_acceptance_checks.jsonl`。
+
+D114／D115（前輪）：新增 `metadata_observer_v1`（兩次完整盤點核對、有界 GET、全部題型、實際輪詢起訖與修訂雜湊），以及 `coverage_sim_v4` 的完成後 600 秒觸發選項；完整隔離 2089 passed。Gemini 對 transport／backoff 複審 PASS，Claude 對觀測器修正 B1 後技術複審 PASS。已事前固定 24 小時開題窗口加 4 小時收尾，觀測 `d114_20261102T231631Z` 於 UTC 11/2 23:16:31 開始、11/3 23:16:31 截止開題、11/4 03:16:31 結束；首輪完整成功（15 GET、0 POST）。後續存活、停止與缺口以程序及觀測帳冊為準，不自動重啟或續期。當時資料轉換、可見性／修訂重播與 M3 結論仍未完成；D116 已完成工具與歷史壓力重播，完整新觀測的重播結果仍待收尾，不能以工具通過代替實測通過。規格見 `docs/tasks/M3-METADATA-D114.md`。
+
+
+D116（UTC 2026-11-03）：Louis 質疑一天等待後，GPT 與 Claude／Gemini 核對 D77，確認 24h＋4h 是取樣設計而非固定准入天數；資料轉換、壓力重播與審查改為立即並行。`coverage_sim_v5` 修正送出期間背景完成／修訂可能誤判 covered，加入延遲、停機、期初／尾段工作與既有用量；`metadata_replay_v1` 保留聯集分母、完整輪詢與取樣不確定性。原 5 分鐘設定的兩個主要 Mini-only 情境 p10 僅 71.05%／65.79%；另行事前登記候選後，10 分鐘兩者均 97.37%（全題均 61.67%），採最小可行值，升為 `run_config_v3`／`escalation_v2`。停機 7.43 小時仍只有 73.68%，不掩蓋失敗；這是歷史校準，非獨立實測驗證。完整隔離 **2138 passed**。有限 Mini-only 候選窗口及設定已離線驗證，見 D116 報告，尚未登記／啟用。D114 原觀測／5 分鐘 recipe 保留，新舊情境明確分開；尚未自動通過 M3-4／V11，也沒有 live 授權。條件式證據方案與正式窗口待 Louis 決定，原 D105 預算窗口至 UTC 11/3 13:03 不變、不重疊或清零。詳見 `docs/tasks/M3-PARALLEL-D116.md`。
 
 | 階段 | 內容 | 完成標準 |
 |---|---|---|
@@ -962,7 +978,7 @@ M2 執行時透過官方 API 發現已允許試驗場地類型的數字 ID，不
 | M3 | 試驗期（`trial`） | 須同時完成以下各項：<br>一、Louis 建立機器人帳號（第一個即主機器人）並填寫參賽表單，經核准切換到 `trial`。<br>二、在試驗場地以 `trial` 實際完成端到端流程：由 launchd 週期無人介入地完成抓題、預測、送出、留言與讀回對帳，是非題與多選題都要有。不設固定的天數（D77；原為連續 14 天）。<br>三、送出測試通過：ID 對錯題、錯帳號、跨比賽、選項修訂、同步題與已關閉題目都被拒絕；平台已有預測時不再送出；預測與留言各自「伺服器已受理但回執遺失」、讀回失敗或延遲可見、重啟之後，都能正確對帳；留言失敗時只補送留言；停用開關有效。<br>四、覆蓋率模擬（D53）：觀察期間與分母在看結果前固定。重播主賽與 MiniBench 題目的實際開題與輪詢時間、同時開題、工作佇列、兩層與修復重試的耗時、稽核與送出餘裕、額度重置與停線，並使用 §9 的並行度。分別報告全部題目的覆蓋率與已支援題型的準時覆蓋率；90% 的門檻適用於已支援題型，`unsupported_type` 仍列在全體分母中。<br>五、額度在預算內，claude 與 gpt 的每週次數上限依 M2 量測填入；持續模式的題集能跨週運作。<br>六、完成 V11 與 V15；可靠的讀回方式確認之前，不得切換到 `live`。<br>七、MiniBench 的系列白名單與每輪 ID 的發現、核對已實作並測試（§3.6）；FutureEval／MiniBench 的規則核對（§3.7）經 Louis 核准並記錄於 §15。 |
 | 切換 | 正式參賽（`live`） | Louis 核准，記錄於 §15 |
 | M4 | 正式參賽：MiniBench | 完成一輪 MiniBench；檢查官方分數、留言與漏答。第一輪就是正式參賽，也是觀察期（D77）；單輪約 60 題的排名不足以當成效能證據 |
-| M5 | 數值題與離散題 | 另訂輸出格式與整合規則，在試驗場地驗證後加入；排在主賽上線之前（D49） |
+| M5 | 數值題與離散題 | 另訂輸出格式與整合規則，在試驗場地驗證後加入；D122 起提前進行，驗證通過即加入目前的 MiniBench 窗口。UTC 2026-11-03 11:38 上線（v1.74） |
 | M6 | 正式參賽：主賽 | 依 M4、M5 的結果加入當季主賽；2026 秋季賽可能已接近尾聲，主要目標是下一季 |
 | MA（選做） | 人類賽輔助 | 機器人賽穩定後開始 |
 
@@ -1012,7 +1028,7 @@ v0.3 的 V1～V9（狀態沿用）：
 v0.4 新增：
 
 - **V10**（已完成）：Louis 提供了資源頁（2026-10-29 版）與正式規則（2026-10-12 版）的原文，摘要見 `docs/tournament_checks/futureeval.md`。留言長度上限併入 V15。
-- **V11**（部分完成）：資源頁說明每題開放 3 小時、同時通常不超過 5 題；實際分布由 `data/poll_log.jsonl` 量測。D113 純本地回溯盤點：33121／33132／33135 各 314 次輪詢，分別看到 2／0／26 題，最新排定窗口均 3 小時；各有 17 個超過 600 秒的空檔，最大約 7.43 小時。這不重建空檔中的實際可見性／修訂；另需事前固定的有界觀測及按實際觸發方式重播，不能把歷史排定時間表當成完整實測。見 `docs/tasks/M3-READINESS-D113.md`。
+- **V11**（部分完成）：資源頁說明每題開放 3 小時、同時通常不超過 5 題；實際分布由 `data/poll_log.jsonl` 量測。D113 純本地回溯盤點：33121／33132／33135 各 314 次輪詢，分別看到 2／0／26 題，最新排定窗口均 3 小時；各有 17 個超過 600 秒的空檔，最大約 7.43 小時。這不重建空檔中的實際可見性／修訂；另需事前固定的有界觀測及按實際觸發方式重播，不能把歷史排定時間表當成完整實測。見 `docs/tasks/M3-READINESS-D113.md`。 D116 已完成空檔歸因（9 安裝前、1 跨安裝、4 正常收尾、2 開發持鎖、1 A2 持鎖）與完整 converter／壓力工具；不能用此歸因補造 first-seen／修訂。10 分鐘主要壓力情境通過僅限歷史校準；Louis 已於 D117 接受這個有限 MiniBench 窗口的條件式依據，排程已載入等待。完整獨立觀測仍屬部分完成，不藉此改寫原實測狀態或擴大其他窗口的授權。
 - **V12**（已決定）：規則允許參考公開的社群預測，但不得盲目照抄；本版不使用（D50）。
 - **V13**（部分完成）：
   - codex 官方文件說明子代理繼承 sandbox 與 approval 設定；agy changelog 說明自訂 agent 的 `model` 預設為 `inherit`。
@@ -1030,7 +1046,9 @@ v0.4 新增：
   D98：官方客戶端在每個請求前固定等 3.5 秒加最多 1 秒抖動；官方後端的留言建立流程中，我們的私人留言沒有任何會被拒的條件，第一次 4xx 很可能也是閘道限流（推論）。`api_backoff_v2` 已對正式連線的所有請求加上跨程序共用的間隔。多選題寫入以目前選項標籤為鍵即可；讀回的順序在「重新加回曾刪除選項」與寬限期時會例外，因此改用不依賴順序的核對（待實作）。`/api/questions/bulk-forecast-comment/` 可由一般 bot token 原子寫入預測加私人留言，列為候選。bot 私人留言超過 500 字元滿 30 天後只保留前 200 字元。見 `docs/tasks/PLATFORM-CLUES-D98.md`。
   D102／D104（UTC 2026-11-02 11:27～11:49）：bot testing area 多選題的有界元件驗收**完成**。加上請求間隔後，預測 POST 1 次讀回 found（歷史選項順序為 null，以多重集合核對，順序也相符）；私人留言 POST 1 次由伺服器接受（無 429），讀回因本專案查詢缺少 `is_private=true` 而記 unknown，修正為 `api_transport_v6` 後以唯讀對帳轉為 found（留言 1250911），留言屬性（私人、作者、貼文、文字雜湊、`included_forecast` 的多選值）全部核對通過；沒有重送。這是合成元件證據，不是 launchd 端到端驗收。
   D113（UTC 2026-11-02）：D105 四題自動端到端全部完成，兩題型的預測與私人留言均獨立 found。D107 A2 三項實測完成：同一是非題兩次合成預測皆 found，歷史筆數由基準 1 變 2、3；2000／10000／50000／150000 字元的 ASCII 合成私人留言皆立即全文長度及雜湊相符；正式 Submitter 路徑先預測 found，再在任何留言網路 I/O 前注入一次確認失敗，之後只補一次真實留言並 found，沒有重送預測。正式送出帳冊未變，未知請求 0。見 `docs/tasks/D107-A2-BTA-REUSE-PROBE.md`。
-  平台的絕對留言長度上限仍未量出；150000 是最大已測可接受長度，正式 `MAX_CHARS=3000` 不變，立即讀回不代表長期保存全文（D98 的 30 天保留規則仍適用）。bot testing area 多選歷史的 null 不能推定從未改過選項；留言尚無送出前 ID 基準，時間偏差仍可能維持 unknown，不因此重送。這些限制與已完成實測分開列示；M3 其餘門檻及 Louis 的 live 核准仍適用。
+  D115（UTC 2026-11-02）：Louis 提供 Luke 官方回信，兩條官方 CLI 已分別評估。官方確認 MC 的 `all_options_ever`／`options_history` 已解除標準帳號遮蔽，`forecast_values` 按前者對位、inactive 為 null，`options_order` 只控制顯示。`api_transport_v7` 對新 MC 寫入及讀回均要求有效歷史標籤順序，移除 D99 的 null 多重集合退路；沒有重新分類舊紀錄，unknown 不重送。正式帳冊與 probe 的未解決請求均為 0。只讀核對已確認既有 BTA post 46223／question 46450 的兩個歷史欄位非 null、向量長度相符；初次誤把 question ID 當 post ID 的 404 保留，不冒充成功。
+  官方確認私人留言上限為 **150000 Unicode code points**，超過回 400；正式 `MAX_CHARS=3000` 不變，不再探測長度邊界。實際超過 500 字元的 bot 私人留言在 30 天後封存，API 回短摘錄加全文連結、不可再編輯；這取代 D98 對現行契約「只留前 200 字元」的推定。摘錄不能當成全文 hash 相符，舊留言無法對帳仍維持 unknown。`options_history` 已觀察為 `[字串, 選項列表]` 的 pair，但時間字串未通過現有嚴格 ISO parser，尚不依它做歷史時間重建；目前精確讀回只使用 `all_options_ever`。留言尚無送出前 ID 基準，時間偏差仍可能維持 unknown。詳細來源、審查與實機限制見 `docs/tasks/PLATFORM-REPLY-D115.md`。
+  D115 同時確認 429 由 Cloudflare 按來源 IP 限流（涵蓋 `/api/*`、`/api2/*`、讀取與失敗請求）。`api_backoff_v3` 對有效正值 Retry-After 取至少 10 秒，缺漏／零／過期維持 60 秒，非 429 不變；保留跨程序 3.5～4.5 秒間隔，但它不控制同 NAT 的其他客戶端。Bulk 原子寫入／批次讀回列為後續獨立驗證的優化，不新增 M3 阻擋，不使用人類帳號或 `acting_user`。M3 其餘門檻與 Louis 的 live 核准仍適用。
 - **V16**：三家個人方案條款中，與自動化、比賽獎金與帳號使用有關的條文（只記錄、不阻擋，D35）。
 - **V17**（部分完成，D96）：agy 實際生效的 AI credits 設定鍵，以及單次執行前後的 `/usage` 變化是否足以判斷使用的模型（§7.7）。D96 的離線與 idle 讀數顯示，`/usage` 讀數本身不一致，單次前後差值不足以判斷模型或成本；Ultra 共用桶下的型號只能以 `--log-file` 判斷。AI credits 設定鍵仍待確認。
 - **V18**（已確認）：`agy models` 列出 `gemini-4-argon-high`，第 2 層直接使用這個模型 ID（§5.3）。
@@ -1754,9 +1772,47 @@ view_image                  stable true
 | D112 | 2026-11-02 | D111 修正後的 launchd 週期已自動讀回兩題 binary 留言，以及 42336 多選預測與私人留言；15:33 僅依 ID、狀態、request／lookup 雜湊與完成週期時間核對，確認 M3 第二項兩題型端到端通過，各操作一次 POST、unknown 0。41628 仍待收尾，A2 尚未開始。事先登記的新版引擎重播沿用 D101 全部輸入，20 次支援題覆蓋 p10 100%；270 秒送出壓力情境 p10 98.51%，列為診斷，不取代實機 | 依 D108 監督授權記錄驗收事實，沒有新送出授權或修改預測設定。PLAN v1.61；詳細時間、分母與限制見 `docs/tasks/M3-READBACK-D111.md`。600 秒排程仍維持，live 尚未核准 |
 | D113 | 2026-11-02 | GPT 依 D108／D107 A1～A2 完成收尾：D105 四題於 15:54 全部自動 found，各預測／留言一次 POST；A2 依序完成 duplicate_forecast、comment_length、comment_retry，情境間 API 靜默 872.322／619.162 秒。A2 實際預測 POST 共 3、留言 POST 共 5，另有一次明確未送網路的本地留言失敗注入；全部真實寫入 found，unknown 0。16:35:10 回 local、卸載本次 cycle LaunchAgent 並封存安裝檔，原 campaign 與正式送出帳冊不變 | 實機證據見 A2 報告與 `M3-READINESS-D113.md`。不宣稱平台絕對留言上限、完整 M3 或 live 通過；V11／實際輪詢重播缺口保留，下一步先事前固定新的純中繼資料觀測與重播方案。預測設定、600 秒範本與 900 秒開發審查上限不變；沒有新增正式參賽授權 |
 
+
+| D114 | 2026-11-02 | Louis 要求繼續任務並詢問正式參賽就緒度；GPT 依 D108 接續 D113 的純 metadata 觀測／重播工具，新增 `metadata_observer_v1` 與 `coverage_sim_v4` 完成後 600 秒觸發。固定 24h 開題＋4h 收尾、600 秒一槽、每槽最多 80 GET／480 秒、全程 8000 GET、最多 8 project／每場地每 pass 20 頁；兩次完整盤點的 ID／映射集合與可用 count 必須一致，不一致停止，不續期、不重新挑分母 | Claude 初輪 B1（分頁位移可漏題）修正後技術複審 PASS；最新完整隔離 2089 passed。只讀觀測的實際開始另由 JSONL 記錄，沒有預測模型／POST／新 LaunchAgent；M3、正式窗口與 live 未核准 |
+| D115 | 2026-11-02 | Louis 提供 Luke 官方回信，並要求 Claude、Gemini 先看過最新資訊再共同決定下一步。兩者分別完成評估；GPT 整合：429 正值 Retry-After 最少 10 秒、保留 60 秒 fallback 與既有節流；MC 新寫入與讀回均要求精確 `all_options_ever` 映射；記錄官方留言 150000 code points 與 30 天封存契約；bulk 留待另案，不使用人類帳號或 acting_user | `api_backoff_v3`／`api_transport_v7`，Gemini 程式複審 PASS；完整隔離 2089 passed。GET-only 核對 post 46223／question 46450，歷史欄位已回傳、向量長度符合；誤用 question ID 的 404 與 options_history 時間字串解析限制照實保留。沒有新預測或留言、沒有重寫舊帳冊，M3 剩餘實測及 Louis live 核准不因此免除 |
+
+| D116 | 2026-11-03 | Louis 要求不要把今天耗在等待；GPT 依 D108 改為觀測與離線收尾並行，Claude／Gemini 分別重審。24h＋4h 保留為原取樣設計，不設為新的固定准入天數。修正模擬器與 converter，完整保留原 5 分鐘壓力失敗；另行事前登記 10／15／20 分鐘候選後採最小通過值 10 分鐘，`run_config_v3`／`escalation_v2`，§3.5 決策截止改為關題前 30 分鐘 | Mini-only 兩個主要情境支援 p10 均 97.37%、全題均 61.67%；7.43 小時停機 73.68% 仍未達標。2138 passed，Gemini／Claude 程式、報告及候選提案靜態複核 PASS。原凍結觀測、5 分鐘基準、試驗窗口、用量與 runtime campaign 保留；目前 local、白名單 false、排程卸載。條件式 M3-4／V11 證據、正式窗口及 live 尚待 Louis 核准，不把抱怨當成核准。見 `docs/tasks/M3-PARALLEL-D116.md` |
+
+| D117 | 2026-11-03 | Louis 在 D116 具體方案及核准問題後明確回覆「OK 請參賽」：一併接受條件式 M3-4／V11 與有限 MiniBench 正式啟用。bot311763、僅 minibench 系列已開始 ongoing 輪次；UTC11/3 13:03～11/10 13:03（台灣21:03起七天）、每線130／200／130次、預留新題10／修復2、急迫120秒、無續期；沿用10分鐘送出緩衝與600秒排程 | GPT 已完成啟用：前檢6/6 ready、bot GET核對、完整隔離2154 passed及補充相關19 passed、Claude／Gemini均PASS。01:53:56Z已載入600秒LaunchAgent並取得waiting回執，新增模型／POST均0；runtime live僅Mini白名單true，窗口開始後下一輪重新前檢與實際時間登記。舊runtime已封存，原D105窗口／歷史不改、不重疊、不清零。D78保留，安裝未出現系統權限提示；D114作補充。尚未實際作答，無自動續期。見 `docs/tasks/MINIBENCH-LIVE-D117.md` |
+
+| D118 | 2026-11-03 | Louis 明確要求「那想辦法提前吧 不要空轉了」。GPT依D108接手：七天MiniBench窗口前移至UTC11/3 04:00～11/10 04:00，原bot311763／130、200、130次／場地與條件式M3依據不變；D105全部舊用量計入新上限、舊窗口不再取得新額度，未登記D117候選被取代 | `continuous_v9`／`budget_v6`／`budget_handoff_v1`。保留歷史，以單一不可變接續允許精確來源重疊；禁止重置、重複接續及rollover，固定截止不順延。完整隔離2181passed、Gemini／Claude均PASS、前檢6/6ready；04:12:32.156Z登記並驗證來源superseded，04:12:32.414Z取得active。首輪抓到2題，GPT／Gemini已開始研究；Claude因全域外掛基準變動暫停，未繞過校驗。舊用量各6次保留。D117待開始設定已封存，既有600秒排程直接啟動。見 `docs/tasks/MINIBENCH-EARLY-D118.md` |
+
+
+| D119 | 2026-11-03 | Louis 指示「解決一下claude的問題」。GPT 完成 `claude_plugin_inventory_v2`／`claude_sync_state_v1`／`claude_baseline_candidate_v1`，比賽專用官方 Claude 2.1.316 pin、同步 metadata 與受保護內容分開、固定候選與新隔離證據綁定 | 完整 2305 passed、相關 148 passed，Claude／Gemini 最後複審均 PASS；04:45:13Z 部署，實際 runner＋netguard／adapter 路徑為316，GPT／Gemini基準ok。原 Claude 外掛基準缺逐檔歷史，無法證明只有metadata改動；依D21仍維持stop，候選 `4b29bd8b…1e41` 待Louis人工接受，之後先重驗再限縮核准，不可默認本次修復指示已接受新內容。D69的13skills受保護hash未變；live排程／預算／D114不改。見 `docs/tasks/CLAUDE-REPAIR-D119.md` |
+
+
+| D120 | 2026-11-03 | Louis 緊接上一則具體 D119 外掛基準確認回覆「OK 先交接一下我給claude做」：接受 snapshot `4b29bd8b0a54ae7d8b0468f1f60a2deabaa0b4f492748d2f8667f2ef99881e41`，並指定先交接由 Claude 執行後續；不得再重問同一候選接受 | 人工接受事件 `d120_handoff_1793681518672_ce44cc95` 於 UTC04:51:58.672 記錄於 D119 operations.jsonl。接受範圍只有 claude.plugins；新隔離驗收通過仍為套用必要條件。GPT 僅交接，未啟動 Claude 工作或驗收、未寫 baseline_approved；原基準仍為 `base_1793538013655_8fc7b859`。Claude 實際接手後先查 status，按 D119 文件完成新隔離證據→限縮核准→兩層 preflight，再發布結果。D118 live／GPT／Gemini／預算與 D114 保持 |
+| D121 | 2026-11-03 | Louis 認為原停線／額度審查機制太嚴格：一有問題就停線、一停到週窗口結束成本太高，且不可為本專案額度估算的準確度限制他在其他專案使用三家模型；指示「我需要都放寬」。Claude 提案、GPT（gpt-6-astra high）與 Gemini（gemini-4-argon-high）工具關閉審查皆有條件同意；Louis 對修訂版回覆「好的就照你說的C 其他放寬」：R2 採選項 C（先做純文字類來源自動重驗的安全子集，同時實測哪些全域來源會被正式預測載入，證明不載入者改為資訊性），R1、R3～R11 全部放寬 | 規格 `docs/tasks/FAIL-SOFT-RELAX-PROPOSAL.md`（v2），審查 `reviews/gpt-fail-soft-review.md`、`reviews/gemini-fail-soft-review.md`。原則：預設軟失敗、自動到期；只有工具違規、metaculus.com 暴露、credits 非 0、送出完整性等安全／規則違規停線等人；賽中只跑預先固定的自動規則，手動解除與事後撤銷限維護時段；不改 `adapters/*`、`flab/runner.py`、`flab/netguard.py`（驗收指紋）。外掛、執行類設定鍵、上層目錄與憑證／blocker 不自動核准。實作依既有分工由 GPT 在開發沙箱進行，Claude 規格與審查、Gemini 獨立審查，照互斥程序套用並升版；本決策當下尚未改變任何預測行為 |
+| D122 | 2026-11-03 | M5（數值題與離散題）提前開始：Louis 回覆「好 現在開始寫規格 上線選A」，並交 Claude 帶領團隊。上線時機採 A：驗證通過就加入目前的 D118 MiniBench 窗口，不等 11/10；取代 D49「M5 排在主賽之前」的排序含意，M5 不再只是主賽前置 | 驗證通過的定義：規格經 Gemini 審查；GPT 實作的完整隔離回歸全部通過；Claude 與 Gemini 程式審查 PASS；在試驗場地（bot testing area 的數值題與離散題、主站數值題，依 D107 A1 常設授權的有界寫入）以正式路徑實際送出並讀回 found，留言同樣 found。D118 窗口內不得修改 `run_config_v2.json`、`quota_policy.json`、`cycle_campaign.json`（campaign 固定 hash），數值題的新參數先寫成有版本的程式常數，11/10 新窗口再移入設定檔。不在開放中的比賽題目上測試；上線屬重大更新，記錄於 §16。動機是覆蓋率（今天 MiniBench 6 題中 4 題為數值／離散題，歷史約 36%），與任何開放題的預測內容無關 |
+| D123 | 2026-11-03 | Claude 線自 UTC 06:21 起 preflight_blocked：互動式 Claude Code 把 claude.ai 帳號的官方技能同步到 `~/.claude/skills/synced/`（docx 06:14Z、pdf 08:28Z、manifest 09:01Z），baseline `claude.skills` 判為內容變更。Louis 在桌面 CLI 選「A 根治並重新核准」：同步資料夾改為資訊性來源 `claude.skills_synced`（`claude.skills` 排除 `synced`，個人技能仍為內容）；`forecast.tool_violations` 在 Claude init 宣告任何 skills、slash_commands、MCP 伺服器或非 builtin plugin 時視為工具越權並停線；之後以逐線核准只重新認證 Claude 線基準。同時選「M5-1 合成 CDF 探測」作為 D122 的試驗場地驗證：bot testing area 數值題與離散題各送 1 次合成 CDF 與 1 則私人留言並讀回，執行時持排程鎖暫切 trial 模式、結束後逐位元還原 live 檔；主站數值題改為上線後監看第一題的讀回 | 證據：D120 驗收 init 事件在同步資料夾存在時宣告 `skills=[]`、`slash_commands=[]`，adapter 參數含 `--disable-slash-commands` 與 `--tools`。A 的 patch 完整回歸 2577 passed；UTC 11:03 互斥套用，逐線核准 `base_1793703798304_8e157584`（取代 `base_1793681992038_7cf51691`，Gemini／GPT 沿用原核准），Claude 第 1、2 層 preflight 通過。影響：06:21～11:03 Claude 未參與作答，是非題 46653 由 Gemini、GPT 兩線作答。M5-1 規格 `docs/tasks/M5-PROBE-SPEC.md`，涉及送出與模式切換，須 Gemini 與 Claude 審查後才執行 |
+
+
 ---
 
 ## 16. 變更紀錄
+
+- **v1.74**（2026-11-03）：M5 上線（重大更新，D122 選項 A）。M5-1 探測工具 `v15_probe_v5`（single 情境支援 numeric／discrete 合成 CDF）、`m5_probe_session_v1`（持六把鎖暫切 trial，finally 逐位元還原 live 檔，失敗即建立 STOP_SUBMIT）與 `Submitter(probe_question_types=...)`（只在 trial 且 bot testing area 32977 放行未啟用題型）由 GPT 實作；Gemini 審查有條件 PASS（`reviews/gemini-m5-probe-review.md`，阻擋條件為 golden 雜湊與完整回歸，已處理），Claude 審查後修正：兩次探測間隔 60 秒、4xx 分支補寫正式帳冊 unknown、`m5_legacy_golden.json` 移除 PLAN.md 雜湊（PLAN 為持續修訂的規格，不屬執行期保護檔）。正常環境完整回歸 2694 passed。UTC 11:27 互斥套用；11:27:44～11:38:15 探測工作階段：數值題 46451 與離散題 45708 的預測及私人留言共 4 次 POST，全部讀回 found，確認 `NUMERIC_READBACK_FIELD = "forecast_values"` 與 5e-10 容差；live 檔還原後 SHA-256 與原值相同，無 STOP_SUBMIT。期間持鎖約 10.5 分鐘（題目列表與讀回的禮貌間隔比預估的 2 分鐘長），排程輪次以 overlap_skipped 略過，該時段沒有支援題接近決策期限。D122 驗證定義全部滿足（主站數值題依 D123 改為上線後監看第一題讀回）。UTC 11:38:40 在 cycle／scheduler 鎖下把 `config/question_types.json` 改為 numeric、discrete 皆 true（`data/operations/m5-probe/`）。撤回方式：改回 false，作答、整合與送出前檢查都會動態拒絕。
+- **v1.73**（2026-11-03）：D123。`baseline_v2` 新增資訊性來源 `claude.skills_synced`，`claude.skills` 排除 `synced`；`forecast.tool_violations` 新增 Claude init 宣告檢查（skills、slash_commands、MCP、非 builtin plugin 即為工具越權）。新增 `tests/test_d123_synced_skills.py`，`tests/test_baseline.py` 的技能變更案例改用個人技能。正常環境完整回歸 2577 passed。UTC 11:03 在全部鎖取得的空檔套用（`data/operations/d123-synced-skills/`），以 `baseline.approve(..., player="claude")` 寫入 `base_1793703798304_8e157584`，三線比對皆 ok，Claude 第 1、2 層 preflight 通過。M5-1 探測規格 `docs/tasks/M5-PROBE-SPEC.md` 交 GPT 實作。
+- **v1.72**（2026-11-03）：D121 第一批（R1、R3～R11）與 M5 程式套用到正式環境，M5 開關 `config/question_types.json` 維持 numeric／discrete 皆 false。GPT 實作，Gemini 兩批程式審查與複審 PASS。Claude 完整審查（`reviews/claude-d121-m5-code-review.md`）修正兩項阻擋問題與一項效能問題：一、模型不符的舊版判定改用固定集合 `LEGACY_MISMATCH_PIPELINES`（v1～v6 與未標版本），避免未來升版把 v7 起的軟性退避變成停線；二、`baseline.approve(player=...)` 改為只比對受保護指紋，只重新認證本線來源與版本，其他線沿用原核准、共用來源有非資訊性變更即拒絕；三、`recover_interrupted` 每次只讀一次帳冊。修正經 Gemini 複審 PASS（`reviews/gemini-claude-fix-review.md`），新增 `tests/test_d121_claude_review.py`。正常環境完整回歸 2575 passed、0 failed。UTC 09:16 在 cycle／scheduler／submit 與三線鎖全部取得的空檔套用（51 檔，備份與操作紀錄在 `data/operations/d121-m5-apply/`），下一輪 `cycle_1793697751229_7b4571b7` 完成且無錯誤，scheduler_v8 運作，Gemini、GPT ready。版本：budget_v7、forecast_pipeline_v7、scheduler_v8、baseline_v2、claude_baseline_candidate_v2、quota_admission_v2、quota_model_verification_v3、fail_soft_v1；M5 為 forecast_numeric_v1、output_schema_numeric_v1、reconcile_numeric_v1、repair_numeric_v1、numeric_cdf_v2、agg_numeric_v1、escalation_numeric_v1。舊題型 forecast_v2、output_schema_v2、agg_v1 不變，三份固定 campaign 設定與驗收指紋檔案未修改。
+- **v1.71**（2026-11-03）：D122，M5 數值題與離散題提前開始，上線時機採 A（驗證通過即加入 D118 窗口）。規格撰寫中（`docs/tasks/M5-NUMERIC-SPEC.md`）；本版只記錄決策，預測行為尚未改變。
+- **v1.70**（2026-11-03）：D121，記錄 Louis 放寬停線／額度審查機制的決定（R2 選項 C，R1、R3～R11 全部放寬）。規格為 `docs/tasks/FAIL-SOFT-RELAX-PROPOSAL.md` v2，第一批實作規格 `docs/tasks/D121-FAIL-SOFT-BATCH1.md`。本版只記錄決策，程式與預測行為尚未改變。
+- **v1.69**（2026-11-03）：D120 執行完成（Claude）。UTC04:58:35～04:59:54 在當輪已過 admission、三線無模型執行時持三條 forecast locks（約 78 秒，未中止任何工作）；以專案 wrapper 的 2.1.316、清除 `CLAUDE*`／`CLAUDECODE` 環境，跑便宜模型 Claude 隔離驗收 3 次呼叫，`acc_1793681985508_f9fec3a8` PASS（全部測試 pass）。隨即取實機 snapshot（gemini credits 0、三線 CLI 316／0.166.0／1.4.12），以 `claude_baseline_candidate.approve` 綁定已接受 SHA `4b29bd8b…1e41`、接受事件 `d120_handoff_1793681518672_ce44cc95` 與上述驗收，寫入 `base_1793681992038_7cf51691`（取代 `base_1793538013655_8fc7b859`，只換 claude.plugins）。Claude tier1／tier2 preflight 均 ok、無 problems／waivers；下一輪 `cycle_1793682455879_d3cbd187`（05:07:35）Claude 為 ready 並進入 scheduler。程式、模型、prompt、預算與送出行為不變，未補改已完成的正式預測。證據 `data/operations/d120-claude-restore/`。
+- **v1.68**（2026-11-03）：D120，記錄 Louis 對上一則明示 D119 候選確認的回覆「OK 先交接一下我給claude做」。指定候選已獲接受；後續新隔離驗收、限定來源基準套用及兩層 preflight 交 Claude 執行，無須重問同一次接受。GPT 本輪只完成交接與進度發布，未執行模型重驗、未寫入 baseline_approved、未恢復 Claude 或重啟排程；程式與預測行為不變。
+
+- **v1.67**（2026-11-03）：D119 Claude 修復。新增同步狀態嚴格 parser 與逐檔 hash inventory、官方2.1.316專案pin及候選限縮核准 helper；真正內容或格式異常停線，舊基準不自動遷移；核准必須綁定已審SHA與新的隔離通過證據。完整2305passed、相關148passed、Claude／Gemini均PASS，正式code已部署，實際執行路徑316。外掛候選待Louis接受，未重設正式基準或冒稱Claude已恢復；原正式參賽與兩條線繼續。
+
+- **v1.66**（2026-11-03）：D118，依Louis明確提前參賽指示，有限七天窗口前移至UTC11/3 04:00～11/10 04:00。新增 `budget_handoff_v1`，`continuous_v8`→`continuous_v9`、`budget_v5`→`budget_v6`，以不可變接續登記保留D105計數起點並封存來源；唯一來源重疊例外、單一接續、禁止串接／rollover、預算准入核對完整登記。所有舊用量仍計入130／200／130上限，未增加額度；模型／prompt／預測管線／送出與600秒間隔不變。完整隔離2181passed、Gemini／Claude均PASS，6項前檢ready；04:12:32Z完成不可變接續與既有排程啟動，首輪抓到2題。實際證據見D118報告。
+
+- **v1.65**（2026-11-03）：D117，記錄 Louis 接受條件式驗收並核准 D116 有限 MiniBench 正式窗口；完整新觀測作補充。實作 `live_window_v1`、`submit_v11`、`api_transport_v8`、`cycle_v8`，為每次 live 寫入與排程加上有限窗口及凍結設定核對；額度／模型／prompt／週期內排程不變。最終正式程式完整隔離2154 passed，補充相關19 passed，Claude／Gemini均PASS；三線兩層前檢ready。01:53:56Z載入排程並驗證waiting，live僅MiniBench、有限七天無續期，安裝新增模型／POST均0；詳見D117報告。
+
+- **v1.64**（2026-11-03）：D116，`coverage_sim_v5` 修正送出期背景完成／修訂的假 covered、提前關題的預知，新增可見區間、停機、期初／尾段競爭與已有用量；`metadata_replay_v1` 以盤點聯集保留分母、完整觀測後才登記，原 5 分鐘與 D116 10 分鐘必須明選、不可默默替換。正式設定路徑不變、內容 `run_config_v2`→`run_config_v3`，送出緩衝 5→10 分鐘，決策截止由關題前 25→30 分鐘；`escalation_v2` 明確相容 v2／v3、維持門檻及未知版本拒絕。這會提前停止等待／工作准入，模型、prompt、整合公式、預測 timeout、容量及 600 秒排程不變。歷史參數校準及全部失敗情境如實保留，未自動判 M3 或啟用 live。最終完整隔離 2138 passed；Gemini／Claude 對程式、報告及有限候選提案靜態複核均 PASS，審查者未自行執行測試。條件式證據與正式啟用仍須 Louis 分別或一併核准，工具限制見 D116 報告。
+
+- **v1.63**（2026-11-02）：D114／D115，新增有界 metadata 觀測與離線完成後排程重播；修復 429 正值期限不足 10 秒，MC 移除 null 多重集合讀回並收緊新送出前檢。正式留言上限不變，更新官方留言／封存契約。此版改變異常 MC 的送出准入及讀回判定、429 冷卻；模型、prompt、整合、預測 timeout、600 秒正式排程及 local／白名單配置不變。相關測試修正舊 null fixture 與 7 秒預期，完整隔離 2089 passed，Gemini transport／backoff PASS、Claude 觀測器 B1 修正後 PASS。純 metadata 觀測與後續重播不等同 M3／live 已通過。
 
 - **v1.62**（2026-11-02）：D113，記錄四題端到端、A2 三情境與回 local／排程卸載封存的實機證據；修正覆蓋率文件的 300 秒送出及 4770／5100／5110 秒時限，區分模擬固定格點與實測 launchd 觸發。增加最新 M3 對照，保留 V11／可見性／輪詢／修訂缺口與長度實測限制。Claude 兩輪文件／證據審查，修正後 PASS、無 blocking。只更新驗收與收尾紀錄，不改程式、模型、prompt、預算、凍結窗口或排程間隔。
 - **v1.61**（2026-11-02）：D112，記錄 M3 第二項兩題型自動端到端通過及新版引擎的事前登記重播結果；第四題與 A2 尚待收尾。Claude 對有限驗收結論與重播報告複核 PASS。只更新驗收狀態，不改程式、模型、prompt、窗口、排程或送出授權。

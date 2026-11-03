@@ -47,7 +47,7 @@ def test_all_actual_config_files_validate() -> None:
     assert run_cfg["escalation"]["market_price_epsilon"] == 0.005
     assert run_cfg["deadlines"] == {
         "safety_margin_minutes": 20,
-        "submit_lead_minutes": 5,
+        "submit_lead_minutes": 10,
         "duration_quantile": 0.9,
     }
 
@@ -68,8 +68,9 @@ def test_all_actual_config_files_validate() -> None:
     assert quota_cfg["max_concurrency_per_player"] == 1
 
     tournaments_cfg = load_tournaments()
-    for t_info in tournaments_cfg["tournaments"].values():
-        assert t_info["submit_whitelisted"] is False
+    # D117/D118 authorizes MiniBench; the isolated runner still forces local mode.
+    assert {name for name, info in tournaments_cfg["tournaments"].items()
+            if info["submit_whitelisted"]} <= {"minibench"}
 
     submit_cfg = load_submit_mode()
     assert submit_cfg == {"mode": "local"}

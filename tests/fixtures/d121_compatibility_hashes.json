@@ -1,0 +1,14 @@
+{
+  "binary": {
+    "prompt": "3a349b9d80d3b2332486e34c4a3734bc51e9da74f88ed061474eb8e4497e7512",
+    "payload": "3ee8eaf104441f661b409a878007aba420bdbc8d7d615df2e7adbfe54aae26be",
+    "content": "33e9bf39fe6eaf490546f23520db0257870fbb04c8eeae128dd2779be689123c",
+    "content_hash": "753b6619be789c5fafc87569986a3f411f540ff6b543d163ba33c960cfe1334c"
+  },
+  "multiple_choice": {
+    "prompt": "f672b0d0bcc15a9823347e7c9d10b737e67881fb90f5f876eddca1384cdea130",
+    "payload": "6e330301ed013efb22a8d8eef87f8f36c07d698b676ba74e46ce39b8c96c7132",
+    "content": "66fa0f84dd1d2ec8a701ac3d9cc759369d1c519c675d7649ee29aa163222c074",
+    "content_hash": "18d3392f6f422a059f9e7a59e7297b40b8278b442e5faab9328238c65e20d536"
+  }
+}

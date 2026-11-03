@@ -1,3 +1,11 @@
 {
-  "mode": "local"
+  "mode": "live",
+  "approved_bot_id": 311763,
+  "live_window": {
+    "version": "live_window_v1",
+    "campaign_id": "d118_minibench_20261103T0400Z",
+    "campaign_sha256": "6239cd390b401376660f386e82dd9b1d3b0c7da080010d9730137938db7adc3d",
+    "start": "2026-11-03T04:00:00.000Z",
+    "end": "2026-11-10T04:00:00.000Z"
+  }
 }

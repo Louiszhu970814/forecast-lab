@@ -1,0 +1,12 @@
+"""Fixed D121 policy for new decisions; campaign configuration stays pinned."""
+
+VERSION = "fail_soft_v1"
+WINDOW_S = 24 * 3600
+BREACH_COUNT = 2
+COOLDOWN_S = 6 * 3600
+MISMATCH_BACKOFF_S = 30 * 60
+CLEANUP_GRACE_S = 120
+SNAPSHOT_MAX_AGE_S = 90
+QUOTA_QUERY_ATTEMPTS = 2
+TIER1_QUOTA_RESERVE_CAP = 0.05
+TEMPORARY_RECHECK_S = 600

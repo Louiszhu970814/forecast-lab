@@ -51,11 +51,11 @@ def test_lift_allows_previously_blocked_question_and_preserves_history(ledger, p
     assert records == [{
         "type": "budget_upgrade_stop_lifted", "player": player,
         "lifted_reasons": [reason], "lifted_stop_ats": [saved["at"]],
-        "authorization": "PLAN D107 A3", "at": to_iso(NOW), "version": "budget_v5",
+        "authorization": "PLAN D121", "at": to_iso(NOW), "version": B.VERSION,
     }]
     decision = reserve(ledger, player=player, tier=2)
     assert decision["allowed"], decision["reason"]
-    assert decision["version"] == "budget_v5"
+    assert decision["version"] == B.VERSION
 
 
 @pytest.mark.parametrize("old_total", [100, None])
@@ -65,6 +65,7 @@ def test_old_breach_is_forgiven_but_new_breach_persists(ledger, old_total):
     # Keep p90 below the per-question limit, without deleting the old overrun.
     for i in range(10):
         attempt(ledger, player="gpt", tier=2, aid=f"small{i}", qid=30 + i)
+    stop(ledger)
     assert reserve(ledger, player="gpt", tier=2, qid=8)["reason"] == "weekly_tier2_token_breaker"
     ledger.now = lambda: NOW + timedelta(seconds=1)
     lift(ledger)
@@ -76,16 +77,18 @@ def test_old_breach_is_forgiven_but_new_breach_persists(ledger, old_total):
     attempt(ledger, player="gpt", tier=2, aid="new-overrun", qid=50, total=100,
             started=NOW + timedelta(seconds=2))
     ledger.now = lambda: NOW + timedelta(minutes=2)
-    assert reserve(ledger, player="gpt", tier=2, qid=9, aid="next")["reason"] == "weekly_tier2_token_breaker"
+    # An unversioned historical row must not synthesize a new-policy breaker.
+    assert reserve(ledger, player="gpt", tier=2, qid=9, aid="next")["allowed"]
+    ledger.outcome("next", False)
     stops = [r for r in read_records(ledger.log) if r["type"] == "budget_upgrade_stop"]
-    assert len(stops) == 2 and stops[-1]["at"] == to_iso(ledger.now())
+    assert len(stops) == 1
     # A higher baseline cannot undo the new persisted stop.
     for i in range(5):
         attempt(ledger, player="gpt", aid=f"baseline{i}", total=1000)
-    assert reserve(ledger, player="gpt", tier=2, qid=10, aid="still")["reason"] == "weekly_tier2_token_breaker"
+    assert reserve(ledger, player="gpt", tier=2, qid=10, aid="still")["allowed"]
 
 
-@pytest.mark.parametrize("offset,expected", [(-1, None), (0, None), (1, "weekly_tier2_token_breaker")])
+@pytest.mark.parametrize("offset,expected", [(-1, None), (0, None), (1, None)])
 def test_breaker_uses_start_strictly_after_lift_even_if_completion_is_later(ledger, offset, expected):
     attempt(ledger, player="gpt")
     stop(ledger)
@@ -110,7 +113,7 @@ def test_latest_lift_is_chosen_by_time_and_post_lift_usage_is_summed_per_questio
         attempt(ledger, player="gpt", tier=2, aid=f"after{i}", qid=30, total=50,
                 started=NOW + timedelta(seconds=i + 1))
     ledger.now = lambda: NOW + timedelta(minutes=2)
-    assert reserve(ledger, player="gpt", tier=2, aid="next")["reason"] == "weekly_tier2_token_breaker"
+    assert reserve(ledger, player="gpt", tier=2, aid="next")["allowed"]
 
 
 def test_lift_does_not_reset_estimate_or_per_question_accumulated_tokens(ledger):
@@ -135,13 +138,13 @@ def test_lift_is_player_specific_for_stops_and_breach_cutoff(ledger, lifted_play
     lift(ledger, [lifted_player])
     snapshot(ledger)
     assert reserve(ledger, player=other, tier=2)["reason"] == saved["reason"]
-    # Once the other's old stop expires, their old breach must still create a stop.
+    # Expiry must not reinterpret an old output under the new policy.
     ledger.now = lambda: NOW + timedelta(days=3)
     if other == "gemini":
         snapshot(ledger, aid="next", taken_at=to_iso(ledger.now()), reset=to_iso(NOW + timedelta(days=5)))
-    assert reserve(ledger, player=other, tier=2, aid="next")["reason"] == "weekly_tier2_token_breaker"
+    assert reserve(ledger, player=other, tier=2, aid="next")["allowed"]
     assert len([r for r in read_records(ledger.log)
-                if r["type"] == "budget_upgrade_stop" and r["player"] == other]) == 2
+                if r["type"] == "budget_upgrade_stop" and r["player"] == other]) == 1
 
 
 def test_only_listed_stop_is_lifted_and_new_stop_remains_active(ledger):

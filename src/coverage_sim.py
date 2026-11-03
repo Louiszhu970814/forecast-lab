@@ -1,4 +1,4 @@
-"""Offline, discrete-event coverage replay (coverage_sim_v3).
+"""Offline, discrete-event coverage replay (coverage_sim_v5).
 
 Register freezes settings AND schedule bytes as parsed JSON before any results exist.
 Only coverage_sims.jsonl / coverage_sim_results.jsonl are read or appended. No model,
@@ -28,7 +28,7 @@ from flab.ledger import read_complete, transaction
 from flab.timeutil import parse_iso, to_iso, utc_now
 from flab.workdir import PROJECT_ROOT
 
-VERSION = "coverage_sim_v3"
+VERSION = "coverage_sim_v5"
 SUPPORTED = ("binary", "multiple_choice")
 
 
@@ -47,7 +47,7 @@ def _samples(value, name):
 
 def validate(settings, schedule):
     if settings.get("version") != VERSION or not isinstance(settings.get("sim_id"), str) or not settings["sim_id"]:
-        raise ValueError("coverage_sim_v3 and nonempty sim_id required")
+        raise ValueError("current coverage_sim version and nonempty sim_id required")
     start, end = (parse_iso(settings["observation"][k]) for k in ("start", "end"))
     if start >= end:
         raise ValueError("invalid observation window")
@@ -72,6 +72,15 @@ def validate(settings, schedule):
         raise ValueError("submission needs exactly comment_s, precheck_s, submit_s")
     if settings.get("submission_policy", "on_finalized") not in ("on_finalized", "cycle_end"):
         raise ValueError("unknown submission_policy")
+    if settings.get("cycle_trigger", "fixed_grid") not in ("fixed_grid", "after_completion"):
+        raise ValueError("unknown cycle_trigger")
+    outages = settings.get("unavailable_intervals", [])
+    last_end = None
+    for interval in outages:
+        a, b = parse_iso(interval["start"]), parse_iso(interval["end"])
+        if a >= b or (last_end is not None and a < last_end):
+            raise ValueError("unavailable_intervals must be ordered and disjoint")
+        last_end = b
     for interval in settings.get("submit_busy_intervals", []):
         if parse_iso(interval["start"]) >= parse_iso(interval["end"]):
             raise ValueError("invalid submit busy interval")
@@ -86,6 +95,9 @@ def validate(settings, schedule):
         _number(line["overhead_s"], "overhead_s")
         if type(line["attempt_cap"]) is not int or line["attempt_cap"] < 0:
             raise ValueError("nonnegative attempt_cap required")
+        used = line.get("initial_attempts_used", 0)
+        if type(used) is not int or used < 0:
+            raise ValueError("nonnegative initial_attempts_used required")
         resets = [parse_iso(t) for t in line["reset_times"]]
         if resets != sorted(set(resets)):
             raise ValueError("reset_times must be sorted and distinct")
@@ -109,6 +121,25 @@ def validate(settings, schedule):
         opening, closing = parse_iso(q["open_time"]), parse_iso(q["scheduled_close_time"])
         if opening >= closing:
             raise ValueError("question must close after opening")
+        for field in ("workload_only", "unreplayable"):
+            if field in q and type(q[field]) is not bool:
+                raise ValueError("invalid " + field)
+        if q.get("workload_only") and not (opening < start < closing or opening >= end):
+            raise ValueError("workload_only must be carry-in or tail work outside the cohort")
+        if "venues" in q and (not isinstance(q["venues"], list) or not q["venues"] or
+                               len(set(q["venues"])) != len(q["venues"]) or
+                               not set(q["venues"]) <= {"main", "minibench"} or q["venue"] not in q["venues"]):
+            raise ValueError("invalid question venues")
+        if q.get("visible_at") is not None:
+            parse_iso(q["visible_at"])
+        if q.get("actual_close_time") is not None:
+            parse_iso(q["actual_close_time"])
+        last_end = None
+        for interval in q.get("visibility_intervals", []):
+            a, b = parse_iso(interval["start"]), parse_iso(interval["end"])
+            if a >= b or (last_end is not None and a < last_end):
+                raise ValueError("visibility_intervals must be ordered and disjoint")
+            last_end = b
         last = opening
         for rev in q.get("revisions", []):
             when = parse_iso(rev["time"])
@@ -126,7 +157,7 @@ def engine_policy():
     return {"timeouts_s": cfg["timeouts_s"], "deadlines": cfg["deadlines"],
             "interval_s": C.INTERVAL_S, "timing_limits": C.timing_limits(cfg),
             "max_jobs_per_cycle": 180, "scheduler_wake_s": 60, "cycle_version": C.VERSION,
-            "scheduler_version": S.VERSION, "budget_version": B.VERSION}
+            "scheduler_version": S.VERSION, "budget_version": B.VERSION, "coverage_version": VERSION}
 
 
 def register(root: Path, settings: dict, schedule: list, *, now=utc_now):
@@ -170,6 +201,11 @@ class WorkerTimeout(Exception):
     pass
 
 
+class InfrastructureUnavailable(WorkerTimeout):
+    def __init__(self, until):
+        self.until = until
+
+
 class Simulation:
     def __init__(self, frozen, seed):
         self.settings, self.cfg = frozen["settings"], frozen["engine"]
@@ -178,19 +214,24 @@ class Simulation:
         self.end = parse_iso(self.settings["observation"]["end"])
         self.now = self.start
         self.next_tick = self.start
+        self.trigger = self.settings.get("cycle_trigger", "fixed_grid")
         self.questions = {}
         select = self.settings["denominator"]
         for source in sorted(frozen["schedule"], key=lambda q: q["question_id"]):
-            if not self.start <= parse_iso(source["open_time"]) < self.end or source["venue"] not in select["venues"] \
+            in_window = self.start <= parse_iso(source["open_time"]) < self.end
+            background = source.get("workload_only", False) and (parse_iso(source["open_time"]) < self.start < parse_iso(source["scheduled_close_time"]) or parse_iso(source["open_time"]) >= self.end)
+            if not (in_window or background) or not set(source.get("venues", [source["venue"]])) & set(select["venues"]) \
                     or (select["question_ids"] != "all" and source["question_id"] not in select["question_ids"]):
                 continue
             q = copy.deepcopy(source)
+            memberships = set(source.get("venues", [source["venue"]])) & set(select["venues"])
+            q["venue"] = "main" if "main" in memberships else "minibench"
             q.update(seen=None, generation=0, observed_revision=0, fallback=False, blocked=False,
                      sealed=False, submitted=None, reason=None, first_start=None, candidate=None,
                      used_tier2=False, revision_actions=[], reasons=set(), states={})
             self._reset_states(q)
             self.questions[q["question_id"]] = q
-        self.horizon = max([self.end, *(parse_iso(q["scheduled_close_time"]) for q in self.questions.values())])
+        self.horizon = max([self.end, *(parse_iso(q["scheduled_close_time"]) for q in self.questions.values() if not q.get("workload_only"))])
         self.attempts, self.jobs_log, self.polls, self.cycles = [], [], [], []
         self.history = []
         for p in PLAYERS:
@@ -199,7 +240,7 @@ class Simulation:
                     self.history.append({"player": p, "tier": tier, "attempt_kind": "initial",
                         "started_at_utc": to_iso(self.start - timedelta(seconds=duration)),
                         "finished_at_utc": to_iso(self.start)})
-        self.used = dict.fromkeys(PLAYERS, 0)
+        self.used = {p: self.settings["players"][p].get("initial_attempts_used", 0) for p in PLAYERS}
         self.reset_index = {p: sum(parse_iso(t) <= self.start for t in self.settings["players"][p]["reset_times"]) for p in PLAYERS}
         self.active = {}
         self.last_poll = None
@@ -215,7 +256,26 @@ class Simulation:
                        for p in PLAYERS for t in (1, 2)}
 
     def deadline(self, q):
+        # An eventual early close is outcome evidence, not advance knowledge the
+        # scheduler can use to prioritize or finalize a question early.
         return F.decision_deadline(q, self.cfg)
+
+    def _deadline_snapshot(self, q):
+        """Keep scheduled times intact; an observed early close can only shorten them."""
+        if q.get("actual_close_time") and parse_iso(q["actual_close_time"]) < parse_iso(q["scheduled_close_time"]):
+            return {**q, "scheduled_close_time": q["actual_close_time"]}
+        return q
+
+    def visible(self, q):
+        if q.get("unreplayable", False):
+            return False
+        if "visible_at" in q and (q["visible_at"] is None or self.now < parse_iso(q["visible_at"])):
+            return False
+        if "visibility_intervals" in q and not any(parse_iso(i["start"]) <= self.now < parse_iso(i["end"])
+                                                       for i in q["visibility_intervals"]):
+            return False
+        close = self._deadline_snapshot(q)["scheduled_close_time"]
+        return parse_iso(q["open_time"]) <= self.now < parse_iso(close)
 
     def estimate(self, p, tier):
         return B.duration_estimate(self.history, p, tier, self.cfg)
@@ -223,7 +283,12 @@ class Simulation:
     def _advance(self, target):
         limit = self.cycle["worker_deadline"]
         target, timeout = min(target, limit), target >= limit
-        while self.next_tick < target:
+        for interval in self.settings.get("unavailable_intervals", []):
+            a, b = parse_iso(interval["start"]), parse_iso(interval["end"])
+            if a <= target and b > self.now:
+                self.now = max(self.now, a)
+                raise InfrastructureUnavailable(b)
+        while self.trigger == "fixed_grid" and self.next_tick < target:
             self.cycles.append({"started_at": to_iso(self.next_tick), "finished_at": to_iso(self.next_tick),
                                 "status": "overlap_skipped", "duration_s": 0})
             self.next_tick += timedelta(seconds=C.INTERVAL_S)
@@ -247,7 +312,7 @@ class Simulation:
         self.last_poll = self.now
         self.polls.append(to_iso(self.now))
         for q in self.questions.values():
-            if not parse_iso(q["open_time"]) <= self.now < parse_iso(q["scheduled_close_time"]):
+            if not self.visible(q):
                 continue
             if q["seen"] is None:
                 q["seen"] = self.now
@@ -257,27 +322,31 @@ class Simulation:
                 q["observed_revision"] = sum(parse_iso(r["time"]) <= self.now for r in q.get("revisions", []))
             revisions = q.get("revisions", [])
             index = sum(parse_iso(r["time"]) <= self.now for r in revisions)
-            if index > q["observed_revision"]:
-                changed = revisions[q["observed_revision"]:index]
-                q["observed_revision"] = index
-                if q["submitted"] is not None:
-                    action = "already_submitted"
-                elif q["question_type"] in SUPPORTED and (self.deadline(q) - self.now).total_seconds() > max(self.estimate(p, 1) for p in PLAYERS):
-                    q["generation"] += 1
-                    self._reset_states(q)
-                    q.update(sealed=False, candidate=None, blocked=False, fallback=False, reason=None)
-                    action = "requeued"
-                elif q["blocked"] or any(r["structural"] for r in changed):
-                    q.update(blocked=True, sealed=False, reason="blocked_revision")
-                    action = "blocked_revision"
-                else:
-                    q["fallback"] = True
-                    action = "text_fallback"
-                q["revision_actions"].append({"at": to_iso(self.now), "action": action, "generation": q["generation"]})
+            self._apply_revisions(q, index)
+
+    def _apply_revisions(self, q, index):
+        if index <= q["observed_revision"]:
+            return
+        changed = q.get("revisions", [])[q["observed_revision"]:index]
+        q["observed_revision"] = index
+        if q["submitted"] is not None:
+            action = "already_submitted"
+        elif q["question_type"] in SUPPORTED and (self.deadline(q) - self.now).total_seconds() > max(self.estimate(p, 1) for p in PLAYERS):
+            q["generation"] += 1
+            self._reset_states(q)
+            q.update(sealed=False, candidate=None, blocked=False, fallback=False, reason=None)
+            action = "requeued"
+        elif q["blocked"] or any(r["structural"] for r in changed):
+            q.update(blocked=True, sealed=False, reason="blocked_revision")
+            action = "blocked_revision"
+        else:
+            q["fallback"] = True
+            action = "text_fallback"
+        q["revision_actions"].append({"at": to_iso(self.now), "action": action, "generation": q["generation"]})
 
     def _eligible(self, q):
         return q["seen"] is not None and q["question_type"] in SUPPORTED and not q["blocked"] \
-            and not q["fallback"] and not q["sealed"] and q["submitted"] is None and self.now < self.deadline(q)
+            and not q["fallback"] and not q["sealed"] and q["submitted"] is None and self.now < self.deadline(q) and self.visible(q)
 
     def jobs(self):
         first, second = [], []
@@ -375,7 +444,7 @@ class Simulation:
                           "start": self.now, "repair": repair, "failed": failed or timeout}
         return True
 
-    def complete(self, p):
+    def complete(self, p, *, refresh=True):
         active = self.active.pop(p)
         job, state, attempt = active["job"], active["state"], active["attempt"]
         q, tier = job.snapshot, job.tier
@@ -400,7 +469,8 @@ class Simulation:
             return
         # A repair/rerun rechecks the cached queue before starting another call.
         # Completed jobs instead get exactly one forced refresh in run_cycle.
-        self.poll()
+        if refresh:
+            self.poll()
         if attempt["generation"] != q["generation"] or q["blocked"]:
             return
         if not self.start_attempt(job, continuation=True) and not state["terminal"]:
@@ -434,9 +504,10 @@ class Simulation:
             self._advance(max(self.now, min(a["finish"] for a in self.active.values())))
             for p in PLAYERS:
                 if p in self.active and self.active[p]["finish"] <= self.now:
-                    self.complete(p)
-                    if p not in self.active:
-                        self.completed_during_submit = True
+                    # Continuations use the known snapshot while the main thread
+                    # is submitting. Defer global discovery/revision refresh.
+                    self.complete(p, refresh=False)
+                    self.completed_during_submit = True
         self._advance(max(self.now, target))
 
     def publish(self, *, during_schedule=False, question_ids=()):
@@ -465,24 +536,27 @@ class Simulation:
             if self.now >= deadline:
                 q["reason"] = "late"
                 continue
+            if not self.visible(q):
+                q["reason"] = "not_visible"
+                continue
             if self.now >= submit_end:
                 break
             duration = sum(self.settings["submission"].values())
             finish = self.now + timedelta(seconds=duration)
+            generation, revision_index = q["generation"], q["observed_revision"]
             self._submit_advance(min(finish, submit_end))
-            if finish > submit_end:
+            if finish > submit_end or self.now > submit_end:
                 q.update(submit_unknown=True, reason="timeout")
                 break
             # Submission-time revision checks must not discover unrelated new questions.
-            changes = [r for r in q.get("revisions", [])[q["observed_revision"]:] if parse_iso(r["time"]) <= self.now]
+            changes = [r for r in q.get("revisions", [])[revision_index:] if parse_iso(r["time"]) <= self.now]
             if changes:
-                structural = any(r["structural"] for r in changes)
-                can_rerun = (self.deadline(q) - self.now).total_seconds() > max(self.estimate(p, 1) for p in PLAYERS)
-                if structural or can_rerun:
-                    q["reason"] = "blocked_revision" if structural else "revision_pending"
-                    continue
-                q["fallback"] = True
-            if self.now < deadline:
+                self._apply_revisions(q, revision_index + len(changes))
+            if q["generation"] != generation or q["blocked"] or not q["sealed"] or not q.get("ready"):
+                if q["reason"] is None:
+                    q["reason"] = "revision_pending"
+                continue
+            if self.now < deadline and self.visible(q):
                 q["submitted"] = self.now
                 q["reason"] = None
             else:
@@ -551,17 +625,18 @@ class Simulation:
                 if newly_ready and self.settings.get("submission_policy", "on_finalized") == "on_finalized":
                     self.publish(during_schedule=True, question_ids=newly_ready)
                 self.publish()
-        except WorkerTimeout:
-            self.cycle["status"] = "timeout"
+        except WorkerTimeout as exc:
+            unavailable = isinstance(exc, InfrastructureUnavailable)
+            self.cycle["status"] = "unavailable" if unavailable else "timeout"
             for p, active in self.active.items():
                 self.busy[p].append((active["start"], min(active["finish"], self.now)))
                 active["state"].update(terminal=True, failure="timeout")
-                active["job"].snapshot["reasons"].add("timeout")
-                active["attempt"].update(outcome="supervisor_timeout", finished_at_utc=to_iso(self.now))
+                active["job"].snapshot["reasons"].add("infrastructure_unavailable" if unavailable else "timeout")
+                active["attempt"].update(outcome="infrastructure_unavailable" if unavailable else "supervisor_timeout", finished_at_utc=to_iso(self.now))
             self.active.clear()
             # The cycle reserves cleanup time separately from the worker timeout.
-            cleanup = self.now + timedelta(seconds=limits["cleanup_reserve_s"])
-            while self.next_tick < cleanup:
+            cleanup = (max(self.now, exc.until) if unavailable else self.now) + timedelta(seconds=limits["cleanup_reserve_s"])
+            while self.trigger == "fixed_grid" and self.next_tick < cleanup:
                 self.cycles.append({"started_at": to_iso(self.next_tick), "finished_at": to_iso(self.next_tick),
                                     "status": "overlap_skipped", "duration_s": 0})
                 self.next_tick += timedelta(seconds=C.INTERVAL_S)
@@ -576,6 +651,8 @@ class Simulation:
             self.now = self.next_tick
             self.next_tick += timedelta(seconds=C.INTERVAL_S)
             self.run_cycle()
+            if self.trigger == "after_completion":
+                self.next_tick = self.now + timedelta(seconds=C.INTERVAL_S)
         return self.result()
 
     def result(self):
@@ -586,9 +663,11 @@ class Simulation:
                 if q["question_type"] not in SUPPORTED:
                     reason = "unsupported_type"
                 elif reason is None:
-                    reason = next((r for r in ("quota_exhausted", "disabled", "preflight_blocked", "budget_skipped", "timeout", "invalid_output")
-                                   if r in q["reasons"]), "timeout")
+                    reason = next((r for r in ("infrastructure_unavailable", "quota_exhausted", "disabled", "preflight_blocked", "budget_skipped", "timeout", "invalid_output")
+                                   if r in q["reasons"]), "not_visible" if q["seen"] is None else "timeout")
             outcomes.append({"question_id": qid, "venue": q["venue"], "question_type": q["question_type"],
+                "venues": q.get("venues", [q["venue"]]),
+                "workload_only": q.get("workload_only", False),
                 "supported": q["question_type"] in SUPPORTED, "on_time": q["submitted"] is not None,
                 "submitted_at": to_iso(q["submitted"]) if q["submitted"] else None, "reason": reason,
                 "snapshot_generation": q["generation"],
@@ -598,6 +677,8 @@ class Simulation:
                 "first_tier1_at": to_iso(q["first_start"]) if q["first_start"] else None,
                 "revision_fallback": q["fallback"], "revision_actions": q["revision_actions"],
                 "contributing_reasons": sorted(q["reasons"])})
+        workload = outcomes
+        outcomes = [r for r in workload if not r["workload_only"]]
         supported = [r for r in outcomes if r["supported"]]
         covered = sum(r["on_time"] for r in outcomes)
         coverage = covered / len(outcomes) if outcomes else None
@@ -605,15 +686,27 @@ class Simulation:
         active_cycles = [c for c in self.cycles if c["status"] != "overlap_skipped"]
         duration = (self.end - self.start).total_seconds()
         utilization = {p: sum(max(0, (min(b, self.end) - max(a, self.start)).total_seconds()) for a, b in self.busy[p]) / duration for p in PLAYERS}
-        openings = Counter(parse_iso(q["open_time"]) for q in self.questions.values())
-        events = sorted([(parse_iso(q[k]), delta) for q in self.questions.values()
+        cohort_questions = [q for q in self.questions.values() if not q.get("workload_only")]
+        openings = Counter(parse_iso(q["open_time"]) for q in cohort_questions)
+        events = sorted([(parse_iso(q[k]), delta) for q in cohort_questions
                          for k, delta in (("open_time", 1), ("scheduled_close_time", -1))])
         concurrent = peak = 0
         for _, delta in events:
             concurrent += delta
             peak = max(peak, concurrent)
-        delays = [(q["first_start"] - parse_iso(q["open_time"])).total_seconds() for q in self.questions.values() if q["first_start"] is not None]
-        return {"questions": outcomes, "denominator_all": len(outcomes), "denominator_supported": len(supported),
+        delays = [(q["first_start"] - parse_iso(q["open_time"])).total_seconds() for q in cohort_questions if q["first_start"] is not None]
+        per_venue = {}
+        for venue in ("main", "minibench"):
+            qs = [r for r in outcomes if venue in r["venues"]]
+            supported_qs = [r for r in qs if r["supported"]]
+            per_venue[venue] = {"denominator_all": len(qs), "denominator_supported": len(supported_qs),
+                "coverage_all": sum(r["on_time"] for r in qs) / len(qs) if qs else None,
+                "coverage_supported": sum(r["on_time"] for r in supported_qs) / len(supported_qs) if supported_qs else None}
+        return {"questions": outcomes,
+                "carry_in_questions": [r for r in workload if r["workload_only"] and parse_iso(self.questions[r["question_id"]]["open_time"]) < self.start],
+                "tail_questions": [r for r in workload if r["workload_only"] and parse_iso(self.questions[r["question_id"]]["open_time"]) >= self.end],
+                "per_venue": per_venue,
+                "denominator_all": len(outcomes), "denominator_supported": len(supported),
                 "covered": covered, "coverage_all": coverage, "coverage_supported": supported_coverage,
                 "supported_meets_90_percent": supported_coverage >= .9 if supported else None,
                 "miss_reasons": dict(Counter(r["reason"] for r in outcomes if not r["on_time"])),
@@ -635,6 +728,10 @@ def simulate(record):
     summary = {k: distribution([t[k] for t in trials if t[k] is not None]) for k in
                ("coverage_all", "coverage_supported", "cycles_over_600_ratio", "peak_simultaneous_opens", "peak_open_questions", "overlap_skipped")}
     summary["utilization"] = {p: distribution([t["utilization"][p] for t in trials]) for p in PLAYERS}
+    summary["per_venue"] = {venue: {metric: distribution([t["per_venue"][venue][metric] for t in trials
+                                                      if t["per_venue"][venue][metric] is not None])
+                                   for metric in ("coverage_all", "coverage_supported")}
+                            for venue in ("main", "minibench")}
     summary["queue_wait_by_player_s"] = {
         p: {stat: distribution([t["queue_wait_by_player_s"][p][stat] for t in trials
                                if t["queue_wait_by_player_s"][p][stat] is not None])

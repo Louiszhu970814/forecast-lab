@@ -21,6 +21,7 @@ import audit_ledger as L
 import escalate as E
 import forecast as F
 import validate as V
+import numeric as N
 from flab.config import PLAYERS, load_submit_mode
 from flab.ids import hash_obj, new_id
 from flab.jsonl import append_record, read_records
@@ -70,7 +71,7 @@ def prepare(snapshot: dict[str, Any], records: list[dict[str, Any]], events: lis
         event = audited.get(r.get("audit_event_id"), {})
         if event.get("attempt_id") != r["attempt_id"] or event.get("question_id") != snapshot["question_id"]:
             raise ValueError("selected tier-1 answer has no matching completed audit")
-        output = {k: r.get(k) for k in V.load_template()["properties"]}
+        output = {k: r.get(k) for k in V.question_schema(snapshot)["properties"]}
         # Revalidate the original MC probabilities; stored probabilities may already be normalised.
         if r.get("option_probabilities_raw") is not None:
             output["option_probabilities"] = r["option_probabilities_raw"]
@@ -84,8 +85,14 @@ def prepare(snapshot: dict[str, Any], records: list[dict[str, Any]], events: lis
     payload = {"question": {k: snapshot.get(k) for k in QUESTION_FIELDS},
                "summaries": [{"label": label, **{k: raw[aid].get(k) for k in SUMMARY_FIELDS}}
                              for label, aid in order.items()]}
+    numeric = snapshot["question_type"] in N.TYPES
+    if numeric:
+        payload["question"]["scaling"] = N.prompt_scaling(snapshot)
+        for summary, aid in zip(payload["summaries"], order.values()):
+            summary["percentiles"] = raw[aid]["percentiles"]
     delimiter = new_id("reconcile_data")
-    prompt = string.Template((F.PROMPTS / "reconcile_v1.md").read_text()).substitute(
+    prompt_version = N.RECONCILE_VERSION if numeric else PROMPT_VERSION
+    prompt = string.Template((F.PROMPTS / f"{prompt_version}.md").read_text()).substitute(
         today_utc=now.date().isoformat(), delimiter=delimiter,
         input_json=json.dumps(payload, ensure_ascii=False, allow_nan=False))
     own = next((r for r in selected if r["player"] == player), None)
@@ -95,7 +102,7 @@ def prepare(snapshot: dict[str, Any], records: list[dict[str, Any]], events: lis
            "created_at_utc": to_iso(now), "mode": "local", "player": player,
            "question_id": snapshot["question_id"], "question_snapshot_id": snapshot["snapshot_id"],
            "snapshot_sha256": hash_obj(snapshot), "run_config_sha256": hash_obj(cfg),
-           "prompt_version": PROMPT_VERSION, "prompt": prompt,
+           "prompt_version": prompt_version, "prompt": prompt,
            "prompt_sha256": hashlib.sha256(prompt.encode()).hexdigest(),
            "input_attempt_ids": input_ids, "input_order": order,
            "input_sha256": {aid: hash_obj(raw[aid]) for aid in input_ids},
@@ -103,6 +110,8 @@ def prepare(snapshot: dict[str, Any], records: list[dict[str, Any]], events: lis
            "audit_event_ids": sorted({eid for e in relevant for eid in e["source_audit_event_ids"]}
                                      | {raw[aid]["audit_event_id"] for aid in input_ids}),
            "tier1_reference": {k: own.get(k) for k in ("attempt_id", "probability", "option_probabilities")} if own else None}
+    if numeric and own:
+        rec["tier1_reference"]["percentiles"] = own["percentiles"]
     event_by_id = {e["audit_event_id"]: e for e in events}
     if any(eid not in event_by_id for eid in rec["audit_event_ids"]):
         raise ValueError("input audit provenance is incomplete")
@@ -152,6 +161,7 @@ def run(ctx: F.Context, snapshot: dict[str, Any], *,
     bundles_log, runs_log, aggregates_log = (root / name for name in
         ("reconciliation_inputs.jsonl", "reconciliation_runs.jsonl", "aggregates.jsonl"))
     with F.Lock(root / f"forecast.{ctx.player}.lock"):
+        F.recover_interrupted(ctx)
         if (load_submit_mode().get("mode") != "local" and not ctx.continuous) or not ctx.preflight.ok \
                 or ctx.preflight.tier != 2 or ctx.preflight.player != ctx.player:
             raise F.PreflightError("local mode and a passing tier-2 preflight are required")
@@ -176,7 +186,7 @@ def run(ctx: F.Context, snapshot: dict[str, Any], *,
         def gates() -> None:
             if reason := F.eligible(snapshot, ctx.cfg, ctx.now()):
                 raise F.QuestionDone(reason)
-            if stop := F.line_stopped(ctx.line_status_log, ctx.player, ctx.forecasts_log):
+            if stop := F.line_stopped(ctx.line_status_log, ctx.player, ctx.forecasts_log, now=ctx.now()):
                 raise F.LineStop(stop["reason"])
             for r in _read(ctx.forecasts_log):
                 if r.get("player") == ctx.player and r.get("quota_retry_at_utc") \
@@ -269,7 +279,8 @@ def run(ctx: F.Context, snapshot: dict[str, Any], *,
                             or not isinstance(decision.get("decision_id"), str) or not decision["decision_id"].strip():
                         if isinstance(decision, dict) and decision.get("reason") == "quota_5h_wait":
                             raise F.LineStop("quota_5h_wait", quota_retry_at_utc=decision["quota_retry_at_utc"])
-                        raise F.QuestionDone("budget admission denied")
+                        raise F.QuestionDone("budget admission denied: " + str(
+                            decision.get("reason") if isinstance(decision, dict) else "invalid decision"))
                     active["admission_decision_id"] = decision["decision_id"]
                     summary["admissions"].append(decision)
                     append_record(runs_log, {"type": "reconciliation_admission", "run_id": ctx.run_id,

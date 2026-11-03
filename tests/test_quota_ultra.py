@@ -158,8 +158,8 @@ def test_window_estimate_rejects_unknown_or_stale_current_snapshot(tmp_path):
 @pytest.mark.parametrize("log_check,weekly,short,expected", [
     ("verified", .89, .79, "verified"), ("mismatch", .89, .79, "mismatch"),
     (None, .89, .79, "undetermined"), ("unverified", .89, .79, "undetermined"),
-    ("verified", .9, .8, "undetermined"), ("verified", .89, .8, "undetermined"),
-    ("verified", .91, .79, "undetermined"), ("mismatch", .9, .8, "mismatch"),
+    ("verified", .9, .8, "verified"), ("verified", .89, .8, "verified"),
+    ("verified", .91, .79, "verified"), ("mismatch", .9, .8, "mismatch"),
 ])
 def test_shared_model_verification(log_check, weekly, short, expected):
     result = SimpleNamespace(usage_raw={"log_model_check": log_check})
@@ -172,7 +172,7 @@ def test_model_check_rejects_other_group_changes_and_concurrency():
     key = quota.THIRD_PARTY_WEEKLY_BUCKET_ID
     buckets[key] = replace(buckets[key], remaining_fraction=.9)
     result = SimpleNamespace(usage_raw={"log_model_check": "verified"})
-    assert F.quota_model_check(before, replace(after, buckets=buckets), result) == "undetermined"
+    assert F.quota_model_check(before, replace(after, buckets=buckets), result) == "verified"
     assert F.quota_model_check(before, replace(after, concurrent_agy_kinds=("ide",)), result) == "undetermined"
 
 
@@ -221,10 +221,10 @@ def test_snapshot_records_activity_before_and_after_query_without_commands(monke
     assert rec["concurrent_agy_reason"] == "ps_failed" and "command" not in rec
 
 
-@pytest.mark.parametrize("kind,blocked", [("headless", True), ("interactive", False), ("ide", False)])
-def test_only_headless_blocks_admission(tmp_path, kind, blocked):
+@pytest.mark.parametrize("kind,blocked", [("headless", False), ("interactive", False), ("ide", False)])
+def test_concurrency_does_not_block_admission(tmp_path, kind, blocked):
     before = ultra(concurrent_agy_kinds=(kind,), concurrent_agy_detected=kind == "headless")
-    ctx = SimpleNamespace(quota_policy=POLICY, quota_log=tmp_path / "quota.jsonl", forecasts_log=tmp_path / "forecasts.jsonl", tier=1)
+    ctx = SimpleNamespace(quota_policy=POLICY, quota_log=tmp_path / "quota.jsonl", forecasts_log=tmp_path / "forecasts.jsonl", tier=1, now=lambda: NOW)
     assert bool(F.gemini_admission(ctx, before)[0]) is blocked
     assert bool(quota.manual_admission(before, POLICY, model="gemini-4-argon-high", history_root=tmp_path)[0]) is blocked
 
@@ -436,7 +436,7 @@ def test_budget_reserves_tier1_capacity_in_shared_weekly_units(ledger, weekly_ca
     save_pair(ledger.root, "old", ultra(), ultra(.85, .79))
     append_record(ledger.root / "quota.jsonl", {"attempt_id": "new", "when": "before", **ultra(weekly=remaining).to_dict()})
     decision = reserve(ledger, player="gemini", tier=2, pending=2)
-    assert not decision["allowed"] and decision["reason"] == "argon_personal_or_tier1_reserve"
+    assert decision["allowed"] and decision["protected_quota"] == .05
     assert decision["protected_attempts"] == 2
 
 
@@ -540,7 +540,9 @@ def test_idle_reset_exception_remains_narrow(problem):
     elif problem=='missing_bucket': b.pop(key)
     before,after=replace(before,buckets=a),replace(after,buckets=b)
     assert not quota.shared_group_consumed(before,after)
-    assert F.quota_model_check(before,after,SimpleNamespace(usage_raw={'log_model_check':'verified'}))=='undetermined'
+    # D121 model evidence is the per-call log, independent of noisy bucket deltas.
+    expected = 'undetermined' if problem in ('concurrent', 'stale', 'missing_bucket') else 'verified'
+    assert F.quota_model_check(before,after,SimpleNamespace(usage_raw={'log_model_check':'verified'}))==expected
 
 
 def test_idle_query_without_model_use_never_proves_model_or_cost():

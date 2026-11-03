@@ -1,0 +1,208 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "output_schema_numeric_v1",
+  "title": "output_schema_numeric_v1",
+  "description": "M5 numeric/discrete percentile output; shared fields retain v2 constraints.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "question_id",
+    "question_type",
+    "probability",
+    "option_probabilities",
+    "reasoning_summary",
+    "key_factors",
+    "base_rate",
+    "market_refs",
+    "sources",
+    "changed_from_tier1",
+    "change_reason",
+    "escalation_flags",
+    "injection_notice",
+    "percentiles"
+  ],
+  "properties": {
+    "question_id": {
+      "type": "integer"
+    },
+    "question_type": {
+      "type": "string",
+      "enum": [
+        "numeric",
+        "discrete"
+      ]
+    },
+    "probability": {
+      "type": "null"
+    },
+    "option_probabilities": {
+      "type": "null"
+    },
+    "reasoning_summary": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1500
+    },
+    "key_factors": {
+      "type": "array",
+      "minItems": 1,
+      "maxItems": 10,
+      "items": {
+        "type": "string",
+        "minLength": 1
+      }
+    },
+    "base_rate": {
+      "type": "string",
+      "minLength": 1
+    },
+    "market_refs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "platform",
+          "url",
+          "market_title",
+          "probability",
+          "option_probabilities",
+          "complete",
+          "retrieved_at_utc",
+          "match",
+          "difference_note"
+        ],
+        "properties": {
+          "platform": {
+            "type": "string",
+            "minLength": 1
+          },
+          "url": {
+            "type": "string",
+            "minLength": 1
+          },
+          "market_title": {
+            "type": "string"
+          },
+          "probability": {
+            "type": [
+              "number",
+              "null"
+            ],
+            "minimum": 0,
+            "maximum": 1
+          },
+          "option_probabilities": {
+            "type": "null"
+          },
+          "complete": {
+            "type": "null"
+          },
+          "retrieved_at_utc": {
+            "type": "string",
+            "minLength": 1
+          },
+          "match": {
+            "type": "string",
+            "enum": [
+              "exact",
+              "close",
+              "related"
+            ]
+          },
+          "difference_note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        }
+      }
+    },
+    "sources": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "url",
+          "title"
+        ],
+        "properties": {
+          "url": {
+            "type": "string",
+            "minLength": 1
+          },
+          "title": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "changed_from_tier1": {
+      "type": [
+        "boolean",
+        "null"
+      ]
+    },
+    "change_reason": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "escalation_flags": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "resolution_ambiguity",
+          "evidence_conflict"
+        ]
+      }
+    },
+    "injection_notice": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "percentiles": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "p05",
+        "p10",
+        "p25",
+        "p50",
+        "p75",
+        "p90",
+        "p95"
+      ],
+      "properties": {
+        "p05": {
+          "type": "number"
+        },
+        "p10": {
+          "type": "number"
+        },
+        "p25": {
+          "type": "number"
+        },
+        "p50": {
+          "type": "number"
+        },
+        "p75": {
+          "type": "number"
+        },
+        "p90": {
+          "type": "number"
+        },
+        "p95": {
+          "type": "number"
+        }
+      }
+    }
+  }
+}

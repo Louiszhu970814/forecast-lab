@@ -1,0 +1,11 @@
+# M5 程式複審：Gemini（gemini-4-argon-high）
+
+> 工具關閉的獨立審查；輸入為 M5 規格（含實測）、GPT 實作報告與完整 unified diff。
+
+PASS
+- [前次審查複核：項目2 頂層與 scaling 欄位讀取衝突（已解決）] 問題與修正建議：無（前次 blocking 已修正，無需進一步修改）｜理由：`src/numeric.py:58-75` 的 `read_scaling_fields` 已改為強制要求 `question["scaling"]` 為 `dict`，`range_min`、`range_max`、`zero_point`、`nominal_min`、`nominal_max`、`continuous_range` 僅從 `question["scaling"]` 讀取且不從頂層 fallback，`unit` 僅從頂層 `question` 讀取，而 `MIRRORED_FIELDS`（`open_lower_bound`、`open_upper_bound`、`inbound_outcome_count`）僅在頂層非 `None` 時核對一致性，完全符合規格 §14 實測契約｜non-blocking
+- [前次審查複核：項目2 離散題名目端點欄位名稱（已解決）] 問題與修正建議：無（前次 blocking 已修正，無需進一步修改）｜理由：`src/numeric.py:25-27,133,297` 已全面將離散題名目端點鍵名改為 `nominal_min` 與 `nominal_max`，並納入快照白名單、半格幾何驗證、`prompt_scaling` 與 `scaling_changed` 修訂判定｜non-blocking
+- [前次審查複核：項目2 continuous_range 格點核對（已解決）] 問題與修正建議：無（前次 blocking 已修正，無需進一步修改）｜理由：`src/numeric.py:28,142-153` 已將 `continuous_range` 列為必要欄位，驗證其為長度 `n + 1` 的有限數值 `list`，並逐點與 `result.from_u(i / n)` 以 `math.isclose(rel_tol=1e-12, abs_tol=1e-10)` 核對；`read_scaling_fields` 以 `deepcopy` 複製陣列防止外部變異汙染快照，`src/poll_questions.py:99-140` 亦以 `_scaling_error_value` 轉換非有限浮點數以確保拒絕紀錄可安全序列化與雜湊｜non-blocking
+- [前次審查複核：項目8 測試覆蓋 §14 真實 API 結構（已解決）] 問題與修正建議：無（前次 blocking 已修正，無需進一步修改）｜理由：`tests/fixtures/m5_real_scaling.json` 與 `tests/test_numeric.py:49-58,173-295`、`tests/test_numeric_pipeline.py:163-216` 已全面改用符合 §14 的結構（頂層 `range_min`/`range_max`/`zero_point` 為 `None`、`unit` 在頂層、縮放與格點在 `scaling`），並完整測試 4 題真實縮放資料、禁止頂層補值、`continuous_range` 異常與微幅修訂攔截｜non-blocking
+- [前次審查複核：項目1 與項目4 尾部錨點與佇列重啟細節（已解決）] 問題與修正建議：無（前次 non-blocking 建議皆已採納）｜理由：`src/numeric.py:17,264-269` 在所有百分位數落於同一側開放界外時對另一端錨點做單調夾限並將轉換版本升為 `numeric_cdf_v2`（搭配 `tests/test_numeric.py:298-313` 驗證投影前單調性）；`src/continuous.py:514-517` 在開關重啟時已加上 `F.eligible(snap, cfg, self.now()) is None` 檢查｜non-blocking
+- [項目1、3、5、6、7：整體最終確認與上線前提醒] 問題與修正建議：程式碼無需修改；整合者於啟用開關前，請依報告完成非沙箱環境的完整回歸（確認系統 Perl wrapper 與 `PLAN.md` fixture 雜湊）及試驗場地有界實測（確認 `submit_transport.py:52` 的 `NUMERIC_READBACK_FIELD = "forecast_values"` 讀回欄位）｜理由：CDF 產生與本地驗證器（`src/numeric.py:194-247`）、是非題／多選題逐位元不變（`src/poll_questions.py:114-155`、`tests/test_numeric.py:478-494`）、動態開關、整合冪等投影（`src/aggregate.py:225-231`）、升級不呼叫 `logit`（`src/escalate.py:63-66,85`）、留言反插值（`src/comment.py:110-114`）及受保護檔案不變限制皆已確認正確且無引入新問題｜non-blocking

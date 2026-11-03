@@ -21,6 +21,7 @@ from flab import schema as S
 from flab.ids import hash_obj
 from flab.timeutil import parse_iso
 from flab.workdir import PROJECT_ROOT
+import numeric as N
 
 SCHEMA_VERSION = "output_schema_v2"
 TEMPLATE_PATH = PROJECT_ROOT / "prompts" / "output_schema_v2.json"
@@ -42,9 +43,12 @@ def load_template(path: Path = TEMPLATE_PATH) -> dict[str, Any]:
 def question_schema(snapshot: dict[str, Any], tier: int = 1, template: dict[str, Any] | None = None) -> dict[str, Any]:
     """The template with this question's ID, type and options fixed (every key required, none extra)."""
     qtype = snapshot["question_type"]
-    if qtype not in ("binary", "multiple_choice"):
+    if qtype not in ("binary", "multiple_choice", *N.TYPES):
         raise ValueError(f"unsupported question type {qtype!r}")
-    sch = copy.deepcopy(template or load_template())
+    if qtype in N.TYPES:
+        N.scaling(snapshot)
+    sch = copy.deepcopy(template or load_template(
+        PROJECT_ROOT / "prompts" / "output_schema_numeric_v1.json" if qtype in N.TYPES else TEMPLATE_PATH))
     # Metadata stays in the template file only: claude 2.1.316 rejects a schema whose $schema names
     # draft 2020-12 ("no schema with key or ref"), and the CLIs need nothing but the constraints.
     for key in METADATA_KEYS:
@@ -55,6 +59,11 @@ def question_schema(snapshot: dict[str, Any], tier: int = 1, template: dict[str,
     market = props["market_refs"]["items"]["properties"]
     if qtype == "binary":
         props["probability"] = {"type": "number", "minimum": PROB_MIN, "maximum": PROB_MAX}
+        props["option_probabilities"] = {"type": "null"}
+        market["option_probabilities"] = {"type": "null"}
+        market["complete"] = {"type": "null"}
+    elif qtype in N.TYPES:
+        props["probability"] = {"type": "null"}
         props["option_probabilities"] = {"type": "null"}
         market["option_probabilities"] = {"type": "null"}
         market["complete"] = {"type": "null"}
@@ -135,6 +144,9 @@ class Outcome:
     probability: float | None = None
     option_probabilities: dict[str, float] | None = None       # normalised
     option_probabilities_raw: dict[str, float] | None = None
+    percentiles: dict[str, float] | None = None
+    continuous_cdf: list[float] | None = None
+    error_type: str | None = None
 
 
 def _number(v: Any) -> bool:
@@ -164,6 +176,14 @@ def semantic_errors(obj: dict[str, Any], snapshot: dict[str, Any]) -> list[str]:
             errs.append(f"probability {p!r} is not a finite number in [{PROB_MIN}, {PROB_MAX}]")
         if ops is not None:
             errs.append("option_probabilities must be null for a binary question")
+    elif qtype in N.TYPES:
+        if p is not None or ops is not None:
+            errs.append("probability and option_probabilities must be null for numeric questions")
+        if "percentiles" in obj:
+            try:
+                N.percentiles(obj["percentiles"], snapshot)
+            except ValueError as exc:
+                errs.append(str(exc))
     else:
         if p is not None:
             errs.append("probability must be null for a multiple-choice question")
@@ -194,6 +214,14 @@ def validate_output(obj: Any, snapshot: dict[str, Any], sch: dict[str, Any]) -> 
         return Outcome(SCHEMA_FAILED, errs)
     if snapshot["question_type"] == "binary":
         return Outcome(VALID, probability=float(obj["probability"]))
+    if snapshot["question_type"] in N.TYPES:
+        try:
+            values = N.percentiles(obj["percentiles"], snapshot)
+            return Outcome(VALID, percentiles=values, continuous_cdf=N.to_cdf(values, snapshot))
+        except N.InvalidCDF as exc:
+            return Outcome(SEMANTIC_FAILED, [str(exc)], error_type="invalid_output")
+        except ValueError as exc:
+            return Outcome(SEMANTIC_FAILED, [str(exc)])
     raw = {k: float(v) for k, v in obj["option_probabilities"].items()}
     total = sum(raw.values())
     return Outcome(VALID, option_probabilities={k: v / total for k, v in raw.items()}, option_probabilities_raw=raw)
@@ -296,6 +324,18 @@ def _probability_repair_basis(raw_text: str, snapshot: dict[str, Any]) -> dict[s
     markets = _market_basis(objs)
     if markets is None:
         return None  # conflicting market estimates cannot be removed to make a repair pass
+    if qtype in N.TYPES:
+        candidates = []
+        for o in (nested for root, _, _ in objs for nested in _estimate_values(root)):
+            if isinstance(o, dict) and "percentiles" in o:
+                try:
+                    N.percentiles(o["percentiles"], snapshot)
+                except ValueError:
+                    return None
+                candidates.append(o["percentiles"])
+        if not candidates or any(c != candidates[0] for c in candidates):
+            return None
+        return {"percentiles": candidates[0], "markets": markets}
     if qtype == "binary":
         values: set[float] = set()
         for o in (nested for root, _, _ in objs for nested in _estimate_values(root)):
@@ -347,7 +387,10 @@ def repair_errors(repaired: dict[str, Any], basis: dict[str, Any], raw_text: str
     errs = []
     if "change_reason" in basis and repaired.get("change_reason") != basis["change_reason"]:
         errs.append("repair changed the original change_reason")
-    if "probability" in basis:
+    if "percentiles" in basis:
+        if repaired.get("percentiles") != basis["percentiles"]:
+            errs.append("repair changed percentiles")
+    elif "probability" in basis:
         p = repaired.get("probability")
         if not (_finite(p) and abs(p - basis["probability"]) < 1e-9):
             errs.append(f"repair changed the probability ({basis['probability']} -> {p!r})")

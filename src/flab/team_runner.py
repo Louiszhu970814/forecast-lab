@@ -172,7 +172,7 @@ def parse_answer(player, text, work):
 
 
 def answer_question(project, player, question, context, halt):
-    with idle_locks(project), tempfile.TemporaryDirectory(prefix="flab-team-") as directory:
+    with tempfile.TemporaryDirectory(prefix="flab-team-") as directory:
         work = Path(directory).resolve()
         if work.is_relative_to(Path(project).resolve()):
             raise RuntimeError("Status CLI must run outside project")

@@ -28,10 +28,21 @@ from flab.timeutil import to_iso, utc_now, parse_iso  # noqa: E402
 from flab.workdir import PROJECT_ROOT  # noqa: E402
 from metaculus import API_BASE, MetaculusClient  # noqa: E402
 from project_policy import trial_membership_error, VERSION as PROJECT_POLICY_VERSION  # noqa: E402
+import numeric as N
+from question_types import is_supported, supported_types
 
 QUESTIONS_LOG = PROJECT_ROOT / "data" / "questions.jsonl"
 POLL_LOG = PROJECT_ROOT / "data" / "poll_log.jsonl"
-SUPPORTED_TYPES = ("binary", "multiple_choice")       # numeric and discrete come in M5 (D39, D49)
+class _SupportedTypes:
+    """Compatibility view whose membership and iteration reread the rollout file."""
+    def __contains__(self, kind):
+        return is_supported(kind)
+
+    def __iter__(self):
+        return iter(supported_types())
+
+
+SUPPORTED_TYPES = _SupportedTypes()
 CONTENT_FIELDS = ("type", "title", "description", "resolution_criteria", "fine_print", "options")
 TIME_FIELDS = ("open_time", "scheduled_close_time", "scheduled_resolve_time")
 METADATA_VERSION = "exclusion_metadata_v2"
@@ -45,7 +56,7 @@ def main_site_pages(client, *, max_pages=20, validate_next_at_limit=False):
     """
     if type(max_pages) is not int or max_pages < 1:
         raise ValueError("positive main-site page limit required")
-    page = client.get("posts/", {"main_feed": "true", "statuses": "open", "forecast_type": "binary,multiple_choice",
+    page = client.get("posts/", {"main_feed": "true", "statuses": "open", "forecast_type": ",".join(supported_types()),
                                  "limit": 50, "offset": 0, "include_description": "true"})
     visited = set()
     for _ in range(max_pages):
@@ -85,6 +96,17 @@ def _project_ids(post: dict[str, Any]) -> set[int]:
     return ids
 
 
+def _scaling_error_value(value):
+    """Keep malformed numeric evidence JSON-safe so rejection can be recorded."""
+    if isinstance(value, float) and not N.finite(value):
+        return {"nonfinite_float": repr(value)}
+    if isinstance(value, list):
+        return [_scaling_error_value(v) for v in value]
+    if isinstance(value, dict):
+        return {k: _scaling_error_value(v) for k, v in value.items()}
+    return value
+
+
 def snapshot_from_post(post: dict[str, Any], venue: str) -> dict[str, Any] | None:
     """Whitelisted snapshot of a single-question post; None for group or conditional posts."""
     q = post.get("question")
@@ -99,6 +121,23 @@ def snapshot_from_post(post: dict[str, Any], venue: str) -> dict[str, Any] | Non
         "fine_print": q.get("fine_print"),
         "options": list(options) if isinstance(options, list) else None,
     }
+    scaling_error = None
+    if content["type"] in N.TYPES:
+        try:
+            content.update(N.read_scaling_fields(q))
+            N.scaling({**content, "question_type": content["type"]})
+        except N.UnsupportedScaling as exc:
+            scaling_error = str(exc)
+            # Retain conflicting allowlisted values for revision detection without
+            # trusting one of the conflicting API locations.
+            content["scaling_error"] = scaling_error
+            content["scaling_conflicts"] = {
+                k: [q.get(k), (q.get("scaling") or {}).get(k)]
+                for k in N.SCALING_FIELDS
+            } if isinstance(q.get("scaling"), dict) else None
+            for key in (*N.SCALING_FIELDS, "scaling_conflicts"):
+                if key in content:
+                    content[key] = _scaling_error_value(content[key])
     times = {k: q.get(k) or post.get(k) for k in TIME_FIELDS}
     return {
         "type": "question_snapshot",
@@ -112,6 +151,7 @@ def snapshot_from_post(post: dict[str, Any], venue: str) -> dict[str, Any] | Non
         **{k: v for k, v in content.items() if k != "type"},
         **times,
         "content_hash": hash_obj(content),
+        **({"scaling_status": "unsupported_scaling" if scaling_error else "valid"} if content["type"] in N.TYPES else {}),
     }
 
 
@@ -189,6 +229,8 @@ def record_snapshots(snaps: Iterable[dict[str, Any]], *, log: Path = QUESTIONS_L
                                 "options_changed": prev.get("options") != snap.get("options"),
                                 "mapping_changed": any(prev.get(k) != snap.get(k) for k in ("post_id", "tournament_id"))}}
             outcome["revised"].append(snap["question_id"])
+            if snap.get("question_type") in N.TYPES or prev.get("question_type") in N.TYPES:
+                rec["revision"]["scaling_changed"] = N.scaling_changed(prev, snap)
         else:
             outcome["unchanged"].append(snap["question_id"])
             continue

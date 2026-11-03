@@ -43,6 +43,43 @@ def replay(tmp_path, questions=None, cfg=None):
     return CS.simulate(record)["trials"][0]
 
 
+def test_completion_relative_trigger_includes_work_and_idle_gap(tmp_path):
+    cfg = settings()
+    cfg["cycle_trigger"] = "after_completion"
+    result = replay(tmp_path, [question(), question(2, opening=300)], cfg)
+    cycles = result["cycles"]
+    assert result["overlap_skipped"] == 0
+    assert len(cycles) > 1
+    for first, second in zip(cycles, cycles[1:]):
+        assert parse_iso(second["started_at"]) - parse_iso(first["finished_at"]) == timedelta(seconds=600)
+    assert cycles[1]["started_at"] == at(665)
+    assert result["questions"][1]["seen_at"] == at(665)
+
+
+def test_completion_relative_trigger_includes_supervisor_cleanup(tmp_path, monkeypatch):
+    cfg = settings()
+    cfg["cycle_trigger"] = "after_completion"
+    cfg["startup_s"] = 5200
+    result = replay(tmp_path, cfg=cfg)
+    first, second = result["cycles"][:2]
+    assert first["status"] == "timeout"
+    assert first["duration_s"] == CS.engine_policy()["timing_limits"]["supervisor_timeout_s"]
+    assert parse_iso(second["started_at"]) - parse_iso(first["finished_at"]) == timedelta(seconds=600)
+    assert result["overlap_skipped"] == 0
+
+
+def test_trigger_choice_is_validated_and_frozen(tmp_path):
+    cfg = settings()
+    cfg["cycle_trigger"] = "after_completion"
+    CS.register(tmp_path, cfg, [question()], now=lambda: NOW)
+    cfg["cycle_trigger"] = "fixed_grid"
+    with pytest.raises(ValueError, match="cannot change"):
+        CS.register(tmp_path, cfg, [question()], now=lambda: NOW)
+    cfg["cycle_trigger"] = "unknown"
+    with pytest.raises(ValueError, match="cycle_trigger"):
+        CS.validate(cfg, [question()])
+
+
 def test_empty_queue_single_question_parallel_and_on_time(tmp_path):
     result = replay(tmp_path)
     assert result["coverage_all"] == result["coverage_supported"] == 1
@@ -169,7 +206,7 @@ def test_late_revision_fallback_or_block(tmp_path, structural, expected):
     cfg = settings()
     for line in cfg["players"].values():
         line["tier1"] = [400]
-    result = replay(tmp_path, [question(closing=2100, revisions=[{"time": at(300), "structural": structural}])], cfg)
+    result = replay(tmp_path, [question(closing=2400, revisions=[{"time": at(300), "structural": structural}])], cfg)
     row = result["questions"][0]
     assert row["revision_actions"][0]["action"] == expected
     assert row["on_time"] is not structural
@@ -351,7 +388,7 @@ def test_same_seed_reproducible_and_repetitions_have_quantiles(tmp_path):
 @pytest.mark.parametrize("urgent", [False, True])
 def test_next_batch_matches_scheduler_jobs_in_same_state(tmp_path, monkeypatch, urgent):
     cfg = settings()
-    closing = 1700 if urgent else 10800
+    closing = 2000 if urgent else 10800
     questions = [question(1), question(2, closing=closing, venue="minibench"), question(3, closing=10000)]
     record = CS.register(tmp_path, cfg, questions)
     sim = CS.Simulation(record["frozen"], cfg["seed"])
@@ -534,7 +571,7 @@ def test_submission_policy_validation(tmp_path, change):
 def test_idle_paused_single_question_is_submitted_without_other_work(tmp_path, deadline):
     cfg = settings()
     cfg['players']['gemini']['stops'] = [{'start': at(0), 'end': at(20000), 'reason': 'preflight_blocked'}]
-    result = replay(tmp_path, [question(closing=deadline + 1500)], cfg)
+    result = replay(tmp_path, [question(closing=deadline + 1800)], cfg)
     q, = result['questions']
     assert q['on_time']
     assert parse_iso(q['submitted_at']) <= NOW + timedelta(seconds=deadline + 60)
@@ -556,7 +593,7 @@ def test_idle_simulator_handoff_releases_before_next_tick(tmp_path):
     # A continuous stream of known deadlines keeps this otherwise idle worker alive
     # until its handoff. Each question already has a completed first-layer answer.
     deadlines = list(range(700, 4800, 500)) + [4771]
-    record = CS.register(tmp_path, cfg, [question(i + 1, closing=d + 1500) for i, d in enumerate(deadlines)])
+    record = CS.register(tmp_path, cfg, [question(i + 1, closing=d + 1800) for i, d in enumerate(deadlines)])
     sim = CS.Simulation(record['frozen'], cfg['seed'])
     for q in sim.questions.values():
         q['seen'] = NOW

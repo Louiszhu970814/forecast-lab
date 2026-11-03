@@ -1,0 +1,18 @@
+#!/bin/sh
+set -eu
+# Project-only copy of the already accepted, signed official CLI. No credentials here.
+project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+binary="$project_dir/data/cli_pins/claude/2.1.316"
+if [ ! -x "$binary" ]; then
+    echo "Forecast Lab: accepted Claude CLI pin is unavailable" >&2
+    exit 69
+fi
+expected_sha256="64c327e92b2c5e0f78c0a980c5a518121e1f0d140ca771ca5dd4488d1a2dcb3f"
+actual_sha256=$(/usr/bin/shasum -a 256 "$binary")
+actual_sha256=${actual_sha256%% *}
+if [ "$actual_sha256" != "$expected_sha256" ]; then
+    echo "Forecast Lab: accepted Claude CLI pin hash differs" >&2
+    exit 69
+fi
+export DISABLE_AUTOUPDATER=1
+exec "$binary" "$@"

@@ -67,7 +67,21 @@ def test_short_server_delay_rechecks_time_after_sleep():
         return io.BytesIO(b'{}')
     def sleep(seconds):sleeps.append(seconds);clock[0]+=timedelta(seconds=seconds)
     client=MetaculusClient(TOKEN,opener=http,sleep=sleep,backoff=Backoff(now=lambda:clock[0]))
-    assert client.get_post(1)=={} and sleeps==[7] and len(calls)==2
+    assert client.get_post(1)=={} and sleeps==[10] and len(calls)==2
+
+
+@pytest.mark.parametrize('status,header,seconds', [
+    (429, '1', 10), (429, '9', 10), (429, '10', 10), (429, '11', 11), (429, '120', 120),
+    (429, 'Mon, 02 Nov 2026 00:00:05 GMT', 10), (503, '3', 3),
+])
+def test_official_429_floor_preserves_longer_headers_and_other_statuses(tmp_path, status, header, seconds):
+    path = tmp_path / 'cooldown.jsonl'
+    guard = Backoff(path, now=lambda: NOW)
+    assert guard._observe(status, {'Retry-After': header}) == to_iso(NOW + timedelta(seconds=seconds))
+    # The persistent deadline applies to another client, without another HTTP call.
+    with pytest.raises(Deferred):
+        Backoff(path, now=lambda: NOW + timedelta(seconds=seconds - .001)).open(
+            lambda *_: pytest.fail('early network'), None, 30)
 
 
 def test_interrupted_sleep_cannot_issue_early_request():
@@ -149,7 +163,7 @@ def test_safe_read_transport_preserves_delay_and_waits_for_clock():
     obj=T.APITransport(TOKEN,opener=http,backoff=Backoff(now=lambda:clock[0]))
     def sleep(seconds):clock[0]+=timedelta(seconds=seconds)
     obj.client._sleep=sleep
-    assert obj.account()=={'id':42,'is_bot':True} and clock[0]==NOW+timedelta(seconds=7)
+    assert obj.account()=={'id':42,'is_bot':True} and clock[0]==NOW+timedelta(seconds=10)
     assert len(calls)==2
 
 

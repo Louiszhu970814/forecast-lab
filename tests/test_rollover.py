@@ -195,7 +195,7 @@ def test_cycle_rolls_over_without_unsealing_unchanged_snapshot(setup_cycle, monk
     assert second['status'] == 'complete'
 
 
-def test_new_question_in_new_week_gets_fresh_capacity_without_reopening_skipped_final(setup_cycle, monkeypatch, tmp_path):
+def test_new_budget_wait_uses_fresh_week_capacity_without_reopening_sealed_answer(setup_cycle, monkeypatch, tmp_path):
     run, current, clock, _, _, tracker, _ = setup_cycle
     current[0]['scheduled_close_time'] = to_iso(NOW + timedelta(days=30))
     cfg = template()
@@ -208,15 +208,20 @@ def test_new_question_in_new_week_gets_fresh_capacity_without_reopening_skipped_
     assert len(tracker['calls']) == 1
     skipped = [r for r in read_complete(tmp_path/'aggregates.jsonl')
         if r.get('question_id') == 101 and r.get('completion_status') == 'complete_local']
-    assert len(skipped) == 1 and skipped[0]['status'] != 'ready'
-    # Existing policy makes a completed budget skip final. Rollover must not undo it.
+    assert not skipped
+    sealed_before = [r for r in read_complete(tmp_path/'aggregates.jsonl')
+                     if r.get('question_id') == 100 and r.get('completion_status') == 'complete_local']
+    # D121 temporary waits remain open; already sealed question 100 stays sealed.
     clock[0] = parse_iso(cfg['budget_window_end'])
     current.append(snapshot(102, scheduled_close_time=to_iso(NOW + timedelta(days=30))))
     run()
     assert len(tracker['calls']) == 2
+    assert [r for r in read_complete(tmp_path/'aggregates.jsonl')
+            if r.get('question_id') == 100 and r.get('completion_status') == 'complete_local'] == sealed_before
     assert len([r for r in read_complete(tmp_path/'aggregates.jsonl')
-        if r.get('question_id') == 101 and r.get('completion_status') == 'complete_local']) == 1
-    assert {r['question_id'] for r in read_complete(tmp_path/'forecasts.jsonl')} == {100, 102}
+                if r.get('question_id') == 101 and r.get('completion_status') == 'complete_local'
+                and not r.get('submission_eligible')]) == 1  # publication has its separate offer record
+    assert {r['question_id'] for r in read_complete(tmp_path/'forecasts.jsonl')} == {100, 101}
 
 
 @pytest.mark.parametrize('kind', ['start', 'reservation'])

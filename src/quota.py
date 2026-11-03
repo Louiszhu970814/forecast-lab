@@ -386,7 +386,27 @@ def snapshot(
     _run_cmd: Callable[[list[str]], str | Mapping[str, Any]] | None = None,
 ) -> QuotaSnapshot:
     """Query ``agy -p "/usage" --output-format json`` and ``agy -p "/credits" --output-format json``."""
+    from flab.fail_soft import QUOTA_QUERY_ATTEMPTS
+    import time
     activity_before = detect_agy_activity()
+    until = time.monotonic() + timeout_s
+
+    def query(argv, work_cwd=None):
+        for attempt in range(QUOTA_QUERY_ATTEMPTS):
+            try:
+                remaining = until - time.monotonic()
+                if remaining <= 0:
+                    raise TimeoutError("quota query deadline elapsed")
+                out = (_run_cmd(list(argv)) if _run_cmd is not None else
+                       _run_slash_json(list(argv), cwd=work_cwd, timeout_s=remaining))
+                if argv == USAGE_ARGV:
+                    parse_usage_json(out)
+                elif parse_credits_json(out) is None:
+                    raise ValueError("credits query returned no numeric balance")
+                return out
+            except (OSError, ValueError, RuntimeError, TimeoutError, subprocess.SubprocessError):
+                if attempt + 1 == QUOTA_QUERY_ATTEMPTS:
+                    raise
 
     def finish(usage_out, credits_out):
         activity_after = detect_agy_activity()
@@ -398,20 +418,20 @@ def snapshot(
                        concurrent_agy_reason=activity_before[1] or activity_after[1])
 
     if _run_cmd is not None:
-        usage_out = _run_cmd(list(USAGE_ARGV))
-        credits_out = _run_cmd(list(CREDITS_ARGV))
+        usage_out = query(USAGE_ARGV)
+        credits_out = query(CREDITS_ARGV)
         return finish(usage_out, credits_out)
 
     if cwd is not None:
         work_cwd = Path(cwd)
         work_cwd.mkdir(parents=True, exist_ok=True)
-        usage_out = _run_slash_json(list(USAGE_ARGV), cwd=work_cwd, timeout_s=timeout_s)
-        credits_out = _run_slash_json(list(CREDITS_ARGV), cwd=work_cwd, timeout_s=timeout_s)
+        usage_out = query(USAGE_ARGV, work_cwd)
+        credits_out = query(CREDITS_ARGV, work_cwd)
     else:
         with tempfile.TemporaryDirectory(prefix="flab-quota-cwd-") as tmp_cwd:
             work_cwd = Path(tmp_cwd)
-            usage_out = _run_slash_json(list(USAGE_ARGV), cwd=work_cwd, timeout_s=timeout_s)
-            credits_out = _run_slash_json(list(CREDITS_ARGV), cwd=work_cwd, timeout_s=timeout_s)
+            usage_out = query(USAGE_ARGV, work_cwd)
+            credits_out = query(CREDITS_ARGV, work_cwd)
 
     return finish(usage_out, credits_out)
 
@@ -431,6 +451,39 @@ def credits_ok(snap: QuotaSnapshot | Mapping[str, Any] | None) -> bool:
     try:
         return math.isfinite(float(rem)) and rem == 0
     except (OverflowError, ValueError, TypeError):
+        return False
+
+
+def fresh(snapshot, now) -> bool:
+    """Admission freshness includes every applicable reset and explicit free credits."""
+    from flab.fail_soft import SNAPSHOT_MAX_AGE_S
+    try:
+        buckets = argon_buckets(snapshot)
+        return bool(snapshot and not snapshot.get("stale") and credits_ok(snapshot)
+                    and buckets.layout != "unknown"
+                    and 0 <= (now - parse_iso(snapshot["taken_at"])).total_seconds() <= SNAPSHOT_MAX_AGE_S
+                    and all(now < parse_iso(b.reset_time) for b in (buckets.weekly, buckets.five_hour) if b))
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
+def usage_fresh(snapshot, now) -> bool:
+    """Whether /usage needs rereading; credit validity is a separate admission gate."""
+    if not observation_fresh(snapshot, now):
+        return False
+    try:
+        buckets = argon_buckets(snapshot)
+        return all(now < parse_iso(b.reset_time) for b in (buckets.weekly, buckets.five_hour) if b)
+    except (KeyError, TypeError, ValueError):
+        return False
+
+
+def observation_fresh(snapshot, now) -> bool:
+    from flab.fail_soft import SNAPSHOT_MAX_AGE_S
+    try:
+        return bool(snapshot and not snapshot.get("stale") and
+                    0 <= (now - parse_iso(snapshot["taken_at"])).total_seconds() <= SNAPSHOT_MAX_AGE_S)
+    except (KeyError, TypeError, ValueError):
         return False
 
 
@@ -743,7 +796,8 @@ def five_hour_gate(snapshot, estimate: float) -> tuple[str | None, dict]:
     return None, info
 
 
-MODEL_VERIFICATION_VERSION = "quota_model_verification_v2"
+MODEL_VERIFICATION_VERSION = "quota_model_verification_v3"
+ADMISSION_VERSION = "quota_admission_v2"
 
 
 def idle_third_party_reset(key, before, after, x, y) -> bool:
@@ -844,10 +898,10 @@ def manual_admission(snapshot, policy: dict, *, model: str, history_root: Path, 
     from flab.ledger import read_complete
 
     buckets = argon_buckets(snapshot)
-    info = {"quota_layout": buckets.layout}
+    info = {"quota_layout": buckets.layout, "quota_admission_version": ADMISSION_VERSION}
     if buckets.layout == "unknown":
         return UNKNOWN_LAYOUT_REASON, info
-    if not credits_ok(snapshot) or snapshot.get("stale") or snapshot.get("concurrent_agy_detected"):
+    if not credits_ok(snapshot) or snapshot.get("stale"):
         return "quota_snapshot_untrusted", info
     cfg = policy["players"]["gemini"]
     fallback = float(cfg["tier2_per_question_cap"])

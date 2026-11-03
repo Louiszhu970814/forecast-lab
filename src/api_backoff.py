@@ -26,10 +26,11 @@ from flab.jsonl import append_record
 from flab.ledger import read_complete
 from flab.timeutil import parse_iso, to_iso, utc_now
 
-VERSION = "api_backoff_v2"
+VERSION = "api_backoff_v3"
 DEFAULT_PATH = Path(__file__).resolve().parents[1] / "data/api_cooldowns.jsonl"
 MAX_DATE = datetime(9999, 12, 31, 23, 59, 59, tzinfo=timezone.utc)
 DEFAULT_429_SECONDS = 60
+MIN_429_SECONDS = 10  # Luke's D115 reply: Cloudflare blocks the shared IP for at least 10s.
 PACE_SECONDS = 3.5
 PACE_JITTER_SECONDS = 1.0
 
@@ -133,8 +134,11 @@ class Backoff:
     def _observe(self, status, headers):
         now = self.now()
         until = retry_deadline(headers, now)
-        if status == 429 and (until is None or until <= now):
-            until = now + timedelta(seconds=DEFAULT_429_SECONDS)
+        if status == 429:
+            if until is None or until <= now:
+                until = now + timedelta(seconds=DEFAULT_429_SECONDS)
+            else:
+                until = max(until, now + timedelta(seconds=MIN_429_SECONDS))
         if until is None:
             return None
         # Millisecond ISO output rounds down: round the deadline UP first.

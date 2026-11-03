@@ -16,6 +16,7 @@ from flab.config import PLAYERS, load_agg_config
 from flab.ids import hash_obj, new_id
 from flab.jsonl import append_record
 from flab.timeutil import to_iso, utc_now
+import numeric as N
 
 IMPLEMENTATION_VERSION = "aggregate_pipeline_v2"
 EXCLUDED = frozenset({"leak_confirmed", "model_mismatch", "tool_scope_violation",
@@ -43,6 +44,9 @@ def _check_config(config: dict[str, Any]) -> None:
 
 def _options(snapshot: dict[str, Any]) -> list[str]:
     qtype = snapshot.get("question_type")
+    if qtype in N.TYPES:
+        N.scaling(snapshot)
+        return []
     if qtype == "binary":
         return []
     opts = snapshot.get("options")
@@ -62,6 +66,19 @@ def input_error(rec: dict[str, Any], snapshot: dict[str, Any]) -> str | None:
     if rec.get("tier") == 2 and not rec.get("input_attempt_ids"):
         return "missing_tier2_inputs"
     opts = _options(snapshot)
+    if snapshot["question_type"] in N.TYPES:
+        try:
+            cdf = N.validate_cdf(rec.get("continuous_cdf"), snapshot)
+            if rec.get("probability") is not None or rec.get("option_probabilities") is not None:
+                return "invalid_numeric_probability_fields"
+            if rec.get("cdf_version") != N.CDF_VERSION or rec.get("cdf_sha256") != hash_obj(cdf):
+                return "invalid_cdf_provenance"
+            if rec.get("type") == "forecast_attempt":
+                if N.to_cdf(rec.get("percentiles"), snapshot) != cdf:
+                    return "inconsistent_numeric_cdf"
+        except ValueError:
+            return "invalid_continuous_cdf"
+        return None
     if not opts:
         return None if probability(rec.get("probability")) and rec.get("option_probabilities") is None else "invalid_probability"
     ops = rec.get("option_probabilities")
@@ -195,6 +212,9 @@ def combine(snapshot: dict[str, Any], selected: list[dict[str, Any]], config: di
     _check_config(config)
     opts = _options(snapshot)
     if not selected:
+        if snapshot["question_type"] in N.TYPES:
+            return {"probability": None, "option_probabilities": None, "continuous_cdf": None,
+                    "cdf_version": N.CDF_VERSION, "cdf_sha256": None, "before_clipping_or_smoothing": None}
         return {"probability": None, "option_probabilities": None, "before_clipping_or_smoothing": None}
     players = [r.get("player") for r in selected]
     if len(set(players)) != len(players) or any(p not in PLAYERS for p in players):
@@ -202,6 +222,13 @@ def combine(snapshot: dict[str, Any], selected: list[dict[str, Any]], config: di
     for rec in selected:
         if error := input_error(rec, snapshot):
             raise ValueError(error)
+    if snapshot["question_type"] in N.TYPES:
+        mean = [math.fsum(row["continuous_cdf"][i] for row in selected) / len(selected)
+                for i in range(N.scaling(snapshot).n + 1)]
+        cdf = N.project_cdf(mean, snapshot)
+        return {"probability": None, "option_probabilities": None, "continuous_cdf": cdf,
+                "cdf_version": N.CDF_VERSION, "cdf_sha256": hash_obj(cdf),
+                "before_clipping_or_smoothing": mean}
     if not opts:
         z = math.fsum(logit(r["probability"]) for r in selected) / len(selected)
         p = 1 / (1 + math.exp(-z)) if z >= 0 else math.exp(z) / (1 + math.exp(z))
@@ -237,7 +264,7 @@ def build_aggregate(snapshot: dict[str, Any], attempts: list[dict[str, Any]], *,
                 pending.append(aid)
     relevant_events = [e for e in events if _audit_attempt_id(e) in lineage]
     return {"type": "aggregate", "record_id": new_id("agg"), "created_at_utc": to_iso(now or utc_now()),
-            "mode": "local", "stage": stage, "aggregation_version": config["version"],
+            "mode": "local", "stage": stage, "aggregation_version": N.AGG_VERSION if snapshot["question_type"] in N.TYPES else config["version"],
             "implementation_version": IMPLEMENTATION_VERSION, "aggregation_config_sha256": hash_obj(config),
             "question_id": snapshot["question_id"], "post_id": snapshot.get("post_id"),
             "tournament_id": snapshot.get("tournament_id"), "question_snapshot_id": snapshot.get("snapshot_id"),

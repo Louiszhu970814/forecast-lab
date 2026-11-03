@@ -10,20 +10,21 @@ import json
 import math
 import statistics
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Callable
 
 import quota
+from flab import fail_soft as FS
 from flab.ids import new_id
 from flab.jsonl import append_record
 from flab.ledger import transaction, read_complete
 from flab.timeutil import parse_iso, to_iso, utc_now
 
-VERSION = "budget_v5"
-LIFT_AUTHORIZATION = "PLAN D107 A3"
-LIFT_PLAYERS = ("gpt", "gemini")
-LIFT_REASONS = frozenset({"weekly_tier2_token_breaker", "weekly_tier2_argon_breaker"})
+VERSION = "budget_v7"
+LIFT_AUTHORIZATION = "PLAN D121"
+LIFT_PLAYERS = ("claude", "gpt", "gemini")
+LIFT_REASONS = frozenset({"weekly_tier2_token_breaker", "weekly_tier2_argon_breaker", "tier2_token_breaker"})
 
 
 def _player_lifts(events: list[dict], player: str, now: datetime) -> list[dict]:
@@ -39,7 +40,7 @@ def _stop_lifted(stop: dict, lifts: list[dict]) -> bool:
 
 def lift_tier2_stops(root: Path, players: list[str], authorization: str, *,
                      now: Callable[[], datetime] = utc_now) -> list[dict]:
-    """Append D107 A3 lifts for unexpired, unlifted persisted weekly stops.
+    """Append D121 lifts for unexpired, unlifted persisted tier-2 stops.
 
     Validate every requested player before writing. No quota query or campaign/forecast
     read is needed; admission retains its existing Argon layout/reset checks.
@@ -47,7 +48,7 @@ def lift_tier2_stops(root: Path, players: list[str], authorization: str, *,
     if authorization != LIFT_AUTHORIZATION:
         raise ValueError(f"authorization must be {LIFT_AUTHORIZATION!r}")
     if not players or any(p not in LIFT_PLAYERS for p in players):
-        raise ValueError("only gpt and gemini tier 2 stops may be lifted")
+        raise ValueError("unknown player for tier 2 stop lift")
     with transaction(root):
         log = root / "budget_events.jsonl"
         events = read_complete(log)
@@ -121,7 +122,8 @@ class Budget:
         start, end = parse_iso(self.campaign["budget_window_start"]), parse_iso(self.campaign["budget_window_end"])
         if not start <= self.now() < end:
             raise ValueError("campaign budget window is inactive")
-        return start, end
+        import budget_handoff as H
+        return H.accounting_start(self.root, self.campaign), end
 
     def _data(self):
         return (read_complete(self.root / "forecasts.jsonl"), read_complete(self.root / "forecast_attempt_starts.jsonl"),
@@ -133,7 +135,8 @@ class Budget:
     def recover(self):
         """Called while holding scheduler.lock: old no-start reservations never reached the CLI.
 
-        Started but missing outcomes are retained and block the line; they are not released.
+        Started reservations stay charged; forecast recovery closes orphan starts
+        under the line lock instead of releasing their cost.
         """
         with transaction(self.root):
             _, starts, _, events = self._data()
@@ -150,6 +153,12 @@ class Budget:
         with transaction(self.root):
             start, end = self._window()
             forecasts, starts, snapshots, events = self._data()
+            if not any(r["type"] == "budget_policy_activated" and r.get("version") == VERSION for r in events):
+                activation = {"type": "budget_policy_activated", "version": VERSION, "policy_version": FS.VERSION,
+                              "at": to_iso(self.now()), "scope": "new reservations only",
+                              "preserve_prior_stops_lifts_and_usage": True}
+                append_record(self.log, activation)
+                events.append(activation)
             player, tier, qid, aid = (request[k] for k in ("player", "tier", "question_id", "attempt_id"))
             if tier not in (1, 2) or any(type(v) is not int or v < 0 for v in (pending_tier1, expected_new, repair_reserve)):
                 raise ValueError("invalid tier or protected capacity")
@@ -190,27 +199,66 @@ class Budget:
             limit_tokens = base_tokens * self.policy["token_multiplier_cap"] if base_tokens else None
             estimate_tokens = None
             breach_reason = None
+            breach_until = None
             scoped = [r for r in forecasts if r.get("player") == player and r.get("tier") == 2
                       and start <= parse_iso(r["started_at_utc"]) < end]
             if tier == 2:
                 lifts = _player_lifts(events, player, self.now())
-                latest_lift = max((parse_iso(r["at"]) for r in lifts), default=None)
                 measured = [n for r in scoped if (n := tokens(r)) is not None and n > 0]
                 estimate_tokens = quantile(measured[-50:]) or limit_tokens
+                if limit_tokens is not None and estimate_tokens is not None:
+                    estimate_tokens = min(estimate_tokens, limit_tokens)
                 if limit_tokens is None:
                     reason = "tier1_token_baseline_unmeasured"
                 per_question = {}
-                breaker_questions = {}
                 for r in scoped:
-                    per_question.setdefault(r["question_id"], []).append(tokens(r))
-                    if latest_lift is None or parse_iso(r["started_at_utc"]) > latest_lift:
-                        breaker_questions.setdefault(r["question_id"], []).append(tokens(r))
-                if any(any(v is None for v in vals) or (limit_tokens is not None and sum(vals) > limit_tokens)
-                       for vals in breaker_questions.values()):
-                    breach_reason = "weekly_tier2_token_breaker"
+                    if r.get("error_type") not in ("timeout", "cli_error", "interrupted"):
+                        per_question.setdefault(r["question_id"], []).append(tokens(r))
+                # Only new, explicitly versioned reservations create breach decisions.
+                # Their saved baseline is immutable, even if later tier-1 use grows.
+                assessed = {r["attempt_id"] for r in events if r["type"] == "tier2_token_assessed"}
+                for r in scoped:
+                    reservation = reservations.get(r["attempt_id"], {})
+                    if reservation.get("version") != VERSION or r["attempt_id"] in assessed:
+                        continue
+                    limit = reservation.get("token_limit")
+                    countable = [x for x in scoped if x["question_id"] == r["question_id"]
+                                 and parse_iso(x["finished_at_utc"]) <= parse_iso(r["finished_at_utc"])
+                                 and x.get("error_type") not in ("timeout", "cli_error", "interrupted")]
+                    values = [tokens(x) for x in countable]
+                    status = ("incomplete" if r.get("error_type") in ("timeout", "cli_error", "interrupted")
+                              else "tier2_tokens_unknown" if any(v is None for v in values)
+                              else "exceeded" if limit is not None and sum(values) > limit else "within")
+                    event = {"type": "tier2_token_assessed", "version": VERSION,
+                             "policy_version": FS.VERSION, "player": player, "question_id": r["question_id"],
+                             "attempt_id": r["attempt_id"], "status": status,
+                             "started_at_utc": r["started_at_utc"],
+                             "token_limit": limit, "token_baseline": reservation.get("token_baseline"),
+                             "at": r["finished_at_utc"]}
+                    append_record(self.log, event)
+                    events.append(event)
+                boundaries = [parse_iso(r["at"]) for r in lifts]
+                boundaries += [parse_iso(r["until"]) for r in events
+                               if r["type"] == "budget_upgrade_stop" and r["player"] == player
+                               and parse_iso(r["until"]) <= self.now()]
+                boundary = max(boundaries, default=start - timedelta(microseconds=1))
+                breaches = [r for r in events if r["type"] == "tier2_token_assessed"
+                            and r["player"] == player and r["status"] == "exceeded"
+                            and boundary < parse_iso(r["at"]) <= self.now()
+                            and self.now() - parse_iso(r["at"]) <= timedelta(seconds=FS.WINDOW_S)]
+                if len({r["question_id"] for r in breaches}) >= FS.BREACH_COUNT:
+                    breach_reason = "tier2_token_breaker"
+                    breach_until = max(parse_iso(r["at"]) for r in breaches) + timedelta(seconds=FS.COOLDOWN_S)
                 own = per_question.get(qid, [])
                 if limit_tokens is not None and (any(v is None for v in own) or sum(own) + estimate_tokens > limit_tokens):
                     reason = "question_tier2_token_capacity"
+                own_decisions = [r for r in events if r["type"] == "tier2_token_assessed"
+                                 and r["player"] == player and r["question_id"] == qid
+                                 and start <= parse_iso(r.get("started_at_utc", r["at"])) < end]
+                if any(r["status"] == "exceeded" for r in own_decisions):
+                    reason = "question_tier2_token_capacity"
+                if any(r["status"] == "tier2_tokens_unknown" for r in own_decisions):
+                    reason = "tier2_tokens_unknown"
             argon_estimate, argon_remaining, reset = None, None, None
             quota_info = {}
             if player == "gemini":
@@ -219,9 +267,9 @@ class Budget:
                 bucket = buckets.weekly or {}
                 quota_info = {"quota_layout": buckets.layout, "quota_weekly_bucket": bucket.get("id")}
                 argon_remaining, reset = bucket.get("remaining_fraction"), bucket.get("reset_time")
-                valid = buckets.layout != "unknown" and before and quota.credits_ok(before) and not before.get("stale") and not before.get("concurrent_agy_detected")
+                valid = buckets.layout != "unknown" and before and quota.credits_ok(before) and not before.get("stale")
                 try:
-                    valid = valid and 0 <= (self.now() - parse_iso(before["taken_at"])).total_seconds() <= 90 \
+                    valid = valid and 0 <= (self.now() - parse_iso(before["taken_at"])).total_seconds() <= FS.SNAPSHOT_MAX_AGE_S \
                         and self.now() < parse_iso(reset)
                 except (TypeError, KeyError, ValueError):
                     valid = False
@@ -243,7 +291,9 @@ class Budget:
                     fallback=fallback, tier=1, period="weekly", **settings)
                 quota_info.update(argon_estimate_method=quota.WINDOW_ESTIMATE_VERSION,
                                   argon_estimate_calls=estimate_calls)
-                if valid and argon_remaining - argon_estimate - protected * first_estimate < 1 - self.policy["players"][player]["weekly_cap"]:
+                protected_quota = min(protected * first_estimate, FS.TIER1_QUOTA_RESERVE_CAP)
+                quota_info["protected_quota"] = protected_quota
+                if valid and argon_remaining - argon_estimate - protected_quota < 1 - self.policy["players"][player]["weekly_cap"]:
                     reason = "argon_personal_or_tier1_reserve"
             if tier == 2:
                 paused = next((r for r in reversed(events) if r["type"] == "budget_upgrade_stop"
@@ -254,9 +304,10 @@ class Budget:
                 if paused:
                     reason = paused["reason"]
                 elif breach_reason:
-                    reason = breach_reason
+                    if self.now() < breach_until:
+                        reason = breach_reason
                     append_record(self.log, {"type": "budget_upgrade_stop", "player": player,
-                        "reason": reason, "until": reset if player == "gemini" and valid else to_iso(end),
+                        "reason": breach_reason, "until": to_iso(breach_until),
                         "at": to_iso(self.now()), "version": VERSION, **quota_info})
             if player == "gemini" and valid:
                 fallback = self.policy["players"][player]["tier2_per_question_cap"]
@@ -282,7 +333,10 @@ class Budget:
 
     def outcome(self, attempt_id: str, started: bool):
         with transaction(self.root):
-            reservation = next((r for r in reversed(read_complete(self.log))
+            rows = read_complete(self.log)
+            if any(r["type"] == "budget_outcome" and r["attempt_id"] == attempt_id for r in rows):
+                return
+            reservation = next((r for r in reversed(rows)
                                 if r["type"] == "budget_reserved" and r["attempt_id"] == attempt_id), None)
             if reservation is None:
                 raise ValueError("outcome has no reservation")

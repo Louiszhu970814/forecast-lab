@@ -8,7 +8,7 @@
     "minibench": {
       "slug": "minibench",
       "id": null,
-      "submit_whitelisted": false
+      "submit_whitelisted": true
     },
     "bot_testing_area": {
       "slug": "bot-testing-area",

@@ -74,7 +74,7 @@ def reuse(probe):
 def seed_prior(reuse, *, state='found', question_type='binary'):
     obj, http, _ = reuse
     if question_type == 'multiple_choice':
-        http.post['question'].update(type=question_type, options=['a', 'b', 'c'], all_options_ever=None)
+        http.post['question'].update(type=question_type, options=['a', 'b', 'c'], all_options_ever=['a', 'b', 'c'])
     pid = obj.prepare(question_type=question_type)['probe_id']
     obj.event(pid, 'request_started', operation='forecast', request_id='prior-request')
     if state:

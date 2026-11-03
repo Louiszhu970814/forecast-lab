@@ -1,4 +1,4 @@
-"""One bounded continuous polling/forecast/submission cycle (cycle_v6).
+"""One bounded continuous polling/forecast/submission cycle (cycle_v8).
 
 Usage: .venv/bin/python src/cycle.py --campaign config/cycle_campaign.json
 The campaign is explicit and finite; no implicit quota increases or launchd installation.
@@ -29,7 +29,7 @@ from flab.ledger import read_complete, transaction
 from flab.timeutil import parse_iso, to_iso, utc_now
 from flab.workdir import PROJECT_ROOT
 
-VERSION = "cycle_v7"
+VERSION = "cycle_v8"
 INTERVAL_S = 600
 SAFETY_S = 30
 ADMISSION_WINDOW_S = INTERVAL_S - SAFETY_S - 60
@@ -175,6 +175,9 @@ def run_cycle(root: Path, campaign: dict, poller, *, project: Path = PROJECT_ROO
         rec["steps"]["switches"] = {"status": "ok", "players_enabled": enabled,
             "stop_submit": (project / "config" / "STOP_SUBMIT").exists(), "mode": load_submit_mode()["mode"]}
         checkpoint("policy")
+        if rec["steps"]["switches"]["mode"] == "live":
+            import live_window as W
+            W.require_active(load_submit_mode(), campaign, project / "config", now())
         campaign = Q.active_campaign(root, campaign, now=now)
         deadline = min(deadline, parse_iso(campaign["budget_window_end"]))
         rec["deadline"] = rec["admission_deadline"] = to_iso(deadline)
@@ -355,12 +358,38 @@ def main(argv=None):
     root = PROJECT_ROOT / "data"
     if not args.worker:
         started = utc_now()
+        live_end = None
+        if load_submit_mode()["mode"] == "live":
+            import live_window as W
+            try:
+                policy = json.loads(args.campaign.read_text())
+                live_start, live_end = W.bounds(load_submit_mode(), policy, PROJECT_ROOT / "config")
+                state = ("waiting" if started < live_start else "expired" if started >= live_end
+                         else "draining" if (live_end - started).total_seconds() <= CLEANUP_RESERVE_S else "active")
+                event = {"type": "live_schedule", "version": VERSION, "at": to_iso(started),
+                         "status": state, "campaign_id": policy["campaign_id"],
+                         "start": to_iso(live_start), "end": to_iso(live_end)}
+            except (OSError, ValueError, TypeError, KeyError) as exc:
+                event = {"type": "live_schedule", "version": VERSION, "at": to_iso(started),
+                         "status": "blocked", "error_type": type(exc).__name__}
+                append_record(root / "live_schedule.jsonl", event)
+                print(json.dumps(event))
+                return 1
+            append_record(root / "live_schedule.jsonl", event)
+            if state != "active":
+                print(json.dumps(event))
+                return 0
         cycle_id = new_id("cycle")
         deadline = started + timedelta(seconds=ADMISSION_WINDOW_S)
+        if live_end is not None:
+            deadline = min(deadline, live_end - timedelta(seconds=CLEANUP_RESERVE_S))
         limits = timing_limits(load_run_config())
         command = [sys.executable, str(Path(__file__).resolve()), "--worker", "--campaign", str(args.campaign.resolve()),
                    "--cycle-id", cycle_id, "--deadline", to_iso(deadline), "--started-at", to_iso(started)]
-        code, timed_out = supervise(command, timeout_s=limits["worker_timeout_s"] - (utc_now() - started).total_seconds())
+        timeout_s = limits["worker_timeout_s"] - (utc_now() - started).total_seconds()
+        if live_end is not None:
+            timeout_s = min(timeout_s, (live_end - utc_now()).total_seconds() - CLEANUP_RESERVE_S)
+        code, timed_out = supervise(command, timeout_s=timeout_s)
         if timed_out or code:
             # A crash may have happened after the completed summary was fsynced.
             if not any(r.get("cycle_id") == cycle_id for r in read_complete(root / "cycles.jsonl")):

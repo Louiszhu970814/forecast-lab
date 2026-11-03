@@ -10,8 +10,8 @@ from test_scheduler import environment
 
 def test_wait_timeout_uses_earliest_unsealed_current_snapshot(environment):
     obj, snapshots, _, _ = environment(continuous=True)
-    snapshots[100]["scheduled_close_time"] = to_iso(NOW + timedelta(seconds=1510))
-    snapshots[101]["scheduled_close_time"] = to_iso(NOW + timedelta(seconds=1540))
+    snapshots[100]["scheduled_close_time"] = to_iso(NOW + timedelta(seconds=1810))
+    snapshots[101]["scheduled_close_time"] = to_iso(NOW + timedelta(seconds=1840))
     assert obj._wait_timeout(snapshots) == 10
     append_record(obj.root / "aggregates.jsonl", {
         "question_id": 100, "question_snapshot_id": snapshots[100]["snapshot_id"],
@@ -31,7 +31,7 @@ def test_expired_without_answers_is_sealed_without_hook(environment):
     calls = []
     obj, snapshots, _, _ = environment(continuous=True, on_finalized=calls.append)
     for snap in snapshots.values():
-        snap["scheduled_close_time"] = to_iso(NOW + timedelta(seconds=1500))
+        snap["scheduled_close_time"] = to_iso(NOW + timedelta(seconds=1800))
     assert obj.finalize(snapshots) == []
     assert calls == [] and obj._wait_timeout(snapshots) == 60
 
@@ -56,7 +56,7 @@ def test_ready_hook_is_continuous_only_and_outside_ledger_transaction(environmen
         checks.append(done.wait(1))
 
     obj, snapshots, _, _ = environment(count=1, continuous=continuous, on_finalized=on_finalized)
-    snapshots[100]["scheduled_close_time"] = to_iso(NOW + timedelta(seconds=1500))
+    snapshots[100]["scheduled_close_time"] = to_iso(NOW + timedelta(seconds=1800))
     append_record(obj.root / "forecasts.jsonl", answer("gpt", snapshot=snapshots[100], aid="synthetic", reasoning_summary="Synthetic evidence."))
     assert obj.finalize(snapshots) == [100]
     for worker in workers:

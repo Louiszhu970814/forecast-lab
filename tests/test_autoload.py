@@ -518,7 +518,7 @@ def test_calls_journaled_before_real_executor_and_counted_by_budget(fx, monkeypa
     assert len([r for r in read_records(log) if r["type"] == "acceptance_call_started"]) == 3
 
 
-@pytest.mark.parametrize("problem", ["credits", "stale", "concurrent", "low", "missing", "nan"])
+@pytest.mark.parametrize("problem", ["credits", "stale", "low", "missing", "nan"])
 @pytest.mark.parametrize('weekly_cap,low_remaining', [(.8, .19), (1.0, .04)])
 def test_gemini_gate_pauses_without_counting_or_calling_model(fx, monkeypatch, problem, weekly_cap, low_remaining):
     from flab.config import load_quota_policy

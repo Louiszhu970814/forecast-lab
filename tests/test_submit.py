@@ -11,7 +11,8 @@ import aggregate as A
 import comment as C
 import forecast as F
 import submit as S
-from flab.config import load_run_config
+from flab.config import load_run_config, load_quota_policy
+from flab.ids import hash_obj
 from flab.jsonl import append_record
 from flab.ledger import read_complete
 from flab.timeutil import to_iso
@@ -127,6 +128,17 @@ def rows(e):
 
 def set_mode(e, **changes):
     e["mode"].update(changes)
+    if e["mode"]["mode"] == "live" and "live_window" not in e["mode"]:
+        campaign = {"campaign_id": "synthetic", "venues": list(e["cfg"]["tournaments"]),
+                    "budget_window_start": to_iso(NOW - timedelta(days=1)),
+                    "budget_window_end": to_iso(NOW + timedelta(days=6)),
+                    "run_config_sha256": hash_obj(load_run_config()),
+                    "quota_policy_sha256": hash_obj(load_quota_policy())}
+        (e["config"] / "quota_policy.json").write_text(json.dumps(load_quota_policy()))
+        (e["config"] / "cycle_campaign.json").write_text(json.dumps(campaign))
+        e["mode"]["live_window"] = {"version": "live_window_v1", "campaign_id": "synthetic",
+            "campaign_sha256": hash_obj(campaign), "start": campaign["budget_window_start"],
+            "end": campaign["budget_window_end"]}
     (e["config"] / "submit_mode.json").write_text(json.dumps(e["mode"]))
 
 
@@ -523,7 +535,7 @@ def test_multiple_choice_end_to_end_and_option_reordering(environment, monkeypat
     from submit_transport import APITransport
 
     e = environment
-    e["post"]["question"].update(type="multiple_choice", options=["B", "A", "C"], all_options_ever=None)
+    e["post"]["question"].update(type="multiple_choice", options=["B", "A", "C"], all_options_ever=["A", "B", "C"])
     monkeypatch.setattr(e["transport"], "can_reconcile_forecast",
         lambda post: APITransport.can_reconcile_forecast(e["transport"], post), raising=False)
     snap = {**snapshot_from_post(e["post"], "bot-testing-area"), "snapshot_id": "s1", "tournament_id": 32977}

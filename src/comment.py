@@ -16,6 +16,7 @@ from urllib.parse import urlsplit
 
 import aggregate as A
 import audit_ledger as L
+import numeric as N
 from flab.config import PLAYERS, load_agg_config
 from flab.ids import new_id
 from flab.timeutil import to_iso, utc_now
@@ -107,6 +108,10 @@ def _excerpt(value: str, limit: int | None) -> str:
 
 
 def _probability(row: dict, snapshot: dict) -> str:
+    if snapshot["question_type"] in N.TYPES:
+        cdf = row["continuous_cdf"]
+        mid, lo, hi = (N.quantile_label(cdf, p, snapshot) for p in (.5, .1, .9))
+        return f"Median {mid}; 10-90% interval {lo} to {hi} {plain(N.scaling(snapshot).unit)}".rstrip()
     if snapshot["question_type"] == "binary":
         return f"Yes {row['probability']:.2%}"
     return "; ".join(f"{plain(option)} {row['option_probabilities'][option]:.2%}" for option in snapshot["options"])
@@ -127,17 +132,22 @@ def build(snapshot: dict, aggregate: dict, records: list[dict], audit_events: li
         if aggregate.get(field) != expected:
             raise CommentError(f"aggregate {field} mismatch")
     config = load_agg_config()
-    if aggregate.get("aggregation_version") != config["version"]:
+    numeric = snapshot["question_type"] in N.TYPES
+    version = N.AGG_VERSION if numeric else config["version"]
+    if aggregate.get("aggregation_version") != version:
         raise CommentError("unsupported aggregation version")
     combined = A.combine(snapshot, selected, config)
-    for field in ("probability", "option_probabilities"):
+    for field in (("probability", "option_probabilities", "continuous_cdf", "cdf_version", "cdf_sha256")
+                  if numeric else ("probability", "option_probabilities")):
         if aggregate.get(field) != combined[field]:
             raise CommentError("aggregate probabilities do not match adopted inputs")
     missing = [LABELS[p] for p in PLAYERS if p not in {r["player"] for r in selected}]
     method = ("Equal-weight mean of log odds; final probability clipped to 2%-98%."
               if snapshot["question_type"] == "binary" else
               "Equal-weight geometric mean; normalized, then 2% uniform smoothing.")
-    header = ["Final forecast: " + _probability(aggregate, snapshot), "Aggregation: agg_v1. " + method,
+    if numeric:
+        method = "Equal-weight arithmetic mean of CDFs; fixed-mass bounded-step projection."
+    header = ["Final forecast: " + _probability(aggregate, snapshot), f"Aggregation: {version}. " + method,
               "Missing lines: " + (", ".join(missing) if missing else "none") + "."]
     explanations, details, markets, sources = [], [], [], []
     for r in selected:

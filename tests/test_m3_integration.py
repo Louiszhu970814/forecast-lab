@@ -363,7 +363,7 @@ def test_deadline_publishes_and_submits_while_another_model_is_running(integrate
     e = integrated
     enabled = dict(claude=True, gemini=False, gpt=True)
     (e.config / "players_enabled.json").write_text(json.dumps(enabled))
-    e.post["question"]["scheduled_close_time"] = to_iso(NOW + timedelta(seconds=1800))
+    e.post["question"]["scheduled_close_time"] = to_iso(NOW + timedelta(seconds=2100))
     def preflight(player, tier, adapter):
         return F.Preflight(player, tier=tier, problems=["synthetic paused line"] if player == "claude" else [])
     # Simulate a process interruption during idle waiting, after the first answer.

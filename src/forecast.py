@@ -18,6 +18,7 @@ import json
 import math
 import string
 import sys
+import threading
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -37,7 +38,10 @@ from flab.jsonl import append_record, read_records  # noqa: E402
 from flab.ledger import transaction  # noqa: E402
 from flab.timeutil import parse_iso, to_iso, utc_now  # noqa: E402
 from flab.workdir import PROJECT_ROOT, make_attempt_dir, remove_attempt_dir  # noqa: E402
+from flab import fail_soft as FS, orphan  # noqa: E402
 from poll_questions import latest_snapshots  # noqa: E402
+import numeric as N
+from question_types import is_supported
 
 DATA = PROJECT_ROOT / "data"
 FORECASTS_LOG = DATA / "forecasts.jsonl"
@@ -49,9 +53,18 @@ LOCK_PATH = DATA / "forecast.lock"
 PROMPTS = PROJECT_ROOT / "prompts"
 PROMPT_VERSION = "forecast_v2"
 REPAIR_PROMPT_VERSION = "repair_v1"
-PIPELINE_VERSION = "forecast_pipeline_v6"
+PIPELINE_VERSION = "forecast_pipeline_v7"
 QUOTA_BACKOFF_S = 1800  # V5 reset-time formats are not yet measured; use the §7.5 fixed fallback.
-RERUN_ERRORS = ("quota_exhausted", "timeout", "tool_denied", "cli_error")
+RERUN_ERRORS = ("quota_exhausted", "timeout", "tool_denied", "cli_error", "interrupted", "model_mismatch")
+# Mismatches recorded before D121 keep their hard-stop meaning. Every later pipeline
+# version uses the soft backoff/cooldown, so a future version bump cannot turn
+# earlier soft mismatch events into line stops or rerun bans.
+LEGACY_MISMATCH_PIPELINES = frozenset({None, *(f"forecast_pipeline_v{i}" for i in range(1, 7))})
+
+
+def _legacy_mismatch(r: dict[str, Any]) -> bool:
+    return bool((r.get("model_check") == "mismatch" or r.get("inherited_model_mismatch"))
+                and r.get("pipeline_version") in LEGACY_MISMATCH_PIPELINES)
 EXCLUDED_FLAGS = ("leak_confirmed",)
 # Code that runs the CLI: acceptance must have been run with exactly this code (§7.2). This is the
 # adapter, the subprocess runner and the loopback guard only; shared modules such as adapters/base.py,
@@ -71,6 +84,15 @@ def _template(name: str) -> string.Template:
 
 def forecast_prompt(snapshot: dict[str, Any], today: str) -> str:
     qtype = snapshot["question_type"]
+    if qtype in N.TYPES:
+        return _template("forecast_numeric_v1.md").substitute(
+            today_utc=today, question_id=snapshot["question_id"], question_type=qtype,
+            title=snapshot.get("title") or "", open_time=snapshot.get("open_time") or "unknown",
+            close_time=snapshot.get("scheduled_close_time") or "unknown",
+            resolve_time=snapshot.get("scheduled_resolve_time") or "unknown",
+            scaling=N.prompt_scaling(snapshot), description=snapshot.get("description") or "(none)",
+            resolution_criteria=snapshot.get("resolution_criteria") or "(none)",
+            fine_print=snapshot.get("fine_print") or "(none)")
     options = list(snapshot.get("options") or [])
     if qtype == "binary":
         label, options_block = "binary (Yes/No)", ""
@@ -98,6 +120,10 @@ def forecast_prompt(snapshot: dict[str, Any], today: str) -> str:
 
 
 def repair_prompt(snapshot: dict[str, Any], raw_text: str, basis: dict[str, Any], *, tier: int = 1) -> str:
+    if snapshot["question_type"] in N.TYPES:
+        return _template("repair_numeric_v1.md").substitute(
+            question_id=snapshot["question_id"], raw_output=raw_text,
+            repair_probability_hint=json.dumps(basis, ensure_ascii=False), delimiter=new_id("raw"))
     if "probability" in basis:
         hint = f" (the probability is {basis['probability']})"
     else:
@@ -148,7 +174,9 @@ class Preflight:
 def _acceptance_records(log: Path, player: str) -> list[dict[str, Any]]:
     if not log.exists():
         return []
-    return [r for r in read_records(log) if r.get("type") == "acceptance_result" and r.get("player") == player]
+    return [r for r in read_records(log) if r.get("type") == "acceptance_result" and r.get("player") == player
+            and not (r.get("recovery_version") == FS.VERSION and r.get("error_type") == "interrupted"
+                     and r.get("recovery_safety_violation") is False)]
 
 
 def incomplete_acceptance(log: Path, player: str) -> bool:
@@ -232,7 +260,7 @@ def check_baseline(pf: Preflight, approved: dict[str, Any] | None, current: dict
         pf.problems.append(f"baseline check says {decision!r} for this line")
 
 
-def preflight(player: str, *, cfg: dict[str, Any], allow_unapproved_baseline: bool = False,
+def preflight(player: str, *, cfg: dict[str, Any] | None = None, allow_unapproved_baseline: bool = False,
               tier: int = 1,
               acceptance_log: Path = baseline.ACCEPTANCE_LOG,
               versions: Callable[[], dict[str, str | None]] = baseline.cli_versions,
@@ -242,6 +270,8 @@ def preflight(player: str, *, cfg: dict[str, Any], allow_unapproved_baseline: bo
               continuous: bool = False) -> Preflight:
     if tier not in (1, 2):
         raise ValueError("tier must be 1 or 2")
+    cfg = cfg or load_run_config()
+    recover_acceptance(acceptance_log, player, cfg)
     pf = Preflight(player, tier=tier)
     if tier == 2 and cfg["players"][player]["tier2"].get("subagents_enabled") is not False:
         pf.problems.append("tier-2 subagents are not enabled by this pipeline")
@@ -263,7 +293,7 @@ def preflight(player: str, *, cfg: dict[str, Any], allow_unapproved_baseline: bo
         credits = None
         if player == "gemini":
             observed = quota.snapshot(timeout_s=30)
-            if not observed.stale and not observed.concurrent_agy_detected:
+            if quota.observation_fresh(observed, utc_now()):
                 credits = observed.remaining_credits
         snap = baseline.take_snapshot(versions=vers, gemini_credits=credits).to_record()
     check_baseline(pf, baseline.latest_approved(acceptance_log), snap, allow_unapproved=allow_unapproved_baseline)
@@ -294,8 +324,9 @@ class LineStop(RuntimeError):
         self.outcome = quota_wait if quota_retry_at_utc else "line_stopped"
 
 
-def line_stopped(log: Path, player: str, forecasts_log: Path | None = None) -> dict[str, Any] | None:
+def line_stopped(log: Path, player: str, forecasts_log: Path | None = None, *, now=None) -> dict[str, Any] | None:
     """The stop record in force for this line, or None if there is none or a later resume."""
+    now = now or utc_now()
     state = None
     resumed_at = None
     for r in read_records(log) if log.exists() else []:
@@ -322,7 +353,9 @@ def line_stopped(log: Path, player: str, forecasts_log: Path | None = None) -> d
         if resumed_at is not None and at <= resumed_at:
             continue
         reason = None
-        if r.get("model_check") == "mismatch" or r.get("inherited_model_mismatch"):
+        if r.get("safety_stop_reason"):
+            reason = r["safety_stop_reason"]
+        elif _legacy_mismatch(r):
             reason = "model_mismatch"
         elif r.get("tool_violations") or r.get("error_type") == "tool_scope_violation":
             reason = "tool_scope_violation"
@@ -333,6 +366,30 @@ def line_stopped(log: Path, player: str, forecasts_log: Path | None = None) -> d
         if reason:
             return {"type": "line_stop", "player": player, "at": r["finished_at_utc"],
                     "reason": f"{reason} recovered from forecast ledger at attempt {r['attempt_id']}"}
+    # Replay only new actual mismatch events. Derived cooldowns use the original
+    # event time, so restart/expiry cannot extend the pause or recount old events.
+    mismatches = sorted(parse_iso(r["finished_at_utc"]) for r in records
+                        if r.get("player") == player
+                        and r.get("pipeline_version") not in LEGACY_MISMATCH_PIPELINES
+                        and r.get("model_check") == "mismatch"
+                        and (resumed_at is None or parse_iso(r["finished_at_utc"]) > resumed_at))
+    pending = []
+    until = None
+    for at in mismatches:
+        if until is not None and at <= until:
+            continue
+        pending = [t for t in pending if at - t <= timedelta(seconds=FS.WINDOW_S)]
+        pending.append(at)
+        if len(pending) >= FS.BREACH_COUNT:
+            until = at + timedelta(seconds=FS.COOLDOWN_S)
+            pending = []
+    if until is not None and now < until:
+        return {"type": "line_stop", "player": player, "at": to_iso(until - timedelta(seconds=FS.COOLDOWN_S)),
+                "until": to_iso(until), "reason": "model_mismatch_cooldown", "version": PIPELINE_VERSION}
+    if pending and now < pending[-1] + timedelta(seconds=FS.MISMATCH_BACKOFF_S):
+        return {"type": "line_stop", "player": player, "at": to_iso(pending[-1]),
+                "until": to_iso(pending[-1] + timedelta(seconds=FS.MISMATCH_BACKOFF_S)),
+                "reason": "model_mismatch_backoff", "version": PIPELINE_VERSION}
     return state
 
 
@@ -401,6 +458,16 @@ def tool_violations(player: str, result: AdapterResult, *, repair: bool) -> list
             violations.append({"type": "unexpected_tool", "tool": tool, "count": count})
     if result.subagent_count:
         violations.append({"type": "unexpected_subagents", "count": result.subagent_count})
+    # D123: synced claude.ai skills are informational in the baseline only because headless
+    # runs never load skills, commands, MCP servers or non-builtin plugins. Enforce it per run.
+    declared = getattr(result, "declared", None)
+    if player == "claude" and isinstance(declared, dict):
+        for key in ("mcp_servers", "skills", "slash_commands"):
+            if declared.get(key):
+                violations.append({"type": "unexpected_declaration", "what": key, "count": len(declared[key])})
+        extra = [p for p in declared.get("plugins") or [] if not (isinstance(p, dict) and p.get("path") == "builtin")]
+        if extra:
+            violations.append({"type": "unexpected_declaration", "what": "plugins", "count": len(extra)})
     return violations
 
 
@@ -432,6 +499,196 @@ def unresolved_starts(ctx: Context, question_id: int, past: list[dict[str, Any]]
     return [r["attempt_id"] for r in read_records(log) if r.get("player") == ctx.player
             and r.get("question_id") == question_id and r.get("tier") == ctx.tier
             and r["attempt_id"] not in completed] if log.exists() else []
+
+
+def _partial_result(player, raw_dir, workdir, cfg, row):
+    """Parse only saved attempt evidence; no CLI, catalog or other session access."""
+    from adapters.base import UrlEvent
+    model = cfg["players"][player][f"tier{row.get('tier', 1)}"]
+    req = AdapterRequest(player, "format_repair" if row.get("attempt_kind") == "format_repair"
+                         else f"tier{row.get('tier', 1)}", "", {}, workdir, raw_dir,
+                         model["model"], model["effort"], max(1, int(row.get("timeout_s", 600))))
+    if player != "gemini":
+        return importlib.import_module(f"adapters.{player}").parse(req, None)
+    # Gemini.parse builds settings by inventorying home directories. Recovery only
+    # needs saved tool events, so use the judge's offline event extractor instead.
+    result = AdapterResult([], None, None, False, None, None, None, "undetermined", None)
+    result.parse_errors = []
+    try:
+        calls, unknown, _, errors = J.extract_gemini(
+            raw_dir, Path.home() / ".gemini/antigravity-cli/brain")
+        result.parse_errors.extend(errors)
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        calls, unknown = [], []
+        result.parse_errors.append({"stage": "tool_events", "error": type(exc).__name__})
+    result.tool_call_counts = {c.tool: sum(x.tool == c.tool for x in calls) for c in calls}
+    result.violations = [c.summary() for c in calls if c.kind not in
+                         ("web_fetch", "web_search", "web_other", "output", "inert")]
+    result.violations += [{"type": "unknown_tool_event", "event": u} for u in unknown]
+    result.url_events = [UrlEvent(t, url_host(t), "opened" if c.status == "ok" else
+                                 "blocked" if c.status == "denied" else "unknown", "recovered_tool_event")
+                         for c in calls for t in c.targets if "://" in t]
+    # A missing/truncated final stream must never discard the tool evidence above.
+    from adapters.gemini import read_stream
+    try:
+        events, errors = read_stream(raw_dir / "stdout.jsonl")
+        result.parse_errors.extend(errors)
+        final = next((e["result"] for e in reversed(events) if isinstance(e.get("result"), dict)), {})
+        result.structured = final.get("structured_output")
+    except (OSError, ValueError, TypeError, KeyError) as exc:
+        result.parse_errors.append({"stage": "final_stream", "error": type(exc).__name__})
+    return result
+
+
+def recover_interrupted(ctx: Context) -> list[str]:
+    """Acquire the actual line lock, then close expired orphan starts idempotently."""
+    from contextlib import nullcontext
+    from flab.ledger import read_complete
+    from flab.workdir import default_base_dir
+    root = ctx.forecasts_log.parent
+    lock_path = root / f"forecast.{ctx.player}.lock"
+    held = lock_path.resolve() in getattr(_HELD_LOCKS, "paths", set())
+    try:
+        with (nullcontext() if held else Lock(lock_path)):
+            rows = read_complete(starts_log(ctx.forecasts_log))
+            finished = {r.get("attempt_id"): r for r in read_complete(ctx.forecasts_log)}
+            recovery_log = root / "recovery_events.jsonl"
+            recovered = {r["attempt_id"] for r in read_complete(recovery_log)
+                         if r.get("type") == "forecast_recovery_finished"}
+            closed = []
+            for row in rows:
+                if row.get("player") != ctx.player or "question_id" not in row or not orphan.expired(row, ctx.cfg, ctx.now()):
+                    continue
+                aid = row["attempt_id"]
+                if aid in recovered:
+                    continue
+                done = finished.get(aid)
+                if done and done.get("recovery_version") != FS.VERSION:
+                    continue
+                raw = ctx.raw_root / ctx.player / f"{row['question_id']}_{aid}"
+                if row.get("raw_dir") and Path(row["raw_dir"]).resolve() != raw.resolve():
+                    continue
+                work = Path(row["workdir"]) if row.get("workdir") else default_base_dir()
+                paths = [work] if row.get("workdir") else orphan.legacy_workdirs(work, ctx.player)
+                if not orphan.no_process([*paths, raw]):
+                    continue
+                if done is None:
+                    files = sorted(p for p in raw.rglob("*") if p.is_file() and not p.is_symlink())
+                    try:
+                        result = _partial_result(ctx.player, raw, work, ctx.cfg, row)
+                    except (OSError, ValueError, TypeError, KeyError) as exc:
+                        result = AdapterResult([], None, None, False, None, None, None, "undetermined", None)
+                        result.parse_errors = [{"stage": "partial_result", "error": type(exc).__name__}]
+                    violations = tool_violations(ctx.player, result, repair=row.get("attempt_kind") == "format_repair")
+                    prev = finished.get(row.get("prev_attempt_id")) or {}
+                    aud = audit.audit_attempt(attempt_id=aid, player=ctx.player, question_id=row["question_id"],
+                        result=result, structured=result.structured, raw_files=files, prompt="",
+                        inherited=set(prev.get("audit_flags") or []), prev_attempt_id=row.get("prev_attempt_id"))
+                    done = {**row, "type": "forecast_attempt", "record_id": new_id("fc"),
+                            "pipeline_version": PIPELINE_VERSION, "recovery_version": FS.VERSION,
+                            "original_pipeline_version": row.get("pipeline_version"),
+                            "finished_at_utc": to_iso(ctx.now()), "validation_status": V.INCOMPLETE,
+                            "probability": None, "option_probabilities": None,
+                            "error_type": "interrupted", "model_check": result.model_check,
+                            "tool_violations": violations, "usage": result.usage,
+                            "tool_call_counts": result.tool_call_counts,
+                            "url_events": [vars(e) for e in result.url_events],
+                            "audit_flags": aud["audit_flags"], "own_audit_flags": aud["own_audit_flags"],
+                            "audit_event_id": aud["audit_event_id"], "evidence_status": "quarantined",
+                            "parse_errors": getattr(result, "parse_errors", []),
+                            "recovery_no_rerun": bool(violations or aud["audit_flags"] or
+                                (files and getattr(result, "parse_errors", []))),
+                            "repair_basis": None}
+                    with transaction(root):
+                        # Audit may already exist if a prior recovery died between the two appends.
+                        old = next((r for r in read_complete(ctx.audits_log) if r.get("attempt_id") == aid), None)
+                        if old:
+                            done.update(audit_event_id=old["audit_event_id"], audit_flags=old["audit_flags"],
+                                        own_audit_flags=old["own_audit_flags"])
+                        else:
+                            append_record(ctx.audits_log, aud)
+                        append_record(ctx.forecasts_log, done)
+                    finished[aid] = done
+                with transaction(root):
+                    events = read_complete(root / "budget_events.jsonl")
+                    reserved = next((r for r in events if r["type"] == "budget_reserved" and r["attempt_id"] == aid), None)
+                    if reserved and not any(r["type"] == "budget_outcome" and r["attempt_id"] == aid for r in events):
+                        append_record(root / "budget_events.jsonl", {"type": "budget_outcome", "attempt_id": aid,
+                            "decision_id": reserved["decision_id"], "status": "started",
+                            "version": "budget_v7", "at": to_iso(ctx.now()), "recovery_version": FS.VERSION})
+                if row.get("workdir"):
+                    ctx.remove_dir(work)
+                with transaction(root):
+                    append_record(recovery_log, {"type": "forecast_recovery_finished", "attempt_id": aid,
+                        "player": ctx.player, "version": FS.VERSION, "at": to_iso(ctx.now()),
+                        "original_pipeline_version": row.get("pipeline_version"),
+                        "workdir_cleanup": "removed" if row.get("workdir") else "legacy_path_not_recorded"})
+                closed.append(aid)
+            return closed
+    except PreflightError:
+        return []
+
+
+def recover_acceptance(log: Path, player: str, cfg: dict, *, now=None):
+    """Close orphan acceptance calls, preserving failed status (never manufacture a PASS)."""
+    from flab.ledger import read_complete
+    from flab.workdir import default_base_dir
+    from contextlib import nullcontext
+    now = now or utc_now()
+    lock_path = log.parent / f"forecast.{player}.lock"
+    held = lock_path.resolve() in getattr(_HELD_LOCKS, "paths", set())
+    try:
+        with (nullcontext() if held else Lock(lock_path)):
+            rows = read_complete(log)
+            finished = {r.get("run_id") for r in rows if r.get("type") == "acceptance_result"}
+            groups = {}
+            for r in rows:
+                if r.get("type") == "acceptance_call_started" and r.get("player") == player \
+                        and r.get("source") != "autoload" and r.get("run_id") not in finished:
+                    groups.setdefault(r.get("run_id"), []).append(r)
+            for run_id, calls in groups.items():
+                if not run_id or not all(orphan.expired(r, cfg, now) for r in calls):
+                    continue
+                raw = log.parent / "acceptance_runs" / run_id / player
+                paths = [raw]
+                for r in calls:
+                    paths.extend([Path(r["workdir"])] if r.get("workdir") else
+                                 orphan.legacy_workdirs(default_base_dir(), player))
+                if not orphan.no_process(paths):
+                    continue
+                unsafe = False
+                for directory in sorted({raw, *[p.parent for p in raw.rglob("stdout.jsonl")],
+                                         *[p.parent for p in raw.rglob("events.jsonl")]}):
+                    try:
+                        if player == "claude":
+                            calls_found, unknown, _, _ = J.extract_claude(directory)
+                        elif player == "gpt":
+                            calls_found, unknown, _, _ = J.extract_codex(directory)
+                        else:
+                            calls_found, unknown, _, _ = J.extract_gemini(
+                                directory, Path.home() / ".gemini/antigravity-cli/brain")
+                        unsafe |= bool(unknown) or any(c.status == "ok" and c.kind in
+                            ("read", "write", "modify", "exec", "delegate", "schedule", "other")
+                            for c in calls_found)
+                    except (OSError, ValueError, KeyError, TypeError):
+                        unsafe = True
+                for r in calls:
+                    if r.get("workdir"):
+                        remove_attempt_dir(Path(r["workdir"]))
+                with transaction(log.parent):
+                    for r in calls:
+                        if not any(x.get("type") == "acceptance_call_finished" and
+                                   x.get("attempt_id") == r["attempt_id"] for x in rows):
+                            append_record(log, {"type": "acceptance_call_finished", "run_id": run_id,
+                                "attempt_id": r["attempt_id"], "player": player, "completed": False,
+                                "error_type": "interrupted", "finished_at": to_iso(now), "recovery_version": FS.VERSION})
+                    append_record(log, {"type": "acceptance_result", "record_id": new_id("acc"),
+                        "run_id": run_id, "player": player, "line_pass": False, "error_type": "interrupted",
+                        "finished_at": to_iso(now), "recovery_version": FS.VERSION, "model_call_count": len(calls),
+                        "recovery_safety_violation": unsafe,
+                        "authorization": "previous proof must still match runtime, CLI and baseline"})
+    except PreflightError:
+        return
 
 
 def decision_deadline(snap: dict[str, Any], cfg: dict[str, Any]) -> datetime | None:
@@ -466,7 +723,10 @@ def quota_model_check(before, after, result) -> str:
         log_check = (result.usage_raw or {}).get("log_model_check")
         if log_check == "mismatch":
             return "mismatch"
-        return "verified" if log_check == "verified" and quota.shared_group_consumed(before, after) else "undetermined"
+        if layouts != ("ultra_shared", "ultra_shared") or any(
+                s is None or s.get("stale") or quota.has_concurrent_activity(s) for s in (before, after)):
+            return "undetermined"
+        return "verified" if log_check == "verified" else "undetermined"
     if layouts != ("legacy_argon", "legacy_argon"):
         return "undetermined"
     return quota.judge(before, after)
@@ -480,8 +740,8 @@ def gemini_admission(ctx: Context, before: Any) -> tuple[str | None, dict[str, A
         return quota.UNKNOWN_LAYOUT_REASON, {"quota_layout": buckets.layout}
     if not quota.credits_ok(before):
         return "agy AI credits are not confirmed as 0 (§7.7, D54)", {}
-    if getattr(before, "stale", False) or getattr(before, "concurrent_agy_detected", False):
-        return "quota_exhausted: the /usage snapshot is stale or other agy use was detected", {}
+    if not quota.fresh(before, ctx.now()):
+        return "quota_exhausted: the /usage snapshot or reset is stale", {}
     remaining = buckets.weekly.remaining_fraction
     policy = ctx.quota_policy or load_quota_policy()
     reserve = 1 - float(policy["players"]["gemini"]["weekly_cap"])
@@ -510,9 +770,11 @@ def run_attempt(ctx: Context, snap: dict[str, Any], *, kind: str, prompt: str, s
                 prev: dict[str, Any] | None, basis: dict[str, Any] | None = None) -> dict[str, Any]:
     """Run, validate and audit one attempt; append its audit and forecast records; return the record.
 
-    Raises LineStop before running when the attempt may not start (time, quota), and after recording
-    when the attempt shows the line must stop (model mismatch, quota check failed after the run).
+    Raises LineStop before running when admission fails, or after recording when
+    safety requires stopping or a mismatch requires yielding this round.
     """
+    if snap["question_type"] in N.TYPES and (reason := eligible(snap, ctx.cfg, ctx.now())):
+        raise QuestionDone(reason)
     if ctx.recheck_inputs is not None:
         ctx.recheck_inputs()
     player, qid = ctx.player, snap["question_id"]
@@ -532,6 +794,8 @@ def run_attempt(ctx: Context, snap: dict[str, Any], *, kind: str, prompt: str, s
         return (decide_by - ctx.now()).total_seconds() if decide_by is not None else float("inf")
 
     def require_time(what: str) -> float:
+        if snap["question_type"] in N.TYPES and not is_supported(snap["question_type"]):
+            raise QuestionDone("unsupported_type")
         left = seconds_left() - post_quota_s
         if left < MIN_ATTEMPT_S:
             raise QuestionDone(f"no time left before the decision deadline {to_iso(decide_by)} for {what}")
@@ -540,6 +804,7 @@ def run_attempt(ctx: Context, snap: dict[str, Any], *, kind: str, prompt: str, s
     require_time(f"a {kind} attempt")
     quota_before = quota_after = None
     stop_after = None
+    safety_stop_after = None
     admission: dict[str, Any] = {}
     attempt_id = new_id("att")
     if gemini:
@@ -547,6 +812,13 @@ def run_attempt(ctx: Context, snap: dict[str, Any], *, kind: str, prompt: str, s
             quota_before = ctx.quota_snapshot(timeout_s=min(QUOTA_QUERY_S, max(1.0, seconds_left())))
         except Exception as exc:  # noqa: BLE001 - any failure means the run may not start
             raise LineStop(f"agy /usage before the run failed: {type(exc).__name__}: {exc}") from exc
+        refreshed = False
+        if not quota.usage_fresh(quota_before, ctx.now()):
+            try:
+                quota_before = ctx.quota_snapshot(timeout_s=min(QUOTA_QUERY_S, max(1.0, seconds_left())))
+                refreshed = True
+            except Exception as exc:
+                raise LineStop(f"agy quota refresh failed: {type(exc).__name__}") from exc
         with transaction(ctx.quota_log.parent):
             append_record(ctx.quota_log, {"type": "quota_snapshot", "attempt_id": attempt_id, "when": "before",
                                           **quota.record_snapshot(quota_before)})
@@ -574,6 +846,27 @@ def run_attempt(ctx: Context, snap: dict[str, Any], *, kind: str, prompt: str, s
                              timeout_s=timeout)
         # Reserve only after quota checks and filesystem setup; persist an outcome even if a later
         # check prevents starting. Unknown process death remains distinguishable by the start log.
+        if ctx.recheck_inputs is not None:
+            ctx.recheck_inputs()
+        if gemini:
+            # Filesystem/input validation may outlive the snapshot. This is before
+            # before_attempt -> Budget.reserve's cross-line transaction.
+            if not quota.usage_fresh(quota_before, ctx.now()):
+                if refreshed:
+                    raise LineStop("quota snapshot expired after its one refresh")
+                try:
+                    quota_before = ctx.quota_snapshot(timeout_s=min(QUOTA_QUERY_S, max(1.0, seconds_left())))
+                except Exception as exc:
+                    raise LineStop(f"agy quota refresh failed: {type(exc).__name__}") from exc
+                refreshed = True
+                with transaction(ctx.quota_log.parent):
+                    append_record(ctx.quota_log, {"type": "quota_snapshot", "attempt_id": attempt_id, "when": "before",
+                                                  **quota.record_snapshot(quota_before)})
+                reason, admission = gemini_admission(ctx, quota_before)
+                if reason:
+                    raise LineStop(reason, quota_retry_at_utc=admission.get("quota_retry_at_utc"),
+                                   quota_wait=admission.get("quota_wait", "quota_5h_wait"))
+        require_time(f"a {kind} attempt")
         if ctx.before_attempt is not None:
             ctx.before_attempt(kind, attempt_id)
             admitted = True
@@ -591,7 +884,8 @@ def run_attempt(ctx: Context, snap: dict[str, Any], *, kind: str, prompt: str, s
             "reconciliation_id": inputs.get("record_id"), "input_attempt_ids": inputs.get("input_attempt_ids"),
             "input_order": inputs.get("input_order"),
             "admission_decision_id": inputs.get("admission_decision_id"),
-            "started_at_utc": to_iso(started), "pipeline_version": PIPELINE_VERSION}
+            "started_at_utc": to_iso(started), "pipeline_version": PIPELINE_VERSION,
+            **orphan.metadata(workdir, raw_dir, timeout, started)}
         with transaction(ctx.forecasts_log.parent):
             append_record(starts_log(ctx.forecasts_log), start_record)
         start_written = True
@@ -607,13 +901,16 @@ def run_attempt(ctx: Context, snap: dict[str, Any], *, kind: str, prompt: str, s
             try:
                 quota_after = ctx.quota_snapshot(timeout_s=min(QUOTA_QUERY_S, max(1.0, seconds_left())))
             except Exception as exc:  # noqa: BLE001 - record the attempt, then stop the line
-                stop_after = f"agy /usage after the run failed: {type(exc).__name__}: {exc}"
+                stop_after = f"agy /usage after the run failed: {type(exc).__name__}"
                 ctx.adapter.apply_quota_model_check(result, "undetermined")
             else:
                 with transaction(ctx.quota_log.parent):
                     append_record(ctx.quota_log, {"type": "quota_snapshot", "attempt_id": attempt_id, "when": "after",
                                                   **quota.record_snapshot(quota_after)})
                 ctx.adapter.apply_quota_model_check(result, quota_model_check(quota_before, quota_after, result))
+                credits = quota_after.remaining_credits
+                if isinstance(credits, (int, float)) and not isinstance(credits, bool) and math.isfinite(credits) and credits != 0:
+                    safety_stop_after = "agy AI credits are nonzero after the run (D54)"
     finally:
         try:
             if admitted and ctx.admission_outcome is not None:
@@ -637,12 +934,18 @@ def run_attempt(ctx: Context, snap: dict[str, Any], *, kind: str, prompt: str, s
     cutoff = decide_by or deadline
     if cutoff is not None and finished > cutoff and outcome.status != V.INCOMPLETE:
         late_values = {"probability": outcome.probability, "option_probabilities": outcome.option_probabilities}
+        if snap["question_type"] in N.TYPES:
+            late_values.update(percentiles=outcome.percentiles, continuous_cdf=outcome.continuous_cdf)
         outcome = V.Outcome(V.LATE, [*outcome.errors, f"finished after the decision deadline {to_iso(cutoff)}"])
     raw_text = raw_output_text(result)
     error_type, error = result.error_type, result.error
+    if outcome.error_type is not None:
+        error_type, error = outcome.error_type, "; ".join(outcome.errors)
     if violations:
         error_type, error = "tool_scope_violation", "observed tools exceeded the accepted profile; re-acceptance required"
-    inherited_mismatch = bool(prev and (prev.get("model_check") == "mismatch" or prev.get("inherited_model_mismatch")))
+    inherited_mismatch = bool(repair and prev and (prev.get("model_check") == "mismatch" or prev.get("inherited_model_mismatch")))
+    if result.model_check == "mismatch" and not violations:
+        error_type, error = "model_mismatch", "requested model did not match"
     next_basis = None
     if outcome.status in V.REPAIRABLE and not repair and result.model_check != "mismatch" \
             and "leak_confirmed" not in (aud_flags := _peek_flags(result, obj)):
@@ -683,6 +986,8 @@ def run_attempt(ctx: Context, snap: dict[str, Any], *, kind: str, prompt: str, s
         **_structured_fields(obj),
         "usage": usage, "quota_before": getattr(quota_before, "snapshot_id", None),
         "quota_after": getattr(quota_after, "snapshot_id", None),
+        "quota_after_error": stop_after,
+        "safety_stop_reason": safety_stop_after,
         **({"quota_layout": quota.argon_buckets(quota_before).layout,
             "quota_model_verification_version": quota.MODEL_VERIFICATION_VERSION,
             "quota_cost_status": "trusted" if quota.quota_drop(quota_before, quota_after) is not None else "undetermined"}
@@ -698,15 +1003,23 @@ def run_attempt(ctx: Context, snap: dict[str, Any], *, kind: str, prompt: str, s
             if error_type == "quota_exhausted" else None,
         "preflight_waivers": ctx.preflight.waivers,
     }
+    if snap["question_type"] in N.TYPES:
+        rec.update(prompt_version="repair_numeric_v1" if repair else
+                   (N.RECONCILE_VERSION if ctx.tier == 2 else N.PROMPT_VERSION),
+                   schema_version=N.SCHEMA_VERSION, percentiles=outcome.percentiles,
+                   continuous_cdf=outcome.continuous_cdf, cdf_version=N.CDF_VERSION,
+                   cdf_sha256=V.hash_obj(outcome.continuous_cdf) if outcome.continuous_cdf is not None else None)
     if ctx.tier == 2:
         reference = inputs.get("tier1_reference")
         changed = None
         if reference is not None and outcome.status == V.VALID:
-            old = reference["option_probabilities"] if snap["question_type"] == "multiple_choice" else {"Yes": reference["probability"]}
-            new = outcome.option_probabilities if snap["question_type"] == "multiple_choice" else {"Yes": outcome.probability}
+            old = reference["percentiles"] if snap["question_type"] in N.TYPES else (
+                reference["option_probabilities"] if snap["question_type"] == "multiple_choice" else {"Yes": reference["probability"]})
+            new = outcome.percentiles if snap["question_type"] in N.TYPES else (
+                outcome.option_probabilities if snap["question_type"] == "multiple_choice" else {"Yes": outcome.probability})
             changed = any(not math.isclose(old[o], new[o], rel_tol=0, abs_tol=1e-12) for o in old)
         rec.update(changed_from_tier1=changed, comparison_attempt_id=(reference or {}).get("attempt_id"),
-                   comparison_method="normalized_probability_equality_v1")
+                   comparison_method="percentile_equality_v1" if snap["question_type"] in N.TYPES else "normalized_probability_equality_v1")
     rec, nonfinite = json_safe(rec)
     rec["nonfinite_fields"] = nonfinite
     with transaction(ctx.forecasts_log.parent):
@@ -715,11 +1028,10 @@ def run_attempt(ctx: Context, snap: dict[str, Any], *, kind: str, prompt: str, s
     if violations:
         raise LineStop(f"tool_scope_violation on attempt {attempt_id}: stop the line and notify Louis; "
                        "re-acceptance required (§7.3, D60, D62)", notify=True)
+    if safety_stop_after:
+        raise LineStop(safety_stop_after, notify=True)
     if result.model_check == "mismatch":
-        raise LineStop(f"model_mismatch on attempt {attempt_id}: stop the line and notify Louis (§7.5, §7.7)",
-                       notify=True)
-    if stop_after:
-        raise LineStop(stop_after)
+        raise LineStop(f"model_mismatch on attempt {attempt_id}: yield this round (PLAN D121)")
     if leak_count(ctx.forecasts_log, player, ctx.now(), resumed_at=latest_resume(ctx.line_status_log, player)) >= LEAK_STOP_COUNT:
         raise LineStop(f"{LEAK_STOP_COUNT} or more leak_confirmed answers within {LEAK_WINDOW_DAYS} days: "
                        "stop the line and notify Louis (§7.5)", notify=True)
@@ -763,10 +1075,15 @@ def history(log: Path, player: str, question_id: int, tier: int = 1) -> list[dic
 
 
 def _may_rerun(chain: list[dict[str, Any]], base: dict[str, Any]) -> bool:
-    """§7.5: only these failures, once, never after a confirmed leak or a model mismatch."""
-    return (base["error_type"] in RERUN_ERRORS
+    """One rerun for eligible failures; leaks, tool violations and legacy mismatches remain excluded."""
+    if base.get("question_type") in N.TYPES and any(r.get("validation_status") == V.SEMANTIC_FAILED for r in chain):
+        return False
+    return ((base["error_type"] in RERUN_ERRORS or
+             any(r.get("attempt_kind") == "format_repair" and r.get("error_type") == "interrupted" for r in chain))
             and not any("leak_confirmed" in (r.get("audit_flags") or ()) for r in chain)
-            and not any(r.get("model_check") == "mismatch" or r.get("inherited_model_mismatch") for r in chain))
+            and not any(r.get("recovery_no_rerun") for r in chain)
+            and not any(r.get("tool_violations") or r.get("error_type") == "tool_scope_violation" for r in chain)
+            and not any(_legacy_mismatch(r) for r in chain))
 
 
 def forecast_question(ctx: Context, snap: dict[str, Any]) -> dict[str, Any]:
@@ -776,6 +1093,7 @@ def forecast_question(ctx: Context, snap: dict[str, Any]) -> dict[str, Any]:
     one, and the single rerun is never granted again (§7.5). Continuous mode applies this
     rule per snapshot after an automatic revision decision; unresolved starts still block the question.
     """
+    recover_interrupted(ctx)
     qid = snap["question_id"]
     all_past = history(ctx.forecasts_log, ctx.player, qid, tier=ctx.tier)
     past = [r for r in all_past if not ctx.continuous or r.get("question_snapshot_id") == snap["snapshot_id"]]
@@ -842,8 +1160,14 @@ def eligible(snap: dict[str, Any] | None, cfg: dict[str, Any], now: datetime) ->
     """Reason a question is not forecast now, or None."""
     if snap is None:
         return "no snapshot (run poll_questions.py first)"
-    if not snap.get("supported"):
+    if not is_supported(snap.get("question_type")) or (
+            snap.get("question_type") not in N.TYPES and not snap.get("supported")):
         return "unsupported_type"
+    if snap.get("question_type") in N.TYPES:
+        try:
+            N.scaling(snap)
+        except N.UnsupportedScaling:
+            return "unsupported_scaling"
     if snap.get("status") != "open":
         return f"status {snap.get('status')!r}"
     decide_by = decision_deadline(snap, cfg)
@@ -864,12 +1188,18 @@ class Lock:
         except BlockingIOError:
             self._fh.close()
             raise PreflightError("another forecast.py is running")
+        paths = set(getattr(_HELD_LOCKS, "paths", set()))
+        paths.add(self.path.resolve())
+        _HELD_LOCKS.paths = paths
         return self
 
     def __exit__(self, *exc: object) -> None:
         fcntl.flock(self._fh, fcntl.LOCK_UN)
         self._fh.close()
+        _HELD_LOCKS.paths.discard(self.path.resolve())
 
+
+_HELD_LOCKS = threading.local()
 
 def run(player: str, question_ids: list[int], *, allow_unapproved_baseline: bool = False,
         adapter_loader: Callable[[str], Any] = lambda p: importlib.import_module(f"adapters.{p}"),
@@ -882,9 +1212,10 @@ def run(player: str, question_ids: list[int], *, allow_unapproved_baseline: bool
         pf = ctx_overrides.pop("preflight", None) or preflight(
             player, cfg=cfg, allow_unapproved_baseline=allow_unapproved_baseline, adapter=adapter)
         ctx = Context(player=player, adapter=adapter, cfg=cfg, run_id=run_id, preflight=pf, **ctx_overrides)
+        recover_interrupted(ctx)
         if ctx.tier != 1:
             raise PreflightError("forecast.run is tier 1 only; use the gated reconciliation API for tier 2")
-        stop = line_stopped(ctx.line_status_log, player, ctx.forecasts_log)
+        stop = line_stopped(ctx.line_status_log, player, ctx.forecasts_log, now=ctx.now())
         if stop:
             pf.problems.append(f"line stopped since {stop['at']}: {stop['reason']} (resume with forecast.py resume)")
         for r in read_records(ctx.forecasts_log) if ctx.forecasts_log.exists() else []:

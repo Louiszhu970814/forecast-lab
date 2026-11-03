@@ -1,5 +1,5 @@
 {
-  "version": "run_config_v2",
+  "version": "run_config_v3",
   "players": {
     "claude": {
       "tier1": {
@@ -59,7 +59,7 @@
   },
   "deadlines": {
     "safety_margin_minutes": 20,
-    "submit_lead_minutes": 5,
+    "submit_lead_minutes": 10,
     "duration_quantile": 0.9
   },
   "acceptance": {

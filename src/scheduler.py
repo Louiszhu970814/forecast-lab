@@ -25,6 +25,7 @@ import budget as B
 import comment as C
 import escalate as E
 import forecast as F
+import numeric as N
 import reconcile as R
 from flab.config import PLAYERS, load_players_enabled, load_quota_policy, load_run_config, load_submit_mode
 from flab.ids import hash_obj, new_id
@@ -32,10 +33,21 @@ from flab.jsonl import append_record
 from flab.ledger import transaction, read_complete
 from flab.timeutil import parse_iso, to_iso, utc_now
 from poll_questions import latest_snapshots
+from flab import fail_soft as FS
 
-VERSION = "scheduler_v7"
+VERSION = "scheduler_v8"
 QUOTA_WAITS = {"quota_5h_wait", "quota_weekly_wait"}
 IDLE_LOOKAHEAD_S = 780  # next 600-second tick + bounded submission tail + startup allowance
+TEMPORARY_BUDGET_REASONS = {
+    "weekly_attempt_capacity_reserved_or_exhausted", "argon_personal_or_tier1_reserve",
+    "untrusted_argon_snapshot_or_reset", "quota_layout_unknown",
+    "unresolved_or_running_attempt", "tier1_token_baseline_unmeasured",
+    "tier2_token_breaker", "weekly_tier2_token_breaker", "weekly_tier2_argon_breaker",
+    "quota_5h_wait",
+}
+SNAPSHOT_WAIT_REASONS = QUOTA_WAITS | {"argon_personal_or_tier1_reserve"}
+BREAKER_WAIT_REASONS = {"tier2_token_breaker", "weekly_tier2_token_breaker",
+                        "weekly_tier2_argon_breaker"}
 
 
 def idle_delay(now, deadlines, handoff_deadline=None):
@@ -154,6 +166,97 @@ class Scheduler:
         self.run_id = new_id("scheduler")
         self.budget = B.Budget(root, campaign, self.policy, self.run_id, now, acceptance_log)
         self.jobs_log = root / "scheduler_jobs.jsonl"
+        self._wait_snapshot_checked = False
+
+    def _recover(self, player):
+        ctx = F.Context(player=player, adapter=None, cfg=self.cfg, run_id=self.run_id,
+            preflight=F.Preflight(player), now=self.now, forecasts_log=self.root / "forecasts.jsonl",
+            audits_log=self.root / "audits.jsonl", raw_root=self.root / "raw",
+            line_status_log=self.root / "line_status.jsonl", quota_log=self.root / "quota.jsonl",
+            **self.extra(player))
+        F.recover_interrupted(ctx)
+
+    def _reevaluate_waits(self, rows):
+        """New-policy waits can expire or be superseded by a valid fresh observation."""
+        waits = [r for r in rows if r.get("version") == VERSION and
+                 r.get("outcome") in QUOTA_WAITS | {"budget_wait"}]
+        released = {r["wait_id"] for r in rows if r.get("type") == "scheduler_wait_reevaluated"}
+        pending = [r for r in waits if r["record_id"] not in released]
+        def budget_reason(row):
+            return row.get("budget_reason") or str(row.get("reason") or "").removeprefix(
+                "budget_skipped: ").removeprefix("budget admission denied: ")
+
+        def snapshot_wait(row):
+            return row.get("outcome") in QUOTA_WAITS or budget_reason(row) in SNAPSHOT_WAIT_REASONS
+
+        if any(r["player"] == "gemini" and snapshot_wait(r) for r in pending) and not self._wait_snapshot_checked:
+            self._wait_snapshot_checked = True
+            try:
+                observed = self.extra("gemini").get("quota_snapshot", F.quota.snapshot)(timeout_s=F.QUOTA_QUERY_S)
+                with transaction(self.root):
+                    append_record(self.root / "quota.jsonl", {"type": "quota_snapshot", "when": "reevaluate",
+                        "player": "gemini", **F.quota.record_snapshot(observed)})
+            except (OSError, ValueError, RuntimeError):
+                pass
+        snapshots = read_complete(self.root / "quota.jsonl")
+        for row in pending:
+            retry = row.get("quota_retry_at_utc") or row.get("reevaluate_after")
+            reason, snapshot_id = None, None
+            cause = budget_reason(row)
+            if cause == "weekly_attempt_capacity_reserved_or_exhausted":
+                retry = row.get("budget_window_end") or self.campaign["budget_window_end"]
+            elif cause in BREAKER_WAIT_REASONS:
+                stops = [r for r in read_complete(self.budget.log)
+                         if r.get("type") == "budget_upgrade_stop" and r.get("player") == row["player"]
+                         and r.get("reason") == cause]
+                retry = stops[-1]["until"] if stops else retry
+            elif cause == "tier1_token_baseline_unmeasured":
+                retry = None
+                waited_at = parse_iso(row["finished_at"])
+                window_start = parse_iso(self.campaign["budget_window_start"])
+                window_end = parse_iso(self.campaign["budget_window_end"])
+                observed_at = self.now()
+                if any(r.get("player") == row["player"] and r.get("tier") == 1
+                       and r.get("attempt_kind") != "format_repair" and r.get("model_check") != "mismatch"
+                       # Release only on a new completed measurement in this window.
+                       and r.get("finished_at_utc")
+                       and window_start <= (finished := parse_iso(r["finished_at_utc"])) < window_end
+                       and waited_at < finished <= observed_at
+                       and (B.tokens(r) or 0) > 0 for r in read_complete(self.root / "forecasts.jsonl")):
+                    reason = "token_baseline_measured"
+            if retry and self.now() >= parse_iso(retry):
+                reason = "wait_expired"
+            if row["player"] == "gemini" and snapshot_wait(row):
+                for snap in reversed(snapshots):
+                    if not snap.get("taken_at"):
+                        continue
+                    if parse_iso(snap["taken_at"]) <= parse_iso(row["finished_at"]):
+                        continue
+                    if not F.quota.fresh(snap, self.now()):
+                        continue
+                    estimate, _ = F.argon_estimate(self.root / "quota.jsonl", self.policy,
+                        self.root / "forecasts.jsonl", tier=row["tier"], current=snap)
+                    protected_quota = 0
+                    if row["tier"] == 2:
+                        first_estimate, _ = F.argon_estimate(self.root / "quota.jsonl", self.policy,
+                            self.root / "forecasts.jsonl", tier=1, current=snap)
+                        protected = (self._protected("gemini") + self.campaign["expected_new_questions"]
+                                     + self.campaign["repair_reserve"])
+                        protected_quota = min(protected * first_estimate, FS.TIER1_QUOTA_RESERVE_CAP)
+                    buckets = F.quota.argon_buckets(snap)
+                    estimate_5h, _ = F.argon_estimate(self.root / "quota.jsonl", self.policy,
+                        self.root / "forecasts.jsonl", tier=row["tier"], current=snap, period="five_hour")
+                    short, _ = F.quota.five_hour_gate(snap, estimate_5h)
+                    if buckets.weekly.remaining_fraction - estimate - protected_quota >= 1 - self.policy["players"]["gemini"]["weekly_cap"] and not short:
+                        reason, snapshot_id = "new_valid_snapshot", snap.get("snapshot_id")
+                        break
+            if reason:
+                with transaction(self.root):
+                    append_record(self.jobs_log, {"type": "scheduler_wait_reevaluated", "version": VERSION,
+                        "wait_id": row["record_id"], "player": row["player"], "question_id": row["question_id"],
+                        "reason": reason, "snapshot_id": snapshot_id, "at": to_iso(self.now())})
+                released.add(row["record_id"])
+        return released
 
     def state(self):
         with transaction(self.root):
@@ -170,7 +273,7 @@ class Scheduler:
             attempts = [r for r in attempts if r.get("question_snapshot_id") == sid]
             rows = [r for r in rows if r.get("question_snapshot_id") == sid]
         if any(r["question_id"] == qid and r["player"] == player and r["tier"] == tier
-               and r.get("validation_status") == "valid" for r in attempts):
+               and F.adoptable(r) for r in attempts):
             return True
         latest = next((r for r in reversed(rows) if r.get("type") == "scheduler_job_finished"
                        and (r["question_id"], r["player"], r["tier"]) == (qid, player, tier)), {})
@@ -181,13 +284,17 @@ class Scheduler:
         attempts, aggregates, events, view = self.state()
         with transaction(self.root):
             rows = read_complete(self.jobs_log)
+        released = self._reevaluate_waits(rows)
         waiting = {r["player"] for r in rows if r.get("outcome") in QUOTA_WAITS
+                   and r.get("record_id") not in released
                    and r.get("quota_retry_at_utc") and self.now() < parse_iso(r["quota_retry_at_utc"])}
+        budget_waits = {(r["question_id"], r["player"], r["tier"]) for r in rows
+                        if r.get("outcome") == "budget_wait" and r.get("record_id") not in released}
         if self.continuous:
             waiting.update(r["player"] for r in attempts if r.get("quota_retry_at_utc")
                            and self.now() < parse_iso(r["quota_retry_at_utc"]))
             waiting.update(p for p in PLAYERS if F.line_stopped(self.root / "line_status.jsonl", p,
-                                                              self.root / "forecasts.jsonl"))
+                                                              self.root / "forecasts.jsonl", now=self.now()))
         enabled = load_players_enabled()
         sealed = {a["question_id"] for a in aggregates if (self.continuous or a.get("scheduler_campaign_id") == self.campaign["campaign_id"])
                   and a.get("completion_status") == "complete_local"
@@ -203,6 +310,7 @@ class Scheduler:
                 continue
             tier1_done = all(not enabled[p] or
                              (self.continuous and (p in paused or p in waiting)) or
+                             (qid, p, 1) in budget_waits or
                              self._terminal(qid, p, 1, attempts, rows) for p in PLAYERS)
             unfinished_first |= not tier1_done
             candidate = E.evaluate(snap, attempts, audit_events=view, now=self.now()) if tier1_done else None
@@ -210,6 +318,8 @@ class Scheduler:
                 if not enabled[p] or p in paused or p in active or p in waiting:
                     continue
                 tier = 1 if not self._terminal(qid, p, 1, attempts, rows) else 2
+                if (qid, p, tier) in budget_waits:
+                    continue
                 if tier == 2 and (not candidate or not candidate["escalation"]["candidate"]
                                   or self._terminal(qid, p, 2, attempts, rows)):
                     continue
@@ -225,6 +335,7 @@ class Scheduler:
         return sum(not self._terminal(q["question_id"], player, 1, attempts, rows) for q in self.campaign["questions"])
 
     def execute(self, job: Job) -> dict:
+        self._recover(job.player)
         try:
             adapter = self.loader(job.player)
             pf = self.pf(job.player, job.tier, adapter) if self.pf else F.preflight(job.player, cfg=self.cfg, tier=job.tier, adapter=adapter, continuous=self.continuous)
@@ -250,6 +361,8 @@ class Scheduler:
                 latest = self.provider().get(job.question_id)
                 if latest is None or hash_obj(latest) != hash_obj(job.snapshot):
                     raise F.QuestionDone("question snapshot revised; no stale-input call")
+                if reason := F.eligible(latest, self.cfg, self.now()):
+                    raise F.QuestionDone(reason)
                 if not load_players_enabled().get(job.player):
                     raise F.LineStop("line disabled")
             def before(kind, attempt_id):
@@ -275,7 +388,7 @@ class Scheduler:
                         output = {**output, "outcome": "not_admitted"}
                 else:
                     with F.Lock(self.root / f"forecast.{job.player}.lock"):
-                        if stop := F.line_stopped(ctx.line_status_log, job.player, ctx.forecasts_log):
+                        if stop := F.line_stopped(ctx.line_status_log, job.player, ctx.forecasts_log, now=self.now()):
                             raise F.LineStop(stop["reason"])
                         for r in read_complete(ctx.forecasts_log):
                             if r.get("player") == job.player and r.get("quota_retry_at_utc") and self.now() < parse_iso(r["quota_retry_at_utc"]):
@@ -307,6 +420,24 @@ class Scheduler:
         result.update(type="scheduler_job_finished", version=VERSION, run_id=self.run_id,
                       campaign_id=self.campaign["campaign_id"], player=job.player, tier=job.tier,
                       question_id=job.question_id, question_snapshot_id=job.snapshot["snapshot_id"])
+        reason = str(result.get("reason") or "")
+        decisions = result.get("admissions") or []
+        budget_reason = (decisions[-1].get("reason") if decisions else None) or reason.removeprefix(
+            "budget_skipped: ").removeprefix("budget admission denied: ")
+        if result.get("outcome") in ("not_admitted", "budget_skipped", "stopped_waiting") \
+                and budget_reason in TEMPORARY_BUDGET_REASONS:
+            retry = to_iso(self.now() + timedelta(seconds=FS.TEMPORARY_RECHECK_S))
+            if budget_reason == "weekly_attempt_capacity_reserved_or_exhausted":
+                retry = self.campaign["budget_window_end"]
+            elif budget_reason in BREAKER_WAIT_REASONS:
+                stops = [r for r in read_complete(self.budget.log)
+                         if r.get("type") == "budget_upgrade_stop" and r.get("player") == job.player
+                         and r.get("reason") == budget_reason]
+                if stops:
+                    retry = stops[-1]["until"]
+            result.update(outcome="budget_wait", budget_reason=budget_reason, reevaluate_after=retry,
+                          budget_window_end=self.campaign["budget_window_end"])
+        result["record_id"] = new_id("job")
         result["finished_at"] = to_iso(self.now())
         with transaction(self.root):
             append_record(self.jobs_log, result)
@@ -321,6 +452,13 @@ class Scheduler:
             enabled = load_players_enabled()
             for entry in self.campaign["questions"]:
                 qid = entry["question_id"]
+                snap = snapshots.get(qid)
+                # Finalization must observe the same dynamic numeric gate as job
+                # admission, including older snapshots without scaling metadata.
+                # An expired but otherwise supported snapshot may still finalize.
+                if snap is not None and snap.get("question_type") in N.TYPES and \
+                        F.eligible(snap, self.cfg, self.now()) in ("unsupported_type", "unsupported_scaling"):
+                    continue
                 existing = next((a for a in aggregates if (self.continuous or a.get("scheduler_campaign_id") == self.campaign["campaign_id"])
                                  and a["question_id"] == qid and a.get("completion_status") == "complete_local"
                                  and (not self.continuous or a.get("question_snapshot_id") == self.snapshot_ids.get(qid))), None)
@@ -394,6 +532,8 @@ class Scheduler:
             if not self.continuous:
                 register(self.root, self.campaign, now=self.now())
             self.budget.recover()
+            for player in PLAYERS:
+                self._recover(player)
             paused, active, results = set(paused_players), {}, []
             started = to_iso(self.now())
             with ThreadPoolExecutor(max_workers=3) as pool:

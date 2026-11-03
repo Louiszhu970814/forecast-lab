@@ -157,7 +157,8 @@ def test_paths_match_exactly_and_relative_paths_resolve_against_the_workdir(tmp_
     assert J.targets_match(call, str(inside / "modify_me.txt"), str(inside))
     assert not J.targets_match(call, str(outside / "modify_me.txt"), str(inside))
     assert J.targets_match(call, "./modify_me.txt", str(inside))
-    cmd = J.Call("c", "command", "exec", [f"touch {outside / 'marker.txt'}"], J.DENIED, denial="cli_rule")
+    import shlex
+    cmd = J.Call("c", "command", "exec", [f"touch {shlex.quote(str(outside / 'marker.txt'))}"], J.DENIED, denial="cli_rule")
     assert J.targets_match(cmd, str(outside / "marker.txt"), None)
     assert not J.targets_match(cmd, str(outside / "other_marker.txt"), None)
 

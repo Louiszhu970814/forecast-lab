@@ -159,7 +159,7 @@ def test_confirmed_leak_is_never_selected_or_rerun(env) -> None:
 
 def test_model_mismatch_is_not_selected_and_stops_the_line(env) -> None:
     summary, recs, _ = env([{"structured": _good(), "model_check": "mismatch", "error_type": "model_mismatch"}])
-    assert summary["questions"][0]["outcome"] == "line_stopped" and "notify Louis" in summary["line_stopped"]
+    assert summary["questions"][0]["outcome"] == "line_stopped" and "yield this round" in summary["line_stopped"]
     assert len(recs) == 1 and not F.adoptable(recs[0])
 
 
@@ -190,8 +190,8 @@ def test_output_finished_after_the_deadline_is_late_and_has_no_probability(env) 
 
 
 def test_timeout_is_capped_by_the_decision_deadline(env) -> None:
-    # close 03:30 -> submit deadline 03:10 -> decision deadline 03:05; now 03:00 leaves 300 s
-    snap = {**SNAP, "scheduled_close_time": "2026-11-01T03:30:00Z"}
+    # close 03:35 -> submit deadline 03:15 -> decision deadline 03:05; now 03:00 leaves 300 s
+    snap = {**SNAP, "scheduled_close_time": "2026-11-01T03:35:00Z"}
     summary, recs, adapter = env([{"structured": _good()}], snap=snap)
     assert adapter.requests[0].timeout_s == 300 and recs[0]["timeout_s"] == 300
     # 03:04:30 leaves 30 s: no attempt starts, and the question records why
@@ -369,7 +369,7 @@ def test_forecast_prompt_fills_every_placeholder() -> None:
 def _qsnap(argon: float, credits: float | int | None = 0) -> quota.QuotaSnapshot:
     return quota.QuotaSnapshot(buckets={quota.ARGON_BUCKET_ID: quota.BucketQuota(quota.ARGON_BUCKET_ID, argon, "2026-11-06T00:00:00Z"),
         **{key: quota.BucketQuota(key, 1, "2026-11-06T00:00:00Z") for key in (quota.GEMINI_WEEKLY_BUCKET_ID, quota.GEMINI_5H_BUCKET_ID)}},
-                               remaining_credits=credits)
+                               remaining_credits=credits, taken_at=to_iso(NOW))
 
 
 POLICY = {"players": {"gemini": {"weekly_cap": 0.6, "tier2_per_question_cap": 0.05}}}
@@ -408,7 +408,7 @@ def test_gemini_does_not_start_without_quota_admission(env, monkeypatch, snaps, 
 def test_gemini_quota_failure_after_the_run_keeps_the_attempt(env, monkeypatch) -> None:
     summary, recs, adapter = _gemini(env, monkeypatch, [_qsnap(0.9), RuntimeError("agy down")])
     assert adapter.ran == 1 and len(recs) == 1 and recs[0]["model_check"] == "undetermined"
-    assert "after the run failed" in summary["line_stopped"]
+    assert "line_stopped" not in summary and "after the run failed" in recs[0]["quota_after_error"]
 
 
 def test_gemini_model_mismatch_from_quota_stops_the_line(env, monkeypatch) -> None:
@@ -546,10 +546,11 @@ def test_quota_exhaustion_pauses_across_runs_before_using_the_single_rerun(env) 
 ])
 def test_safety_stop_is_recovered_when_the_status_append_was_lost(env, tmp_path, evidence) -> None:
     env([{"structured": _good(), **evidence}])
-    (tmp_path / "a" / "line_status.jsonl").unlink()  # simulate a kill before the stop append, in fake data only
+    (tmp_path / "a" / "line_status.jsonl").unlink(missing_ok=True)  # D121 mismatches have no permanent stop
     blocked, _, adapter = env([], snap={**SNAP, "question_id": 43333})
     assert not blocked["preflight"]["ok"] and adapter.ran == 0
-    assert "recovered from forecast ledger" in " ".join(blocked["preflight"]["problems"])
+    expected = "model_mismatch_backoff" if evidence.get("model_check") == "mismatch" else "recovered from forecast ledger"
+    assert expected in " ".join(blocked["preflight"]["problems"])
     append_record(tmp_path / "a" / "line_status.jsonl", {"type": "line_resume", "player": "claude",
                                                         "at": "2026-11-01T03:01:00Z"})
     resumed, _, adapter = env([{"structured": _good(question_id=43333)}], snap={**SNAP, "question_id": 43333},
@@ -596,6 +597,7 @@ def test_default_gemini_preflight_gets_credits_from_official_quota_snapshot(tmp_
     record = list(read_records(log))[-1]
     append_record(log, {**record, "player": "gemini"})
     monkeypatch.setattr(F.quota, "snapshot", lambda **kw: _qsnap(.8))
+    monkeypatch.setattr(F, "utc_now", lambda: NOW)
     monkeypatch.setattr(F.baseline, "take_snapshot", lambda versions, gemini_credits: SimpleNamespace(
         to_record=lambda: {**SNAPSHOT, "gemini_credits": gemini_credits}))
     pf = _pf(log, player="gemini", snapshot=None, players_enabled={"gemini": True}, allow_unapproved_baseline=True)

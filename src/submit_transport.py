@@ -1,4 +1,4 @@
-"""Authenticated API transport, api_transport_v5. No write retries; V15 checks below.
+"""Authenticated API transport, api_transport_v8. No write retries; V15 checks below.
 
 Only normalized allowlisted receipts leave this boundary. Remote bodies and exception
 messages may contain credentials and are never used as diagnostics or ledger evidence.
@@ -22,11 +22,12 @@ from flab.timeutil import parse_iso, utc_now
 from metaculus import API_BASE, USER_AGENT, MetaculusClient
 from poll_questions import POLL_LOG, TournamentIndex, poll
 from submit_contract import ConfirmedFailure, Readback, own_forecast_records
+import numeric as N
 
 FORECAST_PATH = "/api/questions/forecast/"
 COMMENT_PATH = "/api/comments/create/"
 
-VERSION = "api_transport_v6"
+VERSION = "api_transport_v8"
 # V15: verify every endpoint, field and query on bot testing area before live.
 ACCOUNT_PATH = "users/me/"
 ACCOUNT_ID, ACCOUNT_IS_BOT = "id", "is_bot"
@@ -46,6 +47,24 @@ COMMENT_TIME, COMMENT_TEXT = "created_at", "text"
 COMMENT_AUTHOR, COMMENT_POST = "author", "on_post"
 PAGE_RESULTS, PAGE_NEXT = "results", "next"
 MAX_COMMENT_PAGES = 20
+# M5 OFFLINE ASSUMPTION: MyForecastSerializer stores CDF in forecast_values.
+# Change this single boundary after Claude verifies real numeric/discrete GETs.
+NUMERIC_READBACK_FIELD = "forecast_values"
+
+
+def numeric_readback_matches(question, row, expected):
+    if question.get("type") not in N.TYPES:
+        return False
+    try:
+        snapshot = {**N.read_scaling_fields(question), "question_type": question["type"]}
+        wanted = N.validate_cdf(expected.get("continuous_cdf"), snapshot)
+        values = row.get(NUMERIC_READBACK_FIELD)
+        return isinstance(values, list) and len(values) == len(wanted) and all(
+            N.finite(actual) and 0 <= actual <= 1
+            and math.isclose(actual, target, rel_tol=0, abs_tol=N.READBACK_TOLERANCE)
+            for actual, target in zip(values, wanted))
+    except ValueError:
+        return False
 
 
 def valid_current_options(options):
@@ -77,8 +96,8 @@ def serialized_forecast_receipt(question, row, intent, payload, started):
     """Match the official MyForecastSerializer without inventing a database ID.
 
     Its identity is (question_id, author_id, start_time), start_time is Unix
-    seconds, and forecast_values is an ordered vector. Without usable historical
-    option order, D99 matches the exact multiset and records order verification.
+    seconds, and forecast_values is ordered by all_options_ever (D115).
+    Missing or invalid historical option order leaves MC reconciliation unknown.
     """
     qid, author, stamp = (row.get(k) for k in ("question_id", "author_id", "start_time"))
     if type(qid) is not int or type(author) is not int or qid != intent["question_id"] or author != intent["bot_id"] \
@@ -87,11 +106,16 @@ def serialized_forecast_receipt(question, row, intent, payload, started):
     when = datetime.fromtimestamp(stamp, timezone.utc)
     if not started < when <= utc_now():
         return None
-    values = row.get("forecast_values")
-    if not isinstance(values, list):
-        return None
     expected = payload[0]
     if type(expected.get("question")) is not int or expected["question"] != qid:
+        return None
+    if "continuous_cdf" in expected:
+        if set(expected) != {"question", "continuous_cdf"} or not numeric_readback_matches(question, row, expected):
+            return None
+        return {"id": forecast_identity(row), "id_kind": "question_author_start_time", "bot_id": author,
+                "question_id": qid, "start_time_unix": stamp, "payload": copy.deepcopy(payload)}
+    values = row.get("forecast_values")
+    if not isinstance(values, list):
         return None
     option_order_verified = None
     if "probability_yes" in expected:
@@ -102,27 +126,13 @@ def serialized_forecast_receipt(question, row, intent, payload, started):
         options = known_option_order(question)
         current = question.get("options")
         probabilities = expected.get("probability_yes_per_category")
-        if question.get("type") != "multiple_choice" or not valid_current_options(current) \
-                or not isinstance(probabilities, dict) or set(current) != set(probabilities):
+        if question.get("type") != "multiple_choice" or options is None or not valid_current_options(current) \
+                or not isinstance(probabilities, dict) or set(current) != set(probabilities) \
+                or any(type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= 1
+                       for value in probabilities.values()):
             return None
-        # Only a gateway-masked (null) history may fall back to the multiset match; a present
-        # but unusable history is anomalous data and stays unknown.
-        if options is None and question.get("all_options_ever") is not None:
-            return None
-        if options is not None:
-            wanted = [probabilities.get(option) for option in options]
-            option_order_verified = True
-        else:
-            if any(type(value) not in (int, float) or not math.isfinite(value) or not 0 <= value <= 1
-                   for value in probabilities.values()) or any(
-                       value is not None and (type(value) not in (int, float)
-                       or not math.isfinite(value) or not 0 <= value <= 1) for value in values):
-                return None
-            active_values = [value for value in values if value is not None]
-            wanted = [probabilities[option] for option in current]
-            option_order_verified = active_values == wanted
-            # Sorting preserves multiplicity without assigning probabilities to labels.
-            values, wanted = sorted(active_values), sorted(wanted)
+        wanted = [probabilities.get(option) for option in options]
+        option_order_verified = True
     if len(values) != len(wanted) or any(
             (actual is not None if target is None else type(actual) not in (int, float) or
              not math.isfinite(actual) or not 0 <= actual <= 1 or actual != target)
@@ -169,6 +179,7 @@ class APITransport:
         self._token, self._open, self._timeout = token, opener, timeout
         self._backoff = backoff or (Backoff(DEFAULT_PATH, pace=True) if opener is default_opener else Backoff())
         self._bot_id = None
+        self._write_guard = None
         self._poll_log = POLL_LOG if poll_log is None else poll_log
         # The same host/redirect/error boundary protects authenticated GET pagination.
         self.client = SafeReadClient(token, opener=self._safe_open, timeout=timeout,
@@ -181,10 +192,22 @@ class APITransport:
                 or not parts.path.startswith("/api/") or parts.fragment:
             raise TransportError(summary="URL outside HTTPS API refused")
 
+    def set_write_guard(self, callback):
+        self._write_guard = callback
+
+    def _guarded_open(self, req, timeout):
+        if req.get_method() == "POST" and self._write_guard is not None:
+            try:
+                self._write_guard()
+            except Exception:
+                # The underlying opener has not run: this is confirmed nonacceptance.
+                raise ConfirmedFailure("local write authorization changed before network") from None
+        return self._open(req, timeout)
+
     def _safe_open(self, req, timeout):
         self._check_url(req.full_url)
         try:
-            response = self._backoff.open(self._open, req, timeout)
+            response = self._backoff.open(self._guarded_open, req, timeout)
             status = getattr(response, "status", 200)
             if not isinstance(status, int):
                 raise TransportError(summary="unrecognized HTTP status")
@@ -205,6 +228,8 @@ class APITransport:
             raise clean from None
         except Deferred as exc:
             raise TransportError(exc.status, "API cooldown active", retry_at=exc.retry_at) from None
+        except ConfirmedFailure:
+            raise
         except Exception:
             raise TransportError(summary="API connection or response unavailable") from None
 
@@ -220,13 +245,20 @@ class APITransport:
         return self.client.get_post(post_id)
 
     def can_reconcile_forecast(self, post):
-        """Must accept exactly what serialized_forecast_receipt can later verify (D99)."""
+        """D115: new MC writes require an exact label-to-position mapping."""
         question = post.get("question") or {}
         if question.get("type") == "binary":
             return True
+        if question.get("type") in N.TYPES:
+            try:
+                N.scaling({**N.read_scaling_fields(question), "question_type": question["type"]})
+                # Numeric reconciliation requires the tuple-format history contract.
+                return isinstance(question.get("my_forecasts"), dict)
+            except ValueError:
+                return False
         if question.get("type") != "multiple_choice" or not valid_current_options(question.get("options")):
             return False
-        return known_option_order(question) is not None or question.get("all_options_ever") is None
+        return known_option_order(question) is not None
 
     def forecast_readback_baseline(self, post):
         question = post.get("question") or {}
@@ -277,7 +309,7 @@ class APITransport:
                 failure.retry_at = getattr(exc, "retry_at", None)
                 raise failure from None
             raise TransportError(status, "write outcome unknown", retry_at=getattr(exc, "retry_at", None)) from None
-        except TransportError:
+        except (TransportError, ConfirmedFailure):
             raise  # Preserve sanitized cooldown status/deadline; callers still never resend unknown writes.
         except Exception:
             raise TransportError(summary="write outcome unknown") from None
@@ -316,6 +348,8 @@ class APITransport:
                             matches[receipt["id"]] = receipt
                     return Readback("found", next(iter(matches.values())), request_id) if len(matches) == 1 else unknown
                 for row in records:
+                    if "continuous_cdf" in payload[0]:
+                        return unknown  # no unverified legacy numeric identity fallback
                     if not isinstance(row, dict):
                         continue
                     try:

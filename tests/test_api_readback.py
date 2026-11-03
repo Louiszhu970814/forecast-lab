@@ -91,7 +91,8 @@ def test_two_distinct_matching_records_are_ambiguous():
 
 def test_category_mapping_uses_all_options_ever_including_inactive_null():
     http=HTTP();modern(http,official_row(forecast_values=[.2,None,.8]))
-    q=http.post['question'];q.update(type='multiple_choice',options=['B','A'],all_options_ever=['A','inactive','B'])
+    q=http.post['question'];q.update(type='multiple_choice',options=['B','A'],all_options_ever=['A','inactive','B'],
+        options_order=['B','A'], options_history=[['2026-01-01T00:00:00Z',['A','inactive','B']]])
     data=intent();data['forecast_payload']=[{'question':7,'probability_yes_per_category':{'B':.8,'A':.2}}]
     result=transport(http).readback('forecast',data,request_id='r')
     assert result.outcome=='found' and result.record['option_order_verified'] is True
@@ -100,19 +101,13 @@ def test_category_mapping_uses_all_options_ever_including_inactive_null():
     assert transport(http).readback('forecast',data,request_id='r').outcome=='unknown'
 
 
-@pytest.mark.parametrize('order', [None])
-@pytest.mark.parametrize('values,verified', [
-    ([.2,.8], True), ([.8,.2], False), ([None,.2,None,.8,None], True),
-    ([.8,None,.2], False),
-])
-def test_unknown_option_order_matches_multiset_without_guessing_mapping(order, values, verified):
+@pytest.mark.parametrize('values', [[.2,.8], [.8,.2], [None,.2,None,.8,None], [.8,None,.2]])
+def test_null_history_remains_unknown_even_if_value_multiset_matches(values):
     http=HTTP();modern(http,official_row(forecast_values=values))
-    http.post['question'].update(type='multiple_choice',options=['A','B'],all_options_ever=order)
+    http.post['question'].update(type='multiple_choice',options=['A','B'],all_options_ever=None)
     data=intent();data['forecast_payload']=[{'question':7,'probability_yes_per_category':{'A':.2,'B':.8}}]
-    result=transport(http).readback('forecast',data,request_id='r')
-    assert result.outcome=='found'
-    assert result.record['option_order_verified'] is verified
-    assert result.record['payload']==data['forecast_payload']
+    assert transport(http).readback('forecast',data,request_id='r').outcome=='unknown'
+    assert not transport(http).can_reconcile_forecast(http.post)
 
 
 @pytest.mark.parametrize('order', [[], ['A','A'], ['B'], ['A',3], 'AB'])
@@ -148,11 +143,11 @@ def test_present_but_unusable_history_never_falls_back_to_multiset(order):
     ({}, {'A':.2,'B':.8}, {'start_time':(NOW-timedelta(seconds=1)).timestamp()}),
     ({}, {'A':.2,'B':.8}, {'start_time':(NOW+timedelta(seconds=11)).timestamp()}),
 ])
-def test_multiset_readback_rejects_invalid_distribution_identity_or_time(question_change, probabilities, row_change):
+def test_label_readback_rejects_invalid_distribution_identity_or_time(question_change, probabilities, row_change):
     http=HTTP()
     row=modern(http,official_row(**{'forecast_values':[.2,.8], **row_change}))
     question=http.post['question']
-    question.update(type='multiple_choice',options=['A','B'],all_options_ever=None)
+    question.update(type='multiple_choice',options=['A','B'],all_options_ever=['A','B'])
     question.update(question_change)
     data=intent();data['forecast_payload']=[{'question':7,'probability_yes_per_category':probabilities}]
     assert T.serialized_forecast_receipt(question,row,data,data['forecast_payload'],NOW) is None
@@ -161,11 +156,11 @@ def test_multiset_readback_rejects_invalid_distribution_identity_or_time(questio
 
 @pytest.mark.parametrize('bad', [True, False, float('nan'), float('inf'), -float('inf'), -.1, 1.1, '0.8', [], {}])
 @pytest.mark.parametrize('field', ['payload', 'forecast_values'])
-def test_multiset_readback_rejects_invalid_numbers(bad, field):
+def test_label_readback_rejects_invalid_numbers(bad, field):
     http=HTTP()
     row=modern(http,official_row(forecast_values=[0,1]))
     question=http.post['question']
-    question.update(type='multiple_choice',options=['A','B'],all_options_ever=None)
+    question.update(type='multiple_choice',options=['A','B'],all_options_ever=['A','B'])
     data=intent();data['forecast_payload']=[{'question':7,'probability_yes_per_category':{'A':0,'B':1}}]
     if field=='payload':
         data['forecast_payload'][0]['probability_yes_per_category']['B']=bad
@@ -177,12 +172,12 @@ def test_multiset_readback_rejects_invalid_numbers(bad, field):
 
 
 @pytest.mark.parametrize('values,found,verified', [
-    ([.5,.25,.25], True, False), ([.25,.25,.5], True, True),
+    ([.5,.25,.25], False, None), ([.25,.25,.5], True, True),
     ([.5,.5,.25], False, None),
 ])
-def test_multiset_readback_preserves_repeated_probability_counts(values, found, verified):
+def test_label_readback_rejects_probability_permutation_even_with_same_multiset(values, found, verified):
     http=HTTP();modern(http,official_row(forecast_values=values))
-    http.post['question'].update(type='multiple_choice',options=['A','B','C'])
+    http.post['question'].update(type='multiple_choice',options=['A','B','C'],all_options_ever=['A','B','C'])
     data=intent()
     data['forecast_payload']=[{'question':7,'probability_yes_per_category':{'A':.25,'B':.25,'C':.5}}]
     result=transport(http).readback('forecast',data,request_id='r')
@@ -191,17 +186,17 @@ def test_multiset_readback_preserves_repeated_probability_counts(values, found, 
         assert result.record['option_order_verified'] is verified
 
 
-def test_multiset_readback_accepts_inclusive_probability_and_time_bounds():
+def test_label_readback_accepts_inclusive_probability_and_time_bounds():
     http=HTTP()
     modern(http,official_row(forecast_values=[1.0,None,0],start_time=(NOW+timedelta(seconds=10)).timestamp()))
-    http.post['question'].update(type='multiple_choice',options=['A','B'],all_options_ever=None)
+    http.post['question'].update(type='multiple_choice',options=['A','B'],all_options_ever=['B','inactive','A'])
     data=intent();data['forecast_payload']=[{'question':7,'probability_yes_per_category':{'A':0.0,'B':1}}]
     result=transport(http).readback('forecast',data,request_id='r')
-    assert result.outcome=='found' and result.record['option_order_verified'] is False
+    assert result.outcome=='found' and result.record['option_order_verified'] is True
 
 
 @pytest.mark.parametrize('options,allowed', [
-    (['A','B'], True), (['A'], True), (None, False), ([], False),
+    (['A','B'], False), (['A'], False), (None, False), ([], False),
     (['A','A'], False), (['A',3], False), (['A',[]], False), ('AB', False), ({'A':1}, False),
 ])
 def test_can_reconcile_multiple_choice_without_history(options, allowed):
@@ -210,7 +205,7 @@ def test_can_reconcile_multiple_choice_without_history(options, allowed):
     assert transport(http).can_reconcile_forecast(http.post) is allowed
 
 
-@pytest.mark.parametrize('history,allowed', [(None, True), (['A','B'], True), (['B','x','A'], True),
+@pytest.mark.parametrize('history,allowed', [(None, False), (['A','B'], True), (['B','x','A'], True),
     ([], False), (['B'], False), (['A','A'], False), (['A',3], False), ('AB', False)])
 def test_pre_post_gate_matches_readback_rule_for_present_history(history, allowed):
     http=HTTP()
@@ -247,10 +242,10 @@ def test_comment_query_uses_official_post_filter():
     assert query['post']==['17'] and query['author']==['42'] and 'post_id' not in query
 
 
-@pytest.mark.parametrize('order,verified', [(['A','B'], True), (['B',None,'A'], False)])
-def test_missing_option_order_submits_once_then_reconciles_after_restart(environment, order, verified):
+@pytest.mark.parametrize('lose_mapping', [False, True])
+def test_mc_restart_exact_mapping_or_unknown_never_resends(environment, lose_mapping):
     e=environment
-    e['post']['question'].update(type='multiple_choice',options=['A','B'],all_options_ever=None,
+    e['post']['question'].update(type='multiple_choice',options=['A','B'],all_options_ever=['A','inactive','B'],
         my_forecasts={'history':[],'latest':None})
     snap={**snapshot_from_post(e['post'],'bot-testing-area'),'snapshot_id':'s1','tournament_id':32977}
     e['seed'](snap,p={'A':.3,'B':.7})
@@ -258,22 +253,34 @@ def test_missing_option_order_submits_once_then_reconciles_after_restart(environ
     obj=S.Submitter(e['root'],config_dir=e['config'],transport=transport(http),now=lambda:NOW)
     obj.run();obj.run()
     assert rows(e)[-1]['status']=='unknown' and len(http.writes())==1
-    # An incompatible readback stays unknown and cannot trigger a second POST.
-    modern(http,official_row(forecast_values=[.4,.6]))
+    modern(http,official_row(forecast_values=[.7,None,.3]))
     obj.run()
     assert rows(e)[-1]['status']=='unknown' and len(http.writes())==1
     probabilities=json.loads(http.writes()[0].data)[0]['probability_yes_per_category']
-    modern(http,official_row(forecast_values=[probabilities.get(option) for option in order]))
+    modern(http,official_row(forecast_values=[probabilities['A'],None,probabilities['B']]))
+    if lose_mapping:
+        http.post['question']['all_options_ever']=None
     obj=S.Submitter(e['root'],config_dir=e['config'],transport=transport(http),now=lambda:NOW+timedelta(seconds=5))
-    obj.run()
-    assert rows(e)[-1]['status']=='comment_ok'
-    confirmed=[r for r in rows(e) if r['status']=='forecast_ok']
-    assert len(confirmed)==1 and confirmed[0]['reconciled'] is True
-    assert confirmed[0]['response']['option_order_verified'] is verified
-    obj.run();obj.run(reconcile_only=True)
-    assert len(http.writes())==2  # one forecast and one comment
-    assert len([r for r in rows(e) if r['status']=='request_started' and r['operation']=='forecast'])==1
+    obj.run();obj.run();obj.run(reconcile_only=True)
+    if lose_mapping:
+        assert rows(e)[-1]['status']=='unknown' and len(http.writes())==1
+    else:
+        assert rows(e)[-1]['status']=='comment_ok' and len(http.writes())==2
+        confirmed=[r for r in rows(e) if r['status']=='forecast_ok']
+        assert len(confirmed)==1 and confirmed[0]['response']['option_order_verified'] is True
     assert len([r for r in http.writes() if r.full_url.endswith(T.FORECAST_PATH)])==1
+
+
+def test_missing_mc_mapping_blocks_first_post(environment):
+    e=environment
+    e['post']['question'].update(type='multiple_choice', options=['A','B'], all_options_ever=None,
+        my_forecasts={'history': [], 'latest': None})
+    snap={**snapshot_from_post(e['post'],'bot-testing-area'),'snapshot_id':'s1','tournament_id':32977}
+    e['seed'](snap,p={'A':.3,'B':.7})
+    http=HTTP(e['post'])
+    obj=S.Submitter(e['root'],config_dir=e['config'],transport=transport(http),now=lambda:NOW)
+    obj.run();obj.run()
+    assert not http.writes()
 
 
 @pytest.mark.parametrize('p',[.7,.123457,.999])

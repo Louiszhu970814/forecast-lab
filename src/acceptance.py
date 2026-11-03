@@ -714,9 +714,12 @@ def _run(adapter: Any, player: str, profile: str, prompt: str, workdir: Path, ra
             raise AcceptancePaused(reason)
         _append({"type": "acceptance_quota_snapshot", "attempt_id": call_id, "when": "before", **quota.record_snapshot(before)})
     if run_id is not None:
+        from flab.orphan import metadata
+        started_at = utc_now()
         _append({"type": "acceptance_call_started", "attempt_id": call_id,
             "run_id": run_id, "player": player, "tier": tier, "profile": profile,
-            "model": model_cfg["model"], "effort": model_cfg["effort"], "started_at": to_iso(utc_now())})
+            "model": model_cfg["model"], "effort": model_cfg["effort"], "started_at": to_iso(started_at),
+            **metadata(workdir, raw_dir, timeout, started_at)})
     window = {"start": time.time()}
     result = adapter.run(req, catalog=catalog) if catalog is not None else adapter.run(req)
     window["end"] = time.time()
@@ -748,7 +751,14 @@ def _targets_on_disk(fx: Fixture) -> list[Path]:
     return [Path(s.target) for s in fx.specs if s.target.startswith("/")]
 
 
-def run_line(player: str, *, production: bool, run_id: str, tier: int = 1,
+def run_line(player: str, **kwargs) -> dict[str, Any]:
+    """Only this line's formal acceptance excludes its forecasts."""
+    from forecast import Lock
+    with Lock(ACCEPTANCE_LOG.parent / f"forecast.{player}.lock"):
+        return _run_line(player, **kwargs)
+
+
+def _run_line(player: str, *, production: bool, run_id: str, tier: int = 1,
              adapter_loader: Callable[[str], Any] = _adapter,
              snapshot: Callable[[dict[str, str | None]], dict[str, Any]] | None = None) -> dict[str, Any]:
     if tier not in (1, 2) or (tier == 2 and not production):

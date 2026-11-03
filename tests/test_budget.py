@@ -85,14 +85,17 @@ def test_restart_releases_only_prior_no_start_reservation(ledger):
 
 
 @pytest.mark.parametrize("total", [100, None])
-def test_token_overrun_or_missing_usage_halts_upgrades_for_window(ledger, total):
+def test_old_outputs_are_not_rejudged_by_new_policy(ledger, total):
     attempt(ledger)
     attempt(ledger, aid="deep", tier=2, total=total)
-    assert reserve(ledger, tier=2, aid="next", qid=8)["reason"] == "weekly_tier2_token_breaker"
-    # Later higher baselines must not erase the observed stop.
+    assert reserve(ledger, tier=2, aid="next", qid=8)["allowed"]
+    ledger.outcome("next", False)
+    # Old question usage still constrains its own capacity.
+    assert reserve(ledger, tier=2, aid="own", qid=7)["reason"] == "question_tier2_token_capacity"
     for i in range(5):
         attempt(ledger, aid=f"later{i}", qid=10 + i, total=1000)
-    assert reserve(ledger, tier=2, aid="still", qid=9)["reason"] == "weekly_tier2_token_breaker"
+    assert reserve(ledger, tier=2, aid="still", qid=9)["allowed"]
+    assert not any(r["type"] == "budget_upgrade_stop" for r in read_records(ledger.log))
 
 
 def test_per_question_token_estimate_reserves_remaining_capacity(ledger):
@@ -137,14 +140,13 @@ def test_gemini_tier2_quota_deltas_no_longer_trip_a_breaker(ledger, after):
     assert not any(r["type"] == "budget_upgrade_stop" for r in read_records(ledger.log))
 
 
-def test_gemini_tier2_token_overrun_still_trips_the_shared_token_breaker(ledger):
+def test_gemini_old_token_overrun_does_not_create_new_line_stop(ledger):
     attempt(ledger, player="gemini")
     attempt(ledger, aid="deep", tier=2, player="gemini", total=100)
     snapshot(ledger, remaining=.9)
     decision = reserve(ledger, tier=2, player="gemini", qid=8)
-    assert decision["reason"] == "weekly_tier2_token_breaker"
-    event = next(r for r in read_records(ledger.log) if r["type"] == "budget_upgrade_stop")
-    assert event["until"] == to_iso(NOW + timedelta(days=3))
+    assert decision["allowed"]
+    assert not any(r["type"] == "budget_upgrade_stop" for r in read_records(ledger.log))
 
 
 def test_persisted_argon_breaker_is_honoured_until_it_expires(ledger):
@@ -177,7 +179,8 @@ def test_gemini_reserve_uses_window_estimate_instead_of_fixed_fallback(ledger):
     attempt(fresh, player="gemini")
     attempt(fresh, aid="deep", tier=2, player="gemini", qid=30)
     snapshot(fresh, remaining=.97)
-    assert reserve(fresh, tier=2, player="gemini", qid=8, pending=20)["reason"] == "argon_personal_or_tier1_reserve"
+    decision = reserve(fresh, tier=2, player="gemini", qid=8, pending=20)
+    assert decision["allowed"] and decision["protected_quota"] == .05
 
 
 def test_completion_estimate_uses_same_line_same_layer_and_full_cap_when_unknown(ledger):

@@ -245,3 +245,20 @@ def test_escalation_refuses_unversioned_threshold_changes():
     cfg["escalation"]["binary_log_odds_diff"] = .1
     with pytest.raises(ValueError, match="unsupported"):
         E.evaluate(BIN, [answer()], run_config=cfg)
+
+
+@pytest.mark.parametrize("version", ["run_config_v2", "run_config_v3"])
+def test_deadline_config_upgrade_preserves_escalation_and_provenance(version):
+    cfg = load_run_config()
+    cfg["version"] = version
+    result = E.evaluate(BIN, [answer(p=.1), answer("gpt", .9)], run_config=cfg, now=NOW)
+    assert result["escalation"]["candidate"]
+    assert result["escalation"]["run_config_version"] == version
+    assert result["escalation"]["triggers"][0]["type"] == "model_disagreement"
+
+
+def test_unknown_run_config_is_not_accepted_as_deadline_upgrade():
+    cfg = load_run_config()
+    cfg["version"] = "run_config_future"
+    with pytest.raises(ValueError, match="unsupported"):
+        E.evaluate(BIN, [answer()], run_config=cfg)

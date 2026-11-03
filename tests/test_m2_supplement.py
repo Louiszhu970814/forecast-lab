@@ -142,6 +142,9 @@ def test_supervisor_reuses_descendant_cleanup_and_reserved_time(tmp_path, monkey
 
 
 def d94(tmp_path, monkeypatch):
+    # Replay the frozen D94 experiment under its historical verifier. D121 must
+    # not silently change that registered experiment to the new verifier.
+    monkeypatch.setattr(M.quota, "MODEL_VERIFICATION_VERSION", "quota_model_verification_v2")
     parent, old = registered(tmp_path, monkeypatch)
     append_record(tmp_path/'m2_supplements.jsonl', {'type':'supplement_finished','supplement_id':old['campaign_id']})
     new = campaign(1)

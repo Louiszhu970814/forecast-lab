@@ -1,4 +1,4 @@
-"""Append-only snapshot queue and bounded campaign registration for continuous_v8."""
+"""Append-only snapshot queue and bounded campaign registration for continuous_v9."""
 from __future__ import annotations
 
 import copy
@@ -8,6 +8,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import budget as B
+import budget_handoff as H
 import forecast as F
 from flab.config import PLAYERS, load_quota_policy, load_run_config, load_tournaments, load_submit_mode
 from flab.ids import hash_obj, new_id
@@ -21,12 +22,15 @@ from project_policy import MEMBERSHIP_UNKNOWN, trial_membership_error
 from submit import probe_reservations
 from submit_contract import own_forecast_records
 
-VERSION = "continuous_v8"
+VERSION = "continuous_v9"
 MAIN_SITE_VERSION = "main_site_trial_v1"
 # Competition questions are open three hours; a new main-site pick must leave at least
 # that window minus the run_config submit margins (20 + 5 minutes) before its deadline.
 MIN_SELECTION_LEAD = timedelta(minutes=150)
 ROLLOVER_VERSION = "weekly_rollover_v1"
+import numeric as N
+from question_types import is_supported, supported_types
+
 STRUCTURAL = ("question_type", "options", "scheduled_close_time", "post_id", "tournament_id")
 
 
@@ -36,7 +40,7 @@ def validate_main_site_policy(policy):
             raise ValueError("main_site_trial requires main_site_questions")
         return
     setting = policy.get("main_site_trial")
-    if policy.get("version") != VERSION or not isinstance(setting, dict) or \
+    if policy.get("version") not in ("continuous_v8", VERSION) or not isinstance(setting, dict) or \
             set(setting) != {"version", "max_questions", "max_pages"} or \
             setting["version"] != MAIN_SITE_VERSION or \
             type(setting["max_questions"]) is not int or not 1 <= setting["max_questions"] <= 6 or \
@@ -46,8 +50,8 @@ def validate_main_site_policy(policy):
 
 def register(root: Path, policy: dict, *, now=utc_now):
     """Freeze an explicit budget window and venue selection before polling any outputs."""
-    if policy.get("version") not in ("continuous_v2", "continuous_v3", "continuous_v4", "continuous_v5", "continuous_v6", "continuous_v7", VERSION) or not isinstance(policy.get("campaign_id"), str) or not policy["campaign_id"]:
-        raise ValueError("continuous_v2 through continuous_v8 campaign identity required")
+    if policy.get("version") not in ("continuous_v2", "continuous_v3", "continuous_v4", "continuous_v5", "continuous_v6", "continuous_v7", "continuous_v8", VERSION) or not isinstance(policy.get("campaign_id"), str) or not policy["campaign_id"]:
+        raise ValueError("continuous_v2 through continuous_v9 campaign identity required")
     if "rollover" in policy:
         raise ValueError("resolve the rollover template before registering a window")
     start, end = parse_iso(policy["budget_window_start"]), parse_iso(policy["budget_window_end"])
@@ -72,14 +76,21 @@ def register(root: Path, policy: dict, *, now=utc_now):
         raise ValueError("continuous policy must pin current configuration")
     with transaction(root):
         rows = read_complete(root / "continuous_campaigns.jsonl")
+        if H.superseded(policy["campaign_id"], rows):
+            raise ValueError("campaign has been superseded")
+        source = H.source(policy, rows) if "budget_handoff" in policy else None
         prior = [r for r in rows if r["campaign"]["campaign_id"] == policy["campaign_id"]]
         if prior:
             if any(r["sha256"] != hash_obj(policy) for r in prior):
                 raise ValueError("registered continuous campaign cannot change")
             return
+        if source is not None and not parse_iso(source["budget_window_start"]) <= now() < parse_iso(source["budget_window_end"]):
+            raise ValueError("handoff source must still be active at first registration")
         # A differently named overlapping window must not reset an exhausted numerical cap.
         if any(start < parse_iso(r["campaign"]["budget_window_end"]) and
-               end > parse_iso(r["campaign"]["budget_window_start"]) for r in rows):
+               end > parse_iso(r["campaign"]["budget_window_start"]) and
+               (source is None or r["campaign"]["campaign_id"] != source["campaign_id"])
+               for r in rows):
             raise ValueError("continuous budget windows must not overlap")
         append_record(root / "continuous_campaigns.jsonl", {"type": "continuous_campaign_registered",
             "campaign": copy.deepcopy(policy), "sha256": hash_obj(policy), "at": to_iso(now())})
@@ -96,8 +107,10 @@ def active_campaign(root: Path, template: dict, *, now=utc_now) -> dict:
     if "rollover" not in template:
         register(root, template, now=now)
         return copy.deepcopy(template)
+    if "budget_handoff" in template:
+        raise ValueError("budget handoff cannot roll over")
     setting = template["rollover"]
-    if template.get("version") not in ("continuous_v7", VERSION) or not isinstance(setting, dict) or \
+    if template.get("version") not in ("continuous_v7", "continuous_v8", VERSION) or not isinstance(setting, dict) or \
             set(setting) != {"version", "windows"} or setting["version"] != ROLLOVER_VERSION or \
             type(setting["windows"]) is not int or setting["windows"] < 1:
         raise ValueError("explicit finite weekly rollover required")
@@ -328,7 +341,7 @@ class Poller:
             if not dropped and not newly_dropped:
                 ordered = sorted(pool.values(), key=lambda s: (F.decision_deadline(s, cfg), s["question_id"]))
                 covered = {r["question_type"] for r in selected.values()}
-                for kind in ("binary", "multiple_choice"):
+                for kind in supported_types():
                     if len(selected) + len(additions) < limit and kind not in covered:
                         candidate = next((s for s in ordered if s["question_type"] == kind), None)
                         if candidate is not None:
@@ -366,7 +379,7 @@ class Poller:
         snap = snapshot_from_post(post, "main_site_questions")
         if snap is None or any(type(snap[k]) is not int or snap[k] <= 0 for k in ("question_id", "post_id")):
             return None, "invalid single-question identity"
-        if snap["question_type"] not in ("binary", "multiple_choice"):
+        if not is_supported(snap["question_type"]):
             return None, "unsupported_type"
         if project not in snap["project_ids"]:
             return None, "post does not belong to main site"
@@ -462,8 +475,8 @@ class Queue:
                 def revision_action(old):
                     deadline = F.decision_deadline(snap, cfg)
                     estimate = max(B.duration_estimate(attempts, p, 1, cfg) for p in PLAYERS)
-                    can_rerun = snap.get("supported") and deadline is not None and (deadline - self.now()).total_seconds() > estimate
-                    structural = old is None or any(old.get(k) != snap.get(k) for k in STRUCTURAL)
+                    can_rerun = F.eligible(snap, cfg, self.now()) is None and deadline is not None and (deadline - self.now()).total_seconds() > estimate
+                    structural = old is None or any(old.get(k) != snap.get(k) for k in STRUCTURAL) or N.scaling_changed(old, snap)
                     if can_rerun:
                         return "requeued"
                     if (structural or (old is not None and old["snapshot_id"] in self.invalidated)
@@ -498,7 +511,11 @@ class Queue:
                             "question_id": qid, "old_snapshot_id": old["snapshot_id"],
                             "new_snapshot_id": snap["snapshot_id"], "reason": action, "at": to_iso(self.now()), "version": VERSION})
                         self.invalidated.add(old["snapshot_id"])
-                if not snap.get("supported") and action != "already_submitted":
+                if (is_supported(snap.get("question_type")) and previous
+                        and previous["action"] == "unsupported_type" and not changed
+                        and F.eligible(snap, cfg, self.now()) is None):
+                    action, bound = "queued", snap
+                if not is_supported(snap.get("question_type")) and action != "already_submitted":
                     action, bound = "unsupported_type", None
                 if previous is None or changed or previous["action"] != action:
                     append_record(self.root / "question_queue.jsonl", {"type": "queue_state", "version": VERSION,

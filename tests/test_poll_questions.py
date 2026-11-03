@@ -183,7 +183,7 @@ def test_retry_after_and_max_pages() -> None:
     client = MetaculusClient(TOKEN, opener=opener, sleep=sleep, backoff=Backoff(now=lambda: clock[0]))
     with pytest.raises(MetaculusError):
         list(client.list_posts(32977, max_pages=3))
-    assert sleeps == [7.0] and len(calls) == 4
+    assert sleeps == [10.0] and len(calls) == 4
 
 
 def test_revision_flags_type_and_options(tmp_path: Path) -> None:

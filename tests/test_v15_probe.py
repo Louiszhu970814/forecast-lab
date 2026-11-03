@@ -95,7 +95,7 @@ def probe(tmp_path, monkeypatch):
 @pytest.fixture
 def mc_probe(probe):
     obj, http, project = probe
-    http.post['question'].update(type='multiple_choice', options=['a', 'b', 'c'], all_options_ever=None)
+    http.post['question'].update(type='multiple_choice', options=['a', 'b', 'c'], all_options_ever=['a', 'inactive', 'b', 'c'])
     return probe
 
 
@@ -463,24 +463,23 @@ def test_mc_prepare_uses_uniform_submission_rounding_and_bounded_plan(mc_probe):
     assert not (project/'data/aggregates.jsonl').exists()
 
 
-@pytest.mark.parametrize('forecast_order', [True, False])
-@pytest.mark.parametrize('comment_order', [True, False])
-def test_mc_null_history_completes_with_exact_multisets(mc_probe, forecast_order, comment_order):
+def test_mc_known_history_completes_with_exact_label_mapping(mc_probe):
     obj, http, _ = mc_probe
-    if not forecast_order:
-        http.mc_values = [None, .333334, .333333, None, .333333]
-    if not comment_order:
-        http.comment_values = [.333334, None, .333333, .333333]
     pid = obj.prepare(question_type='multiple_choice')['probe_id']
     assert obj.run(pid)['status'] == 'complete'
     assert obj.run(pid)['status'] == 'complete'
     assert len(http.writes()) == 2
     forecast = next(r for r in obj.rows() if r['state'] == 'found' and r['operation'] == 'forecast')
-    assert forecast['receipt']['option_order_verified'] is forecast_order
-    checked = obj.rows()[-1]
-    assert checked['state'] == 'comment_properties_checked' and checked['verified'] is True
-    assert checked['included_forecast_order_verified'] is comment_order
-    assert json.loads(http.writes()[1].data)['is_private'] is True
+    assert forecast['receipt']['option_order_verified'] is True
+    assert obj.rows()[-1]['included_forecast_order_verified'] is True
+
+
+def test_mc_null_history_cannot_start_new_probe(mc_probe):
+    obj, http, _ = mc_probe
+    http.post['question']['all_options_ever'] = None
+    with pytest.raises(S.PrecheckError):
+        obj.prepare(question_type='multiple_choice')
+    assert not http.writes()
 
 
 @pytest.mark.parametrize('field,value', [
@@ -530,7 +529,7 @@ def test_mc_comment_identity_and_properties_still_required(mc_probe, field, valu
 def test_v3_comment_rejection_never_allows_recovery(probe, question_type, status):
     obj, http, _ = probe
     if question_type == 'multiple_choice':
-        http.post['question'].update(type=question_type, options=['a', 'b', 'c'], all_options_ever=None)
+        http.post['question'].update(type=question_type, options=['a', 'b', 'c'], all_options_ever=['a', 'inactive', 'b', 'c'])
     pid = obj.prepare(question_type=question_type)['probe_id']
     http.fail_comment, http.failure_status = True, status
     assert obj.run(pid)['status'] == 'confirmed_failed'
@@ -624,6 +623,7 @@ def test_mc_unreconcilable_history_not_selected(mc_probe):
 def test_mc_uniform_payload_enforces_submission_probability_bounds(mc_probe):
     obj, http, _ = mc_probe
     http.post['question']['options'] = [str(i) for i in range(1001)]
+    http.post['question']['all_options_ever'] = list(http.post['question']['options'])
     with pytest.raises(S.PrecheckError, match='uniform payload'):
         obj.prepare(question_type='multiple_choice')
     assert not obj.rows() and not http.writes()
@@ -705,7 +705,7 @@ def test_ambiguous_or_missing_comment_row_stays_unverified(mc_probe, change):
 def test_v3_plan_cannot_drop_comment_bound_to_regain_recovery(probe, question_type):
     obj, http, _ = probe
     if question_type == 'multiple_choice':
-        http.post['question'].update(type=question_type, options=['a', 'b', 'c'], all_options_ever=None)
+        http.post['question'].update(type=question_type, options=['a', 'b', 'c'], all_options_ever=['a', 'inactive', 'b', 'c'])
     pid = obj.prepare(question_type=question_type)['probe_id']
     rewrite_plan(obj, lambda p: p.pop('max_comment_requests'))
     calls = len(http.calls)

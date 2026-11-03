@@ -29,7 +29,7 @@ from validate import submit_deadline
 from project_policy import trial_membership_error
 from submit_contract import ConfirmedFailure, Readback
 
-VERSION = "submit_v10"
+VERSION = "submit_v11"
 BUSY_EXIT_CODE = 75
 FORECAST_PATH = "/api/questions/forecast/"
 COMMENT_PATH = "/api/comments/create/"
@@ -97,10 +97,17 @@ def existing_predictions(post: dict) -> list[dict]:
 
 
 def forecast_payload(snapshot: dict, aggregate: dict) -> list[dict]:
+    import numeric as N
     if error := A.input_error(aggregate, snapshot):
         raise PrecheckError(error)
     if aggregate.get("options") != snapshot.get("options"):
         raise PrecheckError("aggregate options differ from snapshot")
+    if snapshot["question_type"] in N.TYPES:
+        try:
+            cdf = N.validate_cdf(aggregate.get("continuous_cdf"), snapshot)
+        except ValueError as exc:
+            raise PrecheckError(str(exc)) from None
+        return [{"question": snapshot["question_id"], "continuous_cdf": cdf}]
     if snapshot["question_type"] == "binary":
         p = Decimal(str(aggregate["probability"]))
         if not PROBABILITY_MIN <= p <= PROBABILITY_MAX:
@@ -155,13 +162,14 @@ def probe_reservations(root: Path) -> list[tuple[int, int, str]]:
 class Submitter:
     def __init__(self, root: Path, *, config_dir: Path | None = None,
                  transport: Transport | None = None, allow_resubmit_by_venue: dict[int, bool] | None = None,
-                 now=utc_now, sleep=time.sleep):
+                 now=utc_now, sleep=time.sleep, probe_question_types: tuple[str, ...] = ()):
         self.root = Path(root)
         self.config_dir = config_dir or PROJECT_ROOT / "config"
         self.transport = transport if transport is not None else OfflineTransport()
         self.allow_resubmit = dict(allow_resubmit_by_venue or {})
         self.now, self.sleep = now, sleep
         self.log = self.root / "submissions.jsonl"
+        self.probe_question_types = probe_question_types
 
     def _rows(self):
         with transaction(self.root):
@@ -214,6 +222,13 @@ class Submitter:
         return copy.deepcopy(current)
 
     def _gate(self, intent, discovery=None):
+        from question_types import is_supported
+        question_type = intent.get("snapshot", {}).get("question_type")
+        if not is_supported(question_type, self.config_dir / "question_types.json"):
+            if not (question_type in self.probe_question_types
+                    and load_submit_mode(self.config_dir)["mode"] == "trial"
+                    and intent["tournament_id"] == 32977):
+                raise PrecheckError("unsupported_type")
         mode, cfg = self._policy()
         if mode["mode"] not in ("trial", "live") or mode["mode"] != intent["mode"]:
             raise PrecheckError("submission mode disabled or changed")
@@ -222,6 +237,15 @@ class Submitter:
         bot = mode.get("approved_bot_id")
         if type(bot) is not int or bot <= 0 or bot != intent["bot_id"]:
             raise PrecheckError("approved bot ID missing or changed")
+        if mode["mode"] == "live":
+            import live_window as W
+            try:
+                campaign = W.campaign_from(self.config_dir)
+                digest = W.require_active(mode, campaign, self.config_dir, self.now())
+                if intent.get("live_window_sha256") != digest:
+                    raise ValueError("intent belongs to a different live window")
+            except (OSError, ValueError, TypeError, KeyError) as exc:
+                raise PrecheckError("finite live authorization unavailable or changed") from exc
         if mode["mode"] == "trial":
             if discovery is None or discovery["trial_ground_types"] != cfg["trial_ground_types"]:
                 raise PrecheckError("current tournament discovery required")
@@ -242,6 +266,8 @@ class Submitter:
         if type(intent["tournament_id"]) is not int or len(entries) != 1:
             raise PrecheckError("venue ID is not uniquely configured")
         name, entry = entries[0]
+        if mode["mode"] == "live" and name not in campaign.get("venues", []):
+            raise PrecheckError("venue outside approved live campaign")
         if mode["mode"] == "trial":
             if name not in cfg["trial_ground_types"] or name in ("main", "minibench"):
                 raise PrecheckError("venue not allowed in trial")
@@ -309,6 +335,7 @@ class Submitter:
             snap, payload = self._inputs(aggregate, comment, snapshots)
             mode = load_submit_mode(self.config_dir)
             return {"intent_id": new_id("intent"), "mode": mode["mode"], "bot_id": mode.get("approved_bot_id"),
+                    **({"live_window_sha256": hash_obj(mode.get("live_window"))} if mode["mode"] == "live" else {}),
                     "aggregate_id": aggregate["record_id"], "comment_id": comment["record_id"],
                     "question_snapshot_id": snap["snapshot_id"], "snapshot": copy.deepcopy(snap),
                     **{k: snap.get(k) for k in ("tournament_id", "post_id", "question_id", "options")},
@@ -353,6 +380,14 @@ class Submitter:
         if current is None:
             raise PrecheckError("unrecognized current post")
         snap = intent["snapshot"]
+        import numeric as N
+        if snap["question_type"] in N.TYPES:
+            if N.scaling_changed(snap, current):
+                raise PermanentPrecheckError("scaling_changed")
+            try:
+                N.validate_cdf(intent["forecast_payload"][0]["continuous_cdf"], current)
+            except (ValueError, KeyError) as exc:
+                raise PermanentPrecheckError("invalid current numeric scaling or CDF") from exc
         for key in ("post_id", "question_id", "question_type", "options", "scheduled_close_time"):
             if current.get(key) != snap.get(key):
                 raise PermanentPrecheckError(f"current {key} differs from snapshot")
@@ -475,8 +510,19 @@ class Submitter:
             self._event(intent, "request_started", operation=operation, request_id=request_id, text_revised=revised,
                 request_started_at_precise=self.now().astimezone(timezone.utc).isoformat(timespec="microseconds").replace("+00:00", "Z"),
                 forecast_readback_baseline=self._checked_forecast_baseline if operation == "forecast" else None)
+        guard = None
         try:
             path = FORECAST_PATH if operation == "forecast" else COMMENT_PATH
+            # APITransport invokes this after shared pacing and immediately before I/O.
+            guard = getattr(self.transport, "set_write_guard", None)
+            if guard is not None:
+                def network_gate():
+                    self._gate(intent, discovery)
+                    if operation == "forecast":
+                        cutoff = submit_deadline(intent["snapshot"], load_run_config(self.config_dir)["deadlines"])
+                        if cutoff is None or self.now() >= cutoff:
+                            raise PrecheckError("submission deadline elapsed before network")
+                guard(network_gate)
             response = self.transport.write(path, copy.deepcopy(intent[f"{operation}_payload"]), request_id=request_id)
         except ConfirmedFailure as exc:
             self._failed(intent, operation, request_id, str(exc) or "transport confirmed nonacceptance",
@@ -486,6 +532,9 @@ class Submitter:
             self._event(intent, "unknown", operation=operation, request_id=request_id,
                         reason=f"write outcome unavailable: {type(exc).__name__}")
             return False
+        finally:
+            if guard is not None:
+                guard(None)
         if not self._receipt_matches(operation, intent, response):
             self._event(intent, "unknown", operation=operation, request_id=request_id, reason="unrecognized write receipt")
             return False

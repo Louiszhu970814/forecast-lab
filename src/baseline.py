@@ -33,13 +33,15 @@ from flab.workdir import PROJECT_ROOT, default_base_dir  # noqa: E402
 
 ACCEPTANCE_LOG = PROJECT_ROOT / "data" / "acceptance.jsonl"
 PLAYERS = ("claude", "gemini", "gpt")
+VERSION = "baseline_v2"
 
 # Never open files or descend into directories with these names (credentials, sessions, outputs).
 # Items inside an inventoried directory that are never read: folders that hold conversation data and
 # files that hold credentials. Matching is on whole names, except "oauth...token", which matches anywhere
 # in a file name (e.g. jetski-standalone-oauth-token); a broad substring rule hid ordinary plugin files
 # such as hooks-handlers/session-start.sh (GPT review 3). Only their name, size and mtime are
-# recorded, and any such item stops the line until it is reviewed by hand.
+# recorded for credentials, which remain blockers. D121 private directories are
+# informational and are not traversed or included in the protected content hash.
 PRIVATE_DIR = re.compile(r"^(sessions|history|logs?|transcripts?)$", re.I)
 CREDENTIAL_FILE = re.compile(
     r"^(auth|\.?credentials?)(\.json)?$|\.(pem|key|p12|pfx)$|^\.env(\..*)?$|oauth.*token|^cookies?(\.sqlite)?$", re.I)
@@ -89,10 +91,16 @@ def default_sources(env: dict[str, str] | None = None) -> list[Source]:
                content_keys=CLAUDE_SETTINGS_CONTENT_KEYS),
         Source("claude.settings_local", "claude", "~/.claude/settings.local.json", "json_mixed",
                content_keys=CLAUDE_SETTINGS_CONTENT_KEYS),
-        Source("claude.skills", "claude", "~/.claude/skills", "dir"),
-        Source("claude.plugins", "claude", "~/.claude/plugins", "dir",
+        # Personal skills stay content. The claude.ai account bucket that the interactive Claude Code
+        # syncs (observed 2026-11-03: docx 06:14Z, pdf 08:28Z, manifest 09:01Z) is informational:
+        # headless runs pass --disable-slash-commands and --tools, the claude 2.1.316 init event
+        # declared skills=[] and slash_commands=[] with this bucket present (D120 acceptance), and
+        # forecast.tool_violations stops the line if any run ever declares a skill (PLAN D123).
+        Source("claude.skills", "claude", "~/.claude/skills", "dir", exclude=("synced",)),
+        Source("claude.skills_synced", "claude", "~/.claude/skills/synced", "dir", category=INFORMATIONAL),
+        Source("claude.plugins", "claude", "~/.claude/plugins", "claude_plugin_dir",
                exclude=("store", CLAUDE_MARKETPLACE_INDEX, CLAUDE_PLUGIN_DIRECTORY_CACHE),
-               exclude_top_files=CLAUDE_PLUGIN_INDEX_TEMP),
+               exclude_top_files=CLAUDE_PLUGIN_INDEX_TEMP, general_category=INFORMATIONAL),
         # Which marketplaces are known is content; only their refresh time is informational.
         Source("claude.marketplace_index", "claude", f"~/.claude/plugins/{CLAUDE_MARKETPLACE_INDEX}",
                "marketplace_index", general_category=INFORMATIONAL),
@@ -149,7 +157,11 @@ def ancestor_sources(base: Path) -> list[Source]:
     for parent in [base, *base.parents]:
         for name in INSTRUCTION_NAMES:
             p = parent / name
-            out.append(Source(f"ancestor:{p}", "common", str(p), "dir" if name in INSTRUCTION_DIRS else "file"))
+            player = {"CLAUDE.md": "claude", ".claude": "claude",
+                      "GEMINI.md": "gemini", ".gemini": "gemini",
+                      ".codex": "gpt", ".agents": "gemini", ".agent": "gemini",
+                      "_agents": "gemini", "_agent": "gemini"}.get(name, "common")
+            out.append(Source(f"ancestor:{p}", player, str(p), "dir" if name in INSTRUCTION_DIRS else "file"))
     return out
 
 
@@ -186,7 +198,8 @@ def _unsafe_target(target: Path, root_real: Path, exclude: tuple[str, ...]) -> b
         or any(x in exclude for x in parts)
 
 
-def _hash_dir(root: Path, exclude: tuple[str, ...] = (), exclude_top_files: re.Pattern[str] | None = None) -> dict[str, Any]:
+def _hash_dir(root: Path, exclude: tuple[str, ...] = (), exclude_top_files: re.Pattern[str] | None = None,
+              *, synced_metadata: bool = False) -> dict[str, Any]:
     """Hash of sorted (relative path, kind, digest) entries.
 
     Private folders and credential files are not read (see PRIVATE_DIR, CREDENTIAL_FILE): their
@@ -194,7 +207,10 @@ def _hash_dir(root: Path, exclude: tuple[str, ...] = (), exclude_top_files: re.P
     regular file inside the same root is hashed by its target content; any other symlink is unsafe.
     """
     entries: list[list[Any]] = []
+    raw_entries: list[list[Any]] = []
+    sync_state: list[list[Any]] = []
     not_read: list[Any] = []
+    private_dirs: list[str] = []
     unsafe: list[str] = []
     errors: list[str] = []
     root_real = root.resolve()
@@ -209,7 +225,7 @@ def _hash_dir(root: Path, exclude: tuple[str, ...] = (), exclude_top_files: re.P
             if p.is_symlink():
                 unsafe.append(rel)
             elif PRIVATE_DIR.match(d):
-                not_read.append(_not_read(p, rel))
+                private_dirs.append(rel)
             else:
                 keep.append(d)
         dirnames[:] = keep
@@ -222,21 +238,44 @@ def _hash_dir(root: Path, exclude: tuple[str, ...] = (), exclude_top_files: re.P
                     and not p.is_symlink() and p.is_file()):
                 continue
             if p.is_symlink():
+                if synced_metadata:
+                    from claude_sync_state import metadata_parts
+                    # Exact metadata paths must be regular files, including internal links.
+                    metadata_parts(p, rel)
                 target = p.resolve()
                 if _unsafe_target(target, root_real, exclude):
                     unsafe.append(rel)
                 else:
-                    entries.append([rel, "symlink->file", _hash_file(target)])
+                    item = [rel, "symlink->file", _hash_file(target)]
+                    entries.append(item)
+                    raw_entries.append(item)
             elif CREDENTIAL_FILE.search(name):
                 not_read.append(_not_read(p, rel))
             elif p.is_file():
-                entries.append([rel, "file", _hash_file(p)])
+                parts = None
+                if synced_metadata:
+                    from claude_sync_state import metadata_parts
+                    parts = metadata_parts(p, rel)
+                if parts is None:
+                    item = [rel, "file", _hash_file(p)]
+                    entries.append(item)
+                    raw_entries.append(item)
+                else:
+                    content, state = parts
+                    entries.append([rel, "file", hash_obj(content)])
+                    raw_entries.append([rel, "file", state["raw_sha256"]])
+                    sync_state.append([rel, state])
             else:
                 unsafe.append(rel)
     out = {"hash": hash_obj([entries, not_read]), "entries": len(entries),
-           "not_read": [x[0] if isinstance(x[0], str) else x for x in not_read], "unsafe_symlinks": unsafe}
+           "not_read": [x[0] if isinstance(x[0], str) else x for x in not_read], "unsafe_symlinks": unsafe,
+           "informational_private_dirs": private_dirs}
     if errors:
         out["walk_errors"] = errors
+    if synced_metadata:
+        out.update(content_hash=hash_obj(["claude_plugin_inventory_v2", out["hash"]]),
+                   general_hash=hash_obj(sync_state), inventory_version="claude_plugin_inventory_v2",
+                   file_hashes=entries, raw_file_hashes=raw_entries)
     return out
 
 
@@ -255,6 +294,8 @@ def _state_dir_parts(root: Path, state_keys: tuple[str, ...]) -> tuple[str, str,
         return hash_obj([]), hash_obj([]), [f"cannot list: {type(exc).__name__}"]
     for name in names:
         p = root / name
+        if not p.is_symlink() and p.is_dir() and PRIVATE_DIR.fullmatch(name):
+            continue
         if p.is_symlink() or not p.is_file() or not name.endswith(".json") or CREDENTIAL_FILE.search(name):
             problems.append(f"unexpected entry {name!r}")
             continue
@@ -300,7 +341,7 @@ def _expand(path: str, home: Path) -> Path:
 def inspect_source(src: Source, home: Path) -> dict[str, Any]:
     path = _expand(src.path, home)
     rec: dict[str, Any] = {"path": str(path), "player": src.player, "kind": src.kind, "category": src.category,
-                           "general_category": src.general_category}
+                           "general_category": src.general_category, "baseline_version": VERSION}
     if not path.exists() and not path.is_symlink():
         rec["exists"] = False
         return rec
@@ -311,11 +352,18 @@ def inspect_source(src: Source, home: Path) -> dict[str, Any]:
         rec["error"] = "source is a symlink; review it and inventory the target explicitly"
         return rec
     try:
-        if src.kind == "dir":
+        if CREDENTIAL_FILE.search(path.name):
+            rec["error"] = "credential file is not read; review by hand"
+            return rec
+        if path.is_dir() and PRIVATE_DIR.fullmatch(path.name):
+            rec.update(category=INFORMATIONAL, hash=hash_obj("private_directory_not_read"))
+            return rec
+        if src.kind in ("dir", "claude_plugin_dir"):
             if not path.is_dir():
                 rec["error"] = "expected directory"
                 return rec
-            rec.update(_hash_dir(path, src.exclude, src.exclude_top_files))
+            rec.update(_hash_dir(path, src.exclude, src.exclude_top_files,
+                                 synced_metadata=src.kind == "claude_plugin_dir"))
             if rec["unsafe_symlinks"]:
                 rec["error"] = "symlink points outside the source, into a private folder or credential file, or to a directory"
             elif rec.get("walk_errors"):
@@ -335,7 +383,7 @@ def inspect_source(src: Source, home: Path) -> dict[str, Any]:
             rec["content_hash"], rec["general_hash"], problems = _state_dir_parts(path, src.content_keys)
             if problems:
                 rec["error"] = f"state directory holds more than top-level JSON state files: {problems[:3]}"
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError) as exc:
+    except (OSError, ValueError) as exc:
         rec["error"] = f"cannot inventory: {type(exc).__name__}"
     return rec
 
@@ -382,20 +430,20 @@ def take_snapshot(home: Path | None = None, sources: list[Source] | None = None,
 def _fingerprint(rec: dict[str, Any]) -> tuple[Any, Any]:
     if not rec.get("exists"):
         return ("absent", None)
-    if rec["kind"] in ("json_mixed", "state_dir", "marketplace_index"):
+    if rec["kind"] in ("json_mixed", "state_dir", "marketplace_index", "claude_plugin_dir"):
         return (canonical_json([rec.get("content_hash"), rec.get("error")]), rec.get("general_hash"))
     return (canonical_json([rec.get("hash"), rec.get("symlink_target"), rec.get("error")]), None)
 
 
-def blockers(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
+def blockers(snapshot: dict[str, Any], player: str | None = None) -> list[dict[str, Any]]:
     """Conditions that stop a line regardless of the baseline: unknown or unsafe state (D21, D54)."""
     out: list[dict[str, Any]] = []
     for sid, rec in snapshot["sources"].items():
         if rec.get("error"):
             out.append({"source": sid, "player": rec["player"], "category": CONTENT, "what": rec["error"]})
-    for player in PLAYERS:
-        if not snapshot["versions"].get(player):
-            out.append({"source": f"cli_version:{player}", "player": player, "category": CONTENT,
+    for line in PLAYERS:
+        if not snapshot["versions"].get(line):
+            out.append({"source": f"cli_version:{line}", "player": line, "category": CONTENT,
                         "what": "CLI version unknown"})
     credits = snapshot.get("gemini_credits")
     if credits is None:
@@ -404,7 +452,17 @@ def blockers(snapshot: dict[str, Any]) -> list[dict[str, Any]]:
     elif credits != 0:
         out.append({"source": "agy.credits", "player": "gemini", "category": CONTENT,
                     "what": f"remaining_credits is {credits}, expected 0 (D54)"})
-    return out
+    return [r for r in out if player is None or r["player"] in (player, "common")]
+
+
+def _same_protected(before: dict[str, Any] | None, after: dict[str, Any] | None) -> bool:
+    """True when compare() would report no non-informational change for this source."""
+    if before is None or after is None:
+        return before is after
+    (b_content, b_general), (a_content, a_general) = _fingerprint(before), _fingerprint(after)
+    content_ok = b_content == a_content or after.get("category") == INFORMATIONAL
+    general_ok = b_general == a_general or INFORMATIONAL in (after.get("category"), after.get("general_category"))
+    return content_ok and general_ok
 
 
 def compare(approved: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
@@ -453,17 +511,44 @@ def latest_approved(log: Path = ACCEPTANCE_LOG) -> dict[str, Any] | None:
     return approved[-1] if approved else None
 
 
-def approve(snapshot: Snapshot, reviewed_by: str, autoload_record: str, log: Path = ACCEPTANCE_LOG) -> dict[str, Any]:
+def approve(snapshot: Snapshot, reviewed_by: str, autoload_record: str, log: Path = ACCEPTANCE_LOG,
+            *, player: str | None = None) -> dict[str, Any]:
     """Record a baseline only after a human content review and a passing auto-load test (PLAN §7.2)."""
-    problems = blockers(snapshot.to_record())
+    problems = blockers(snapshot.to_record(), player=player)
     if problems:
         raise ValueError(f"snapshot has blocking conditions: {[p['what'] for p in problems]}")
+    body = snapshot.to_record()
+    if player is not None:
+        old = latest_approved(log)
+        if player not in PLAYERS or old is None:
+            raise ValueError("scoped approval requires a known player and existing baseline")
+        # A scoped approval re-attests only this line's sources and CLI version. Other
+        # lines keep their approved records (their own checks still see any change);
+        # a protected change to a common source would affect every line, so it is refused.
+        # Fingerprints are compared, not whole records: baseline_v2 adds bookkeeping keys
+        # and re-attributes ancestor files, neither of which is a content change.
+        sources: dict[str, dict[str, Any]] = {}
+        for sid in sorted(old["sources"].keys() | snapshot.sources.keys()):
+            before, after = old["sources"].get(sid), snapshot.sources.get(sid)
+            owner = (after or before)["player"]
+            if owner == player:
+                if after is not None:
+                    sources[sid] = after
+                continue
+            if owner == "common" and not _same_protected(before, after):
+                raise ValueError(f"scoped approval cannot change common source {sid}")
+            if before is not None:
+                sources[sid] = before
+        versions = {p: (snapshot.versions.get(p) if p == player else old["versions"].get(p)) for p in PLAYERS}
+        credits = snapshot.gemini_credits if player == "gemini" else old.get("gemini_credits")
+        body.update(sources=sources, versions=versions, gemini_credits=credits, scope=player,
+                    replaces_baseline=old["record_id"])
     records = list(read_records(log)) if log.exists() else []
     if not any(r.get("record_id") == autoload_record and r.get("type") == "autoload_result" and r.get("passed")
                for r in records):
         raise ValueError(f"no passing autoload_result {autoload_record!r} in {log}")
     rec = {"type": "baseline_approved", "record_id": new_id("base"), "reviewed_by": reviewed_by,
-           "autoload_record": autoload_record, "approved_at": to_iso(utc_now()), **snapshot.to_record()}
+           "autoload_record": autoload_record, "approved_at": to_iso(utc_now()), **body}
     append_record(log, rec)
     return rec
 

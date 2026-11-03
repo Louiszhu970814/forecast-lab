@@ -16,6 +16,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import forecast as F
+import numeric as N
 import submit as S
 from flab.config import load_run_config, load_submit_mode, load_tournaments
 from flab.ids import hash_obj, new_id, sha256_hex
@@ -28,10 +29,79 @@ from project_policy import trial_membership_error
 from submit_contract import ConfirmedFailure, own_forecast_records
 from submit_transport import APITransport, valid_current_options
 
-VERSION = 'v15_probe_v4'
+VERSION = 'v15_probe_v5'
+REUSE_VERSIONS = ('v15_probe_v4', VERSION)
 BOT_ID, GROUND_ID = 311763, 32977
 SCENARIOS = ('single', 'comment_length', 'comment_retry', 'duplicate_forecast')
 LENGTH_STEPS = (2000, 10000, 50000, 150000)
+NUMERIC_US = (.20, .25, .35, .50, .65, .75, .80)
+PREFERRED = {'numeric': (46451, 43325), 'discrete': (45708, 43322)}
+
+
+def _numeric_payload(snapshot):
+    try:
+        scale = N.scaling(snapshot)
+        values = dict(zip(N.KEYS, (scale.from_u(u) for u in NUMERIC_US)))
+        cdf = N.validate_cdf(N.to_cdf(values, snapshot), snapshot)
+        return [{'question': snapshot['question_id'], 'continuous_cdf': cdf}]
+    except ValueError as exc:
+        raise S.PrecheckError('invalid synthetic CDF') from exc
+
+
+def _scaling_hash(snapshot):
+    return hash_obj({k: snapshot[k] for k in N.SCALING_FIELDS if k in snapshot})
+
+
+class _NumericSubmitter(S.Submitter):
+    """Frozen synthetic input, with the normal Submitter write/gate implementation.
+
+    The probe owns the one-request bound and mandatory readback. Never call
+    _resume: its retry policy is for research submissions, not this probe.
+    """
+    def __init__(self, probe):
+        super().__init__(probe.root, config_dir=probe.project / 'config',
+            transport=probe.transport, allow_resubmit_by_venue={GROUND_ID: True},
+            now=probe.now, sleep=probe.sleep, probe_question_types=N.TYPES)
+        self.probe = probe
+
+    def _validate_frozen(self, intent):
+        if intent != self.probe.plan(intent['intent_id']):
+            raise S.PermanentPrecheckError('synthetic input differs from frozen plan')
+
+    def _precheck(self, intent):
+        changed = super()._precheck(intent)
+        if changed:
+            raise S.PermanentPrecheckError('probe question changed')
+        return changed
+
+    def _event(self, intent, status, **extra):
+        # Reserve in the probe journal FIRST. A crash between journals cannot
+        # release a slot or permit another probe to select the same question.
+        if status == 'request_started':
+            self.probe.event(intent['intent_id'], status, operation=extra['operation'],
+                request_id=extra['request_id'],
+                request_started_at=extra['request_started_at_precise'],
+                request_forecast_baseline=extra['forecast_readback_baseline'])
+        return super()._event(intent, status, synthetic=True, probe_version=VERSION, **extra)
+
+
+class _NumericTransport:
+    """Observe sanitized failure metadata without changing transport semantics."""
+    def __init__(self, transport):
+        self.transport = transport
+        self.http_status = None
+
+    def __getattr__(self, name):
+        return getattr(self.transport, name)
+
+    def write(self, path, payload, *, request_id):
+        self.http_status = None
+        try:
+            return self.transport.write(path, payload, request_id=request_id)
+        except Exception as exc:
+            status = getattr(exc, 'status', None)
+            self.http_status = status if type(status) is int else None
+            raise
 
 
 def _second_payload(snapshot):
@@ -237,7 +307,7 @@ def _proven_rejection(row):
 
 def _resolved_rejection(row):
     return _proven_rejection(row) or (
-        row.get('version') == VERSION and row.get('operation') == 'comment'
+        row.get('version') in REUSE_VERSIONS and row.get('operation') == 'comment'
         and row.get('error_type') == 'ConfirmedFailure'
         and row.get('injected_fault') is True and row.get('network_request_sent') is False
         and row.get('rejection_evidence') == 'local_injected_before_network')
@@ -295,6 +365,9 @@ class Probe:
             if pid == exclude:
                 continue
             if pid not in plans:
+                if all(r.get('state') == 'no_candidate' and r.get('version') == VERSION
+                       for r in rows if r.get('probe_id') == pid):
+                    continue
                 raise S.PrecheckError('probe event without plan')
             own = [r for r in rows if r.get('probe_id') == pid]
             starts = [r for r in own if r.get('state') == 'request_started']
@@ -327,11 +400,15 @@ class Probe:
         """Read-only, including in local mode. Deterministic selection, no output inspection."""
         if scenario not in SCENARIOS:
             raise S.PrecheckError('unsupported probe scenario')
-        if question_type not in ('binary', 'multiple_choice'):
+        numeric = question_type in N.TYPES
+        if question_type not in ('binary', 'multiple_choice', *N.TYPES) or (numeric and scenario != 'single'):
             raise S.PrecheckError('unsupported probe question type')
         if self.transport.account()['id'] != BOT_ID:
             raise S.PrecheckError('wrong probe account')
         reserved = {(bot, qid) for bot, qid, _ in S.probe_reservations(self.root)}
+        if numeric:
+            reserved.update((BOT_ID, r['plan']['question_id']) for r in self.rows()
+                            if r.get('state') == 'prepared')
         unresolved = self._unresolved_questions() if scenario != 'single' else set()
         candidates = []
         for listed in self.transport.client.list_posts(GROUND_ID, forecast_type=question_type):
@@ -351,7 +428,12 @@ class Probe:
             if snap is None or any(type(snap.get(k)) is not int or snap[k] <= 0 for k in ('post_id', 'question_id')) or snap.get('question_type') != question_type or snap.get('status') != 'open' \
                     or GROUND_ID not in snap.get('project_ids', []):
                 continue
-            previous = own_forecast_records(post)
+            try:
+                previous = own_forecast_records(post)
+            except ValueError:
+                if numeric:
+                    continue
+                raise
             if scenario == 'single' and (previous or (BOT_ID, snap['question_id']) in reserved):
                 continue
             if snap['question_id'] in unresolved:
@@ -369,24 +451,43 @@ class Probe:
                     not valid_current_options(snap.get('options')) or len(snap['options']) < 2
                     or not self.transport.can_reconcile_forecast(post)):
                 continue
+            if numeric:
+                try:
+                    N.scaling(snap)
+                    _numeric_payload(snap)
+                except ValueError:
+                    continue
+                if not self.transport.can_reconcile_forecast(post):
+                    continue
             candidates.append(snap)
         if not candidates:
+            if numeric:
+                self.event(new_id('v15'), 'no_candidate', question_type=question_type)
+                return {'status': 'no_candidate', 'question_type': question_type, 'writes': 0}
             raise S.PrecheckError(f'no eligible unused {question_type} bot-testing question')
-        snap = min(candidates, key=lambda s: (parse_iso(s['scheduled_close_time']), s['question_id']))
+        def priority(s):
+            preferred = PREFERRED.get(question_type, ())
+            return (preferred.index(s['question_id']) if s['question_id'] in preferred else len(preferred),
+                    parse_iso(s['scheduled_close_time']), s['question_id'])
+        snap = min(candidates, key=priority)
         probe_id = new_id('v15')
-        distribution = '50%' if question_type == 'binary' else 'uniform'
+        distribution = 'CDF' if numeric else ('50%' if question_type == 'binary' else 'uniform')
         text = f'Forecast Lab API component check {probe_id}. Synthetic {distribution} test; not a research forecast.'
         # No question prose or model output enters this component-test ledger.
         metadata = {k: snap.get(k) for k in ('post_id', 'question_id', 'question_type', 'options',
             'scheduled_close_time', 'open_time', 'content_hash', 'venue')}
         metadata['tournament_id'] = GROUND_ID
+        if numeric:
+            metadata.update({k: copy.deepcopy(snap[k]) for k in N.SCALING_FIELDS if k in snap})
         intent = dict(intent_id=probe_id, mode='trial', bot_id=BOT_ID, tournament_id=GROUND_ID,
             post_id=snap['post_id'], question_id=snap['question_id'], snapshot=metadata, allow_resubmit=False,
             forecast_payload=([{'question': snap['question_id'], 'probability_yes': .5}]
-                if question_type == 'binary' else _uniform_payload(metadata)),
+                if question_type == 'binary' else (_numeric_payload(metadata) if numeric else _uniform_payload(metadata))),
             max_comment_requests=1,
             comment_payload={'on_post': snap['post_id'], 'text': text, 'is_private': True, 'included_forecast': True},
             comment_hash=sha256_hex(text))
+        if numeric:
+            intent.update(probe_version=VERSION, scaling_sha256=_scaling_hash(metadata))
         if scenario != 'single':
             intent.update(scenario=scenario, reuse_authorization='PLAN D107 A2',
                 **_scenario_fields(scenario, metadata))
@@ -403,10 +504,10 @@ class Probe:
             raise S.PrecheckError('probe plan missing or changed')
         p = rows[0]['plan']
         scenario = p.get('scenario', 'single')
-        if rows[0].get('version') == VERSION and rows[0].get('scenario') != scenario:
+        if rows[0].get('version') in REUSE_VERSIONS and rows[0].get('scenario') != scenario:
             raise S.PrecheckError('probe scenario changed')
         if scenario != 'single':
-            if rows[0].get('version') != VERSION or p.get('reuse_authorization') != 'PLAN D107 A2' \
+            if rows[0].get('version') not in REUSE_VERSIONS or p.get('reuse_authorization') != 'PLAN D107 A2' \
                     or p.get('intent_id') != probe_id or p.get('allow_resubmit') is not False:
                 raise S.PrecheckError('invalid probe reuse authorization')
             fields = _scenario_fields(scenario, p['snapshot'])
@@ -422,6 +523,17 @@ class Probe:
             expected = [{'question': p['question_id'], 'probability_yes': .5}]
         elif question_type == 'multiple_choice':
             expected = _uniform_payload(p['snapshot'])
+        elif question_type in N.TYPES:
+            if scenario != 'single' or rows[0].get('version') != VERSION \
+                    or p.get('probe_version') != VERSION or p.get('intent_id') != probe_id \
+                    or p.get('allow_resubmit') is not False \
+                    or p.get('scaling_sha256') != _scaling_hash(p['snapshot']) \
+                    or p['comment_payload']['text'] != (
+                        f'Forecast Lab API component check {probe_id}. Synthetic CDF test; not a research forecast.'):
+                raise S.PrecheckError('invalid synthetic CDF plan')
+            expected = _numeric_payload(p['snapshot'])
+            if hash_obj(p['forecast_payload']) != hash_obj(expected):
+                raise S.PrecheckError('synthetic CDF payload differs from recomputation')
         else:
             raise S.PrecheckError('invalid synthetic probe question type')
         # Only binary plans prepared by v1/v2 may omit the bound and keep the D84/D88 recovery contract.
@@ -642,6 +754,125 @@ class Probe:
         if deadline is None or self.now() >= deadline:
             raise S.PermanentPrecheckError('probe submission deadline elapsed')
 
+    def _numeric_diagnostics(self, intent, request_id):
+        """Shapes only, never remote values, text or exception messages."""
+        shapes = []
+        error_type = None
+        try:
+            post = self.transport.get_post(intent['post_id'])
+            for row in own_forecast_records(post):
+                shapes.append({
+                    'keys': sorted(row),
+                    'fields': {key: {'type': type(value).__name__,
+                                    'length': len(value) if isinstance(value, (list, dict, str)) else None}
+                               for key, value in row.items() if key in (
+                                   'forecast_values', 'continuous_cdf', 'centers',
+                                   'interval_lower_bounds', 'interval_upper_bounds',
+                                   'probability_yes_per_category')},
+                })
+        except Exception as exc:
+            error_type = type(exc).__name__
+        self.event(intent['intent_id'], 'readback_diagnostics', operation='forecast',
+            request_id=request_id, diagnostics_version='numeric_shapes_v1',
+            rows=shapes, error_type=error_type)
+
+    def _run_numeric(self, intent):
+        """Caller holds all probe locks. One _write per operation, no _resume."""
+        pid = intent['intent_id']
+        # Revalidate even when called by the session under its existing locks.
+        if self.plan(pid) != intent:
+            raise S.PrecheckError('numeric plan changed')
+        sub = _NumericSubmitter(self)
+        transport = _NumericTransport(self.transport)
+        sub.transport = transport
+        history = [r for r in self.rows() if r['probe_id'] == pid]
+        starts = [r for r in history if r['state'] == 'request_started']
+        ids = [r.get('request_id') for r in starts]
+        if any(not isinstance(rid, str) or not rid for rid in ids) or len(ids) != len(set(ids)) \
+                or any(r.get('operation') not in ('forecast', 'comment') for r in starts) \
+                or any(sum(r.get('operation') == op for r in starts) > 1 for op in ('forecast', 'comment')) \
+                or any(r['state'] in ('found', 'unknown', 'confirmed_failed') and not any(
+                    r.get('request_id') == s['request_id'] and r.get('operation') == s['operation']
+                    for s in starts) for r in history):
+            raise S.PrecheckError('invalid numeric probe request history')
+        # An interrupted/unknown request can only be reconciled. Even a later
+        # found result does not authorize a new comment on a resumed invocation.
+        readonly = any(r['state'] == 'unknown' for r in history) or any(
+            not any(r['state'] in ('found', 'confirmed_failed') and r.get('request_id') == s['request_id']
+                    for r in history) for s in starts)
+
+        def result(status, **extra):
+            requests = [r for r in self.rows() if r['probe_id'] == pid and r['state'] == 'request_started']
+            return dict(probe_id=pid, question_type=intent['snapshot']['question_type'], status=status,
+                forecast_requests=sum(r['operation'] == 'forecast' for r in requests),
+                comment_requests=sum(r['operation'] == 'comment' for r in requests), **extra)
+
+        for operation in ('forecast', 'comment'):
+            own = [r for r in self.rows() if r['probe_id'] == pid and r.get('operation') == operation]
+            if any(r['state'] == 'confirmed_failed' for r in own):
+                return result('rejected', operation=operation)
+            if any(r['state'] == 'found' for r in own):
+                continue
+            request = next((r for r in own if r['state'] == 'request_started'), None)
+            if request is None:
+                if readonly:
+                    return result('unknown', operation=operation, reconcile_only=True)
+                self.local_gate()
+                checked = dict(intent, allow_resubmit=operation == 'comment')
+                sub._precheck(checked)
+                if operation == 'comment':
+                    found = next(r for r in self.rows() if r['probe_id'] == pid
+                                 and r.get('operation') == 'forecast' and r['state'] == 'found')
+                    if sub._checked_forecast_baseline != [found['receipt']['id']]:
+                        raise S.PrecheckError('unexpected forecast appeared before probe comment')
+                # Uses the formal network-time guard, deadlines and write path.
+                # No synthetic "intent" row: normal Submitter.run must never
+                # adopt these bounded component requests for its retry policy.
+                sub._write(intent, operation)
+                request = next((r for r in self.rows() if r['probe_id'] == pid
+                                and r.get('operation') == operation and r['state'] == 'request_started'), None)
+                if request is None:
+                    return result('rejected', operation=operation)
+                last = sub._last_operation(intent, operation)
+                if last and last['status'] == 'confirmed_failed':
+                    self.event(pid, 'confirmed_failed', operation=operation, request_id=request['request_id'],
+                        error_type='ConfirmedFailure', http_status=transport.http_status)
+                    return result('rejected', operation=operation, http_status=transport.http_status)
+                if transport.http_status is not None and 400 <= transport.http_status < 500:
+                    sub._event(intent, 'unknown', operation=operation, request_id=request['request_id'],
+                        reason='synthetic probe write returned HTTP 4xx without confirmed failure')
+                    self.event(pid, 'unknown', operation=operation, request_id=request['request_id'],
+                        http_status=transport.http_status)
+                    return result('unknown', operation=operation, http_status=transport.http_status)
+            rid = request['request_id']
+            try:
+                observed = self.transport.readback(operation, {**intent, **{
+                    k: request[k] for k in ('request_started_at', 'request_forecast_baseline')}},
+                    request_id=rid)
+                found = observed.outcome == 'found' and observed.request_id == rid \
+                    and sub._receipt_matches(operation, intent, observed.record)
+                if found and operation == 'comment':
+                    record = self._comment_record(observed.record['id'], intent['post_id'])
+                    author = record.get('author')
+                    author = author.get('id') if isinstance(author, dict) else author
+                    found = (type(author) is int and author == BOT_ID
+                        and type(record.get('on_post')) is int and record['on_post'] == intent['post_id']
+                        and record.get('is_private') is True and isinstance(record.get('text'), str)
+                        and sha256_hex(record['text']) == intent['comment_hash'])
+            except Exception:
+                found = False
+            if not found:
+                sub._event(intent, 'unknown', operation=operation, request_id=rid,
+                    reason='synthetic probe readback cannot establish this request')
+                self.event(pid, 'unknown', operation=operation, request_id=rid)
+                if operation == 'forecast':
+                    self._numeric_diagnostics(intent, rid)
+                return result('unknown', operation=operation)
+            sub._event(intent, operation + '_ok', operation=operation, request_id=rid,
+                response=observed.record, remote_id=observed.record['id'], reconciled=True)
+            self.event(pid, 'found', operation=operation, request_id=rid, receipt=observed.record)
+        return result('found')
+
     def run(self, probe_id, *, retry_confirmed_comment=False):
         if type(retry_confirmed_comment) is not bool:
             raise S.PrecheckError('invalid comment recovery flag')
@@ -655,6 +886,8 @@ class Probe:
                 return self._run_reuse(intent)
             if retry_confirmed_comment and intent.get('max_comment_requests') == 1:
                 raise S.PrecheckError('bounded probe forbids comment recovery')
+            if intent['snapshot']['question_type'] in N.TYPES:
+                return self._run_numeric(intent)
             for operation in ('forecast', 'comment'):
                 rows = [r for r in self.rows() if r['probe_id'] == probe_id]
                 own = [r for r in rows if r.get('operation') == operation]
@@ -747,7 +980,7 @@ def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('command', choices=('prepare', 'run'))
     parser.add_argument('--probe-id')
-    parser.add_argument('--question-type', choices=('binary', 'multiple_choice'), default='binary')
+    parser.add_argument('--question-type', choices=('binary', 'multiple_choice', *N.TYPES), default='binary')
     parser.add_argument('--scenario', choices=SCENARIOS, default='single')
     parser.add_argument('--retry-confirmed-comment', action='store_true',
         help='One explicit retry after confirmed comment rejection; never retries forecasts or unknown outcomes')
@@ -762,7 +995,7 @@ def main(argv=None):
         result = {'status': 'blocked', 'error_type': type(exc).__name__,
             'http_status': getattr(exc, 'status', None) if type(getattr(exc, 'status', None)) is int else None}
     print(json.dumps(result))
-    return 0 if result.get('status') in (None, 'complete') else 1
+    return 0 if result.get('status') in (None, 'complete', 'found', 'no_candidate') else 1
 
 
 if __name__ == '__main__':

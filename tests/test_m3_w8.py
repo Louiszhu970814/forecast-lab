@@ -23,7 +23,7 @@ def answer(*args, **kwargs):
 def test_single_idle_question_finalizes_at_deadline_without_background_job(integrated, stop_submit):
     e = integrated
     (e.config / 'players_enabled.json').write_text(json.dumps(dict(claude=True, gemini=False, gpt=True)))
-    e.post['question']['scheduled_close_time'] = to_iso(NOW + timedelta(seconds=1800))
+    e.post['question']['scheduled_close_time'] = to_iso(NOW + timedelta(seconds=2100))
     if stop_submit:
         (e.config / 'STOP_SUBMIT').touch()
     sleeps = []
@@ -112,7 +112,7 @@ def test_handoff_does_not_start_slow_tail(setup_cycle, monkeypatch):
     enabled['claude'] = True
     import cycle as C
     cutoff = C.timing_limits(F.load_run_config())['handoff_s']
-    current[0]['scheduled_close_time'] = to_iso(NOW + timedelta(seconds=cutoff + 40 + 1500))
+    current[0]['scheduled_close_time'] = to_iso(NOW + timedelta(seconds=cutoff + 40 + 1800))
     def pf(player, tier, adapter):
         return F.Preflight(player, tier=tier, problems=['paused'] if player == 'claude' else [])
     # Start just before the last handoff, with a previously accumulated answer.
@@ -138,7 +138,7 @@ def test_cycle_handoff_to_next_tick_preserves_deadline(integrated, offset):
     cutoff = C.timing_limits(F.load_run_config())['handoff_s']
     deadline = NOW + timedelta(seconds=cutoff + offset)
     (e.config / 'players_enabled.json').write_text(json.dumps(dict(claude=True, gemini=False, gpt=True)))
-    e.post['question']['scheduled_close_time'] = to_iso(deadline + timedelta(minutes=25))
+    e.post['question']['scheduled_close_time'] = to_iso(deadline + timedelta(minutes=30))
     def pf(player, tier, adapter):
         return F.Preflight(player, tier=tier, problems=['paused'] if player == 'claude' else [])
     e.run(preflight=pf)

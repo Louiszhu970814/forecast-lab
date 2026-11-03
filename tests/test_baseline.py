@@ -75,17 +75,22 @@ def test_forbidden_paths_are_never_opened(tmp_path: Path, monkeypatch: pytest.Mo
     text = json.dumps(snap.to_record())
     for secret in ("skill v1", "SECRET", "SESSION-OUTPUT", "oauthAccount"):
         assert secret not in text
-    # what is not read stops its line until reviewed by hand
-    assert snap.sources["claude.plugins"]["not_read"] == ["sessions/"]
+    # D121: private session directories are informational; credentials still block.
+    assert snap.sources["claude.plugins"]["informational_private_dirs"] == ["sessions"]
     assert snap.sources["codex.skills"]["not_read"] == [".env"]
-    assert _decisions(snap, snap) == {"claude": "stop", "gemini": "ok", "gpt": "stop"}
+    assert _decisions(snap, snap) == {"claude": "ok", "gemini": "ok", "gpt": "stop"}
 
 
 def test_no_change_is_ok_and_content_change_stops_that_line(tmp_path: Path) -> None:
     home = _make_home(tmp_path)
+    (home / ".claude" / "skills" / "mine").mkdir()
+    (home / ".claude" / "skills" / "mine" / "SKILL.md").write_text("skill v1")
     a = _snap(home, tmp_path)
     assert _decisions(a, _snap(home, tmp_path)) == {"claude": "ok", "gemini": "ok", "gpt": "ok"}
+    # D123: the claude.ai-synced bucket is informational; personal skills remain content.
     (home / ".claude" / "skills" / "synced" / "SKILL.md").write_text("skill v2")
+    assert _decisions(a, _snap(home, tmp_path)) == {"claude": "ok", "gemini": "ok", "gpt": "ok"}
+    (home / ".claude" / "skills" / "mine" / "SKILL.md").write_text("skill v2")
     assert _decisions(a, _snap(home, tmp_path)) == {"claude": "stop", "gemini": "ok", "gpt": "ok"}
 
 
@@ -254,7 +259,10 @@ def test_state_directory_holds_only_top_level_json(tmp_path: Path) -> None:
     assert "error" not in _snap(home, tmp_path).sources["claude.plugin_state"]
     outside = tmp_path / "outside.json"
     outside.write_text("{}")
-    cases = [lambda: (store / "sessions").mkdir(), lambda: os.symlink(outside, store / "link.json"),
+    (store / "sessions").mkdir()
+    assert "error" not in _snap(home, tmp_path).sources["claude.plugin_state"]
+    (store / "sessions").rmdir()
+    cases = [lambda: os.symlink(outside, store / "link.json"),
              lambda: (store / "output.txt").write_text("SESSION-OUTPUT")]
     for make in cases:
         make()

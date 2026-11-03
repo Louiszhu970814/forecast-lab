@@ -11,8 +11,9 @@ from aggregate import build_aggregate, logit, probability, select_inputs
 from flab.config import load_run_config
 from flab.ids import hash_obj
 from flab.timeutil import parse_iso, to_iso, utc_now
+import numeric as N
 
-VERSION = "escalation_v1"
+VERSION = "escalation_v2"
 
 
 def _market_error(market: Any, options: list[str], now: datetime) -> str | None:
@@ -51,14 +52,18 @@ def evaluate(snapshot: dict[str, Any], attempts: list[dict[str, Any]], *,
     expected = {"binary_log_odds_diff": 1.0, "binary_clip": [0.02, 0.98],
                 "multiple_choice_prob_diff": 0.25, "market_logit_diff": 0.7,
                 "market_price_epsilon": 0.005, "flags": ["resolution_ambiguity", "evidence_conflict"]}
-    if policy != expected or config.get("version") != "run_config_v2":
+    # v3 changes only deadline headroom; candidate thresholds are identical.
+    if policy != expected or config.get("version") not in {"run_config_v2", "run_config_v3"}:
         raise ValueError("unsupported escalation settings: implement and version changes first")
     events = list(audit_events)
     selected, _ = select_inputs(snapshot, attempts, stage="tier1", audit_events=events)
     agg = build_aggregate(snapshot, attempts, config=agg_config, audit_events=events, now=now)
     triggers, rejected_markets = [], []
     options = agg["options"] or []
-    if len(selected) >= 2:
+    numeric = snapshot["question_type"] in N.TYPES
+    if numeric:
+        triggers.extend(N.escalation_triggers(selected, snapshot))
+    if len(selected) >= 2 and not numeric:
         if not options:
             lo, hi = policy["binary_clip"]
             values = [logit(min(hi, max(lo, r["probability"]))) for r in selected]
@@ -77,7 +82,7 @@ def evaluate(snapshot: dict[str, Any], attempts: list[dict[str, Any]], *,
         for flag in rec.get("escalation_flags") or []:
             if flag in policy["flags"]:
                 triggers.append({"type": flag, "attempt_id": rec["attempt_id"], "strength": None, "threshold": None})
-        for index, market in enumerate(rec.get("market_refs") or []):
+        for index, market in enumerate([] if numeric else rec.get("market_refs") or []):
             if reason := _market_error(market, options, now):
                 rejected_markets.append({"attempt_id": rec["attempt_id"], "market_index": index, "reason": reason})
                 continue
@@ -98,4 +103,9 @@ def evaluate(snapshot: dict[str, Any], attempts: list[dict[str, Any]], *,
                          "policy_sha256": hash_obj(policy), "evaluated_at_utc": to_iso(now),
                          "candidate": bool(triggers), "triggers": triggers, "rejected_markets": rejected_markets,
                          "admission_status": "pending_budget_and_deadline" if triggers else "not_requested"}
+    if numeric:
+        numeric_policy = {"iqr_multiplier": N.IQR_MULTIPLIER, "floor_u": N.ESCALATION_FLOOR_U,
+                          "flags": policy["flags"], "market_disagreement": False}
+        agg["escalation"].update(version=N.ESCALATION_VERSION, policy_sha256=hash_obj(numeric_policy),
+                                 numeric_policy=numeric_policy)
     return agg

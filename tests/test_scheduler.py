@@ -136,20 +136,26 @@ def test_attempt_cap_records_skips_without_blocking_other_lines(environment):
     scheduler, _, tracker, _ = environment()
     scheduler.campaign["weekly_attempt_caps"]["claude"] = 1
     result = scheduler.run()
-    assert "claude" not in result["paused_players"]
-    assert result["jobs_completed"] == 12
+    assert "claude" in result["paused_players"]
+    assert result["jobs_completed"] == 10
     assert sum(p == "claude" for p, _, _ in tracker["calls"]) == 1
     assert sum(p == "gpt" for p, _, _ in tracker["calls"]) == 4
-    assert any(r["outcome"] == "budget_skipped" for r in read_records(scheduler.jobs_log))
+    assert any(r["outcome"] == "budget_wait" for r in read_records(scheduler.jobs_log))
+    # The next round can account for Claude's still-pending tier-2 admission;
+    # it also waits without spending a model call, then no further jobs are ready.
+    count = len(tracker["calls"])
+    assert scheduler.run()["jobs_completed"] == 1
+    assert len(tracker["calls"]) == count
     assert scheduler.run()["jobs_completed"] == 0
-    # D80: questions never run because of the cap are a coverage gap, not invalid outputs.
+    # D121: new temporary waits are not archived skips; unattempted questions
+    # remain in the coverage denominator until a later decision or deadline.
     import m2_report
     line = m2_report.build(scheduler.root, scheduler.campaign, gates={})["lines"]["claude"]
     skipped = line["budget_skipped_tier1_questions"]
-    assert skipped and line["denominator"] == line["campaign_questions"] - len(skipped)
+    assert not skipped and line["denominator"] == line["campaign_questions"]
     assert line["valid_fraction"] == line["selected_tier1_questions"] / line["denominator"]
     assert line["coverage_fraction"] == line["selected_tier1_questions"] / line["campaign_questions"]
-    assert line["denominator"] < line["campaign_questions"]
+    assert line["denominator"] == line["campaign_questions"]
 
 
 def test_budget_skip_denominator_counts_started_and_invalid_attempts(tmp_path):
