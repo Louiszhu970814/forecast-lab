@@ -1,60 +1,34 @@
 # Forecast Lab
 
-多模型協作的預測專案：Claude、Gemini、GPT 三個模型先各自獨立研究 Metaculus 比賽的題目，再由程式整合成一個預測，以機器人帳號參加 Metaculus 的 FutureEval 機器人預測賽，目標是在訂閱額度內最大化比賽分數。機器人賽用剩的額度，可以為人類賽提供參考預測。本專案不下注、不交易。
+多模型協作的預測專案：Claude、Gemini、GPT 三個模型先各自獨立研究 Metaculus 比賽的題目，再由程式整合成一個預測，以機器人帳號參加 Metaculus 的 FutureEval 機器人預測賽，目標是在三家訂閱額度內最大化比賽分數（`PLAN.md` D31）。機器人賽用剩的額度，可以為人類賽提供參考預測。本專案不下注、不交易。
 
-**目前狀態**：計畫書 v1.9（v1.0 已於 2026-10-31 凍結）。已實作 M2 的三線本地排程、預算、整合、匿名第二層、英文留言與成本報表；實際驗收與剩餘門檻見 [W4～W6](docs/tasks/M2-W4-W6.md)。人工基準與真實 20 題量測尚未完成，不能宣告 M2 完成。最新測試、模型驗收及接續步驟見 [交接紀錄](docs/tasks/HANDOFF.md)。
+## 目前狀態（截至 2026-11-03 UTC，計畫書 v1.78）
 
-## 檔案地圖
+- **D118 MiniBench 正式參賽進行中**：送出模式為 `live`（機器人帳號 `311763`，窗口 `d118_minibench_20261103T0400Z` 至 `2026-11-10T04:00:00Z`）。
+- **支援題型**：是非題（binary）、多選題（multiple_choice），以及已於 v1.74 上線的 M5 數值題（numeric）與離散題（discrete）（見 `config/question_types.json`）。
+- **防線與維護狀態**：
+  - D121 第一批 fail-soft 放寬與 D123 `claude.skills_synced` 資訊性分類已生效。
+  - D124 `autoload_maintenance_v1`、`forecast_pipeline_v8` 與 `auto_reaccept_v1`（目前僅啟用 **observe**，尚未啟用 R2-C enforce）已上線。
+  - D125 `autoload_v3` Codex 載入量測相容性已修正。
+- **接手與當日進度**：請先閱讀 [交接紀錄](docs/tasks/HANDOFF.md) 並執行 `.venv/bin/python src/project_control.py status`。
 
-手機控制入口已實作：可透過 Telegram 查狀態、看營運報告、設定每日／每週報告，以及交辦獨立 Codex 開發任務、補充需求和查進度。開發修改保留供審查整合。首次使用請依 [Telegram 設定指南](docs/telegram.md) 操作；完整結算分數報告尚未接入。
+## AI 協作者必讀順序
 
-| 檔案 | 用途 |
+1. [`AGENTS.md`](AGENTS.md)（Claude 透過 [`CLAUDE.md`](CLAUDE.md) 匯入）：三方共同守則與硬性規則。
+2. [`docs/tasks/HANDOFF.md`](docs/tasks/HANDOFF.md)：最新交接狀態、營運守則與待辦事項。
+3. [`PLAN.md`](PLAN.md)：完整規格與唯一真實來源（閱讀時請以 §15 最新決策與 §16 版本變更紀錄為準）。
+4. [`docs/telegram.md`](docs/telegram.md)：手機工作對話（D91 `project_control.py` 與 `telegram_bot.py`）操作說明。
+
+## 核心檔案地圖
+
+| 路徑 | 用途 |
 |---|---|
-| `PLAN.md` | 完整計畫書，本專案唯一的真實來源 |
-| `AGENTS.md` | 三個 AI 共用的協作守則（Codex 與 agy 會自動讀取） |
-| `CLAUDE.md` | Claude Code 的專案設定，匯入 `AGENTS.md` |
-| `.gitignore` | 排除 `.env` 等機密與暫存檔，以及含題目內容的 `data/`、`reports/` |
+| `PLAN.md` | 完整計畫書（Single Source of Truth） |
+| `AGENTS.md` / `CLAUDE.md` | 三方 AI 協作守則與硬性規則 |
+| `docs/tasks/HANDOFF.md` | 最新交接紀錄与操作邊界 |
 | `docs/tournament_checks/` | 比賽規則核對紀錄（摘要） |
-
-## 審查流程
-
-依序進行，每一步結束都先 commit 再交給下一位：
-
-1. Gemini 審查 → commit
-2. GPT 審查 → commit
-3. Claude 依 Louis 的決定整合意見、升版 → commit
-4. 重複以上步驟，直到某一回合沒有任何 blocking 意見，Louis 核准後凍結為 v1.0
-
-每一步結束後執行以下指令（由人類在終端機執行，或由 Louis 指示 Claude 代為執行；審查者本身不執行 commit）：
-
-```
-cd ~/forecast-lab
-git add -A
-git commit -m "review: <審查者> r<回合>"
-```
-
-### 給 Gemini 的審查指令（Louis 操作）
-
-```
-cd ~/forecast-lab
-agy
-```
-
-進入後貼上：
-
-> 請完整閱讀 PLAN.md、AGENTS.md 與 docs/tournament_checks/futureeval.md。你是 Gemini，負責第 5 回合審查。請依 AGENTS.md 的編輯規則，只在 PLAN.md 的 §14.1 底下新增「第 5 回合審查」小節，不要修改正文。請特別做到三件事：一、對照 §15 的 D44 到 D52 與 §16 的 v0.5 變更紀錄，確認你第 4 回合的意見是否被正確整合；對 §16 v0.5 中分歧裁決的部分若仍有異議，請說明理由；二、確認 §7.3 中 agy 第 2 層的最小自訂 agent 規格與 §7.7 的額度判斷是否與本機 help、changelog 一致，並附上來源；三、以 docs/tournament_checks/futureeval.md 的規則摘要為準，檢查 §3.4～§3.6 的送出流程與試驗期設計，是否還有違反比賽規則的路徑。只有仍然成立的問題才標為 blocking；若沒有 blocking 意見，請在小節最後明確寫出「本回合沒有 blocking 意見」。
-
-（第 1～5 回合的指令已執行完畢，見 git 歷史。）
-
-### 給 GPT 的審查指令（女友操作，或經她同意由 Claude 代為執行）
-
-```
-cd ~/forecast-lab
-codex
-```
-
-進入後貼上：
-
-> 請完整閱讀 PLAN.md、AGENTS.md 與 docs/tournament_checks/futureeval.md。你是 GPT，負責第 5 回合審查。請依 AGENTS.md 的編輯規則，只在 PLAN.md 的 §14.2 底下新增「第 5 回合審查」小節，不要修改正文。請特別做到三件事：一、對照 §15 的 D44 到 D52 與 §16 的 v0.5 變更紀錄，確認你第 4 回合的 5 項 blocking 是否已解決，以及 non-blocking 意見是否被正確整合；若不同意 Gemini 第 5 回合的意見或 §16 v0.5 的分歧裁決，也請說明；二、確認 §7.3 與 §7.6 中 codex 第 2 層（`--enable multi_agent`）的設定與子代理驗收，並附上本機 help 或官方文件來源；三、審查 §3.6 的送出契約與狀態機、§3.3 的稽核繼承與 §10 M3 的完成標準，是否足以讓 M1 開始。只有仍然成立的問題才標為 blocking；若沒有 blocking 意見，請在小節最後明確寫出「本回合沒有 blocking 意見」。
-
-（第 1～5 回合的指令已執行完畢，見 git 歷史。）
+| `config/` | 執行期設定、場地白名單、題型開關與 `cycle_campaign.json` |
+| `src/` | 預測排程、三線 CLI adapters、整合、送出、基準檢查與 Telegram 服務 |
+| `prompts/` | 預測、格式修復與對帳提示詞及輸出 schema |
+| `launchd/` | macOS LaunchAgent 週期排程與說明（[`launchd/README.md`](launchd/README.md)） |
+| `tests/` | 離線單元與回歸測試（含受保護雜湊與 M5 金標準 fixtures） |
