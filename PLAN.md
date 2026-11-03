@@ -1,11 +1,11 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.77（v1.0 凍結後的修訂，見 §16；D108 起由 GPT 主持，D120 將 D119 後續交 Claude 並已完成）
+> 版本：v1.78（v1.0 凍結後的修訂，見 §16；D108 起由 GPT 主持，D120 將 D119 後續交 Claude 並已完成）
 > 初稿：Claude
 > 本回合整合者：GPT（D108；Claude 依 D95 主持至 D107，交接見 `docs/tasks/M3-E2E-D105-MONITOR.md`）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
 > 最後更新：2026-11-03
-> 狀態：D118 MiniBench 進行中（固定截止 UTC 11/10 04:00）；M5、D121 第一批與 D123 已上線，三線 ready。D124：維護修正已互斥套用，完整 2789 passed、Claude／Gemini 最終雙審查 PASS；單次載入量測已還原，六項前檢通過；GPT 身分證據不足使量測未 PASS，observe 已上線、真正自動重驗未開放（v1.0 於 2026-10-31 經 Louis 核准凍結，D54）
+> 狀態：D118 MiniBench 進行中（固定截止 UTC 11/10 04:00）；M5、D121 第一批與 D123 已上線，三線 ready。D124：維護修正已互斥套用，完整 2789 passed、Claude／Gemini 最終雙審查 PASS；單次載入量測已還原，六項前檢通過；D124 Codex 量測因判定與 §7.7 不相容而未 PASS；D125 autoload_v3 修正與 2838 項回歸及雙審已完成，UTC 13:43 已互斥套用、前後六項前檢全過；observe 已上線、真正自動重驗未開放（v1.0 於 2026-10-31 經 Louis 核准凍結，D54）
 
 ---
 
@@ -884,6 +884,7 @@ token 欄位的對應（D29）：
   - 依據：官方文件說明，無互動模式指定的模型無法使用時會直接失敗，額度用完時會立即回報、不會重試；但沒有說明額度用完時是否會自動改用其他模型，所以須以額度差值驗證。
 - **claude**：以 `--output-format json` 回報的模型用量欄位，比對指定的模型（欄位於 M1 確認）。
 - **codex**：目前的事件中沒有模型 ID，記為 `unverified`。
+  - D125：`autoload_v3` 的載入量測沿用本節的可觀測性限制，保留 `reported_model_id=null`、`model_check=unverified`。僅限 GPT tier1 profile；tier2／format_repair／acceptance 不適用。僅當結果 argv 與該次 request 的 adapter argv 自我一致、已受限模型目錄與結果及最新驗收相符、CLI／judge／runtime／正式 model+effort 驗收有效且無未結驗收時，接受此 Codex 限制，另記 `model_evidence` 與驗收 record ID；不宣稱已驗證伺服器端實際模型 ID。維護六鎖與前後基準／固定設定／CLI 雜湊／六項前檢照常。其他兩線仍須 verified；三線 mismatch 優先處理並停止量測。這是修正 v2 與本節衝突的硬編碼，不變更預測模型、effort 或 D124 名額；舊 failed 不回填 PASS，不自動核准來源或啟用 R2 enforce。詳見 `docs/tasks/D125-CODEX-AUTOLOAD-COMPATIBILITY.md`。
 
 ---
 
@@ -1795,10 +1796,13 @@ view_image                  stable true
 
 
 | D124 | 2026-11-03 | Louis 回覆「今晚就開工如何 目前似乎題目較少該預測的都預測完了」，接受今晚開始 D121 第二批 R2-C／R12 及載入實測的維護時段；C 方向沿用 D121，不重問 | GPT 接手，Claude 定稿與親自完整審查，Gemini 獨立審查。先核對無在途工作，準備安全還原與有界控制器，通過後在空檔持 cycle／scheduler／submit／三線鎖實測；若有新工作先等自然結束。不得繞過基準或讀開放題答案，不改 D118 三份固定設定及 adapters／runner／netguard；既有 live 截止、預算與場地不變。Claude 額度不足則延後其審查，不以其他模型代替。決策當下未改預測行為；後續已雙審 PASS、2789 passed，UTC 13:06 套用維護修正、13:10 套用 observe。單次三線載入量測完整還原、六項前檢通過，但 GPT model_check=unverified，保留 measurement_failed、不重跑、不核准或重新分類；真正自動重驗續作仍待完成 |
+| D125 | 2026-11-03 | Louis 指出「codex 模型是 gpt-6-astra 啊」，並問「那這邊要如何解決」；GPT 主持依既有 D121 C／D124 與 §7.7 修正載入量測相容性，不新增模型或載入實測授權 | `autoload_v3` 對 Codex 缺少 reported ID 的已知限制，核對固定請求、受限 catalog 與有效正式驗收後記錄相容判定，保留 unverified/null；原 verified 路徑與維護互斥／還原／工具檢查不變，mismatch 優先於一般錯誤。只改 autoload.py 及新增回歸測試，保留舊 D124 failed 與已用名額，不核准 baseline、不重新分類、不啟用真正自動重驗。完整 2838 passed、179 相關測試及 Claude／Gemini 程式雙審 PASS。D124 名額已用完且仍無整批載入量測 PASS，不能據此將來源改成資訊性；若要新增載入量測須另定有界授權，結果見 §16 |
 
 ---
 
 ## 16. 變更紀錄
+
+- **v1.78**（2026-11-03）：D125，修正 Codex 載入量測要求 verified 與 §7.7 的衝突，`autoload_v3` 保留原 model_check／reported ID，以請求、catalog 與有效驗收證據給出相容判定，新增共 49 項回歸，涵蓋真實 GPT parser 合成 JSONL、參數／catalog／驗收拒絕及控制器行為。另明確傳入證據專案根目錄，模型 mismatch 不被一般錯誤掩蓋。最終完整 2838 passed（142.85 秒）、相關 179 passed，Claude 親自完整複審／Gemini 獨立最終程式審查均 PASS。UTC 13:43 已持六鎖互斥套用，前後各六項 preflight 全過、py_compile 通過、無 STOP／未結維護，受保護設定與執行指紋不變；文件複核 PASS，結果見交接及操作帳冊；歷史 D124 failed 不改，不增加 canary 呼叫，正式模型、effort、固定設定與驗收指紋不變。
 
 - **v1.77**（2026-11-03）：D124 單次載入量測 run autoload_1793711226166_c2e156fc，UTC 13:07:42～13:08:19 三線各呼叫一次並寫入原週上限；全域檔案還原無衝突、manifest closed，S_pre/S_post 受保護項相符、六項 preflight 全過、無 STOP。整批為 measurement_failed：Claude／Gemini 合格，既有 GPT adapter 回報 completed=true、工具零呼叫／零違規，但 reported_model_id=None、model_check=unverified，不能標 PASS；不重跑、不自動核准或重新分類。UTC 13:10 在六鎖互斥下套用 auto_reaccept_v1 observe 與單一 run.sh 週期後接點，只記候選、不呼叫模型／不改基準。12 個部署檔案與最終雙審及 2789 passed 的雜湊一致，D118 三份固定設定、M5 開關與驗收指紋檔案未變。§7.2／§7.6 補入實際分階段行為與恢復要求；真正自動恢復未開放。 部署後首輪自然 cycle_1793711623971_6626bb2a 於 UTC 13:15:09 complete，三線 ready、errors 空；隨後 observe 三線 no_candidate、model_calls=0。
 

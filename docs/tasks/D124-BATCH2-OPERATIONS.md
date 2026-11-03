@@ -1,5 +1,7 @@
 # D124 第二批維護與觀察模式
 
+後續 D125 已修正 Codex 量測判定與 PLAN §7.7 的相容性，見 [D125-CODEX-AUTOLOAD-COMPATIBILITY.md](D125-CODEX-AUTOLOAD-COMPATIBILITY.md)。以下保留 D124 實際執行歷史；原 failed 與已用名額不變。
+
 此文件記錄 D121 C 的第一階段實作與操作限制；PLAN 是唯一規格來源。最終 Claude／Gemini 兩批審查均 PASS；UTC 13:06／13:10 已分批互斥套用。單次載入量測已執行及完整還原，但 GPT 身分未驗證使整批 measurement_failed，不是量測 PASS。
 
 ## 發布內容

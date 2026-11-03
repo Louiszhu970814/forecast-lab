@@ -36,7 +36,7 @@ from flab.timeutil import to_iso, utc_now  # noqa: E402
 from flab.workdir import PROJECT_ROOT, default_base_dir, make_attempt_dir, remove_attempt_dir  # noqa: E402
 
 DATA_DIR = PROJECT_ROOT / "data"
-VERSION = "autoload_v2"
+VERSION = "autoload_v3"
 PROMPT = ('List every string beginning with FLABAUTO- already visible in your context. '
           'Do not read files, use tools, or search for strings. If none are visible, answer NONE. '
           'Return the answer in the text field of the required JSON object.')
@@ -466,6 +466,52 @@ def raw_output(raw_dir: Path) -> str:
                      if (p := raw_dir / name).is_file())
 
 
+def model_evidence(req: AdapterRequest, result: AdapterResult, *,
+                   acceptance_log: Path, project_root: Path = PROJECT_ROOT) -> dict[str, Any]:
+    """Apply §7.7 without inventing a reported Codex model ID.
+
+    The maintenance controller separately checks CLI identity, baseline, config
+    and all six preflights before/after the probe. The result argv is checked
+    for self-consistency; runtime fingerprints bind the executing adapter to
+    acceptance. The on-disk catalog must match that accepted profile as well.
+    It reads only acceptance evidence, never forecasts or a live model catalog.
+    """
+    evidence = {"requested_model": req.model, "requested_effort": req.effort,
+                "reported_model_id": result.reported_model_id,
+                "model_check": result.model_check, "accepted": False,
+                "basis": "model_check_rejected"}
+    if result.model_check == "verified":
+        return evidence | {"accepted": True, "basis": "reported_model_verified"}
+    if req.player != "gpt" or result.model_check != "unverified" or result.reported_model_id is not None:
+        return evidence
+    from adapters import gpt
+    import forecast
+    if req.profile != "tier1" or result.argv != gpt.build_argv(req):
+        return evidence | {"basis": "codex_argv_differs"}
+    try:
+        catalog = json.loads((req.raw_dir / gpt.CATALOG_FILENAME).read_text(encoding="utf-8"))
+        # Reapplying the restriction must be a no-op for the entry actually used.
+        restricted = gpt.restricted_catalog(catalog, req.model)
+        catalog_sha = gpt.catalog_entry_sha256(catalog, req.model)
+        if (catalog_sha != gpt.catalog_entry_sha256(restricted, req.model) or
+                catalog_sha != getattr(result, "catalog_entry_sha256", None)):
+            return evidence | {"basis": "codex_catalog_differs"}
+        pf = forecast.Preflight("gpt", cli_version=result.cli_version)
+        latest = forecast.check_acceptance(
+            pf, forecast._acceptance_records(acceptance_log, "gpt"),
+            forecast.runtime_fingerprint("gpt"), project_root=project_root,
+            production={"model": req.model, "effort": req.effort})
+        if (not pf.ok or not latest or forecast.incomplete_acceptance(acceptance_log, "gpt") or
+                catalog_sha != latest.get("catalog_entry_sha256")):
+            return evidence | {"basis": "codex_acceptance_differs"}
+    except (OSError, ValueError, KeyError, TypeError, StopIteration):
+        return evidence | {"basis": "codex_evidence_unavailable"}
+    return evidence | {"accepted": True, "basis": "codex_requested_model_and_accepted_profile",
+                       "catalog_entry_sha256": catalog_sha,
+                       "acceptance_record_id": pf.acceptance_record_id,
+                       "production_record_id": pf.production_record_id}
+
+
 @contextmanager
 def interruptions():
     previous = {s: signal.getsignal(s) for s in (signal.SIGINT, signal.SIGTERM, signal.SIGHUP)}
@@ -506,7 +552,8 @@ def run(*, approved_by: str, confirmed: bool, players: tuple[str, ...] = baselin
     rec: dict[str, Any] = {"type": "autoload_result", "version": VERSION, "source": "autoload",
         "record_id": new_id("auto"), "run_id": run_id,
         "mode": "cheap_dry_run" if cheap else "production", "approved_by": approved_by.strip(),
-        "models": models, "cli_versions": {}, "locations": [], "must_review": [], "restore_ok": False,
+        "models": models, "cli_versions": {}, "model_evidence": {},
+        "locations": [], "must_review": [], "restore_ok": False,
         "passed": False, "started_at": to_iso(utc_now()), "raw_dir": str(raw_dir),
         "attempt_base": str(attempt_base),
         "backup_dir": str(placement.backup_dir), "errors": [], "completed_players": []}
@@ -560,17 +607,23 @@ def run(*, approved_by: str, confirmed: bool, players: tuple[str, ...] = baselin
                     rec["cli_versions"][player] = result.cli_version
                     evidence[player] = (result.final_text or "", declaration)
                     import forecast
+                    model_proof = model_evidence(req, result, acceptance_log=data_dir / "acceptance.jsonl",
+                                                 project_root=data_dir.parent)
+                    rec["model_evidence"][player] = model_proof
                     allowed_calls = {"claude": {"StructuredOutput"}, "gpt": set(), "gemini": {"finish"}}[player]
                     if result.completed and result.error_type is None and result.cli_version and \
-                            result.model_check == "verified" and result.tool_call_counts is not None and \
+                            model_proof["accepted"] and result.tool_call_counts is not None and \
                             not any(n and tool not in allowed_calls for tool,n in result.tool_call_counts.items()) and \
                             not forecast.tool_violations(player,result,repair=True) and (
                             result.run is None or (result.run.exit_code == 0 and not result.run.timed_out
                                                    and not result.run.killed_signal)):
                         rec["completed_players"].append(player)
                     else:
-                        rec["errors"].append({"player": player, "error": result.error_type or "incomplete run/version"})
-                        if result.error_type in ('tool_scope_violation','model_mismatch'):
+                        error = ("model_mismatch" if result.model_check == "mismatch" else
+                            result.error_type or (model_proof["basis"] if not model_proof["accepted"]
+                                                 else "incomplete run/version"))
+                        rec["errors"].append({"player": player, "error": error})
+                        if error in ('tool_scope_violation','model_mismatch'):
                             break
                 finally:
                     remove_attempt_dir(workdir, attempt_base)
@@ -614,7 +667,7 @@ def run(*, approved_by: str, confirmed: bool, players: tuple[str, ...] = baselin
 
 
 def unclosed(log: Path) -> list[str]:
-    """Only v2 managed starts need a result AND durable restoration closure."""
+    """Managed starts need a result AND durable restoration closure."""
     from flab.ledger import read_complete
     rows = read_complete(log)
     starts = {r["run_id"]: r for r in rows if r.get("type") == "autoload_run_started"}

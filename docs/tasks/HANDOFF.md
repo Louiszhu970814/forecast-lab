@@ -1,5 +1,18 @@
 # 給下一個對話的接手紀錄
 
+## D125 Codex 量測相容性已修正（UTC 2026-11-03 13:43，PLAN v1.78）
+
+Louis 指出 Codex 模型是 `gpt-6-astra`，並詢問如何解決量測卡住。根因是 autoload_v2 要求三線一律 verified，和 PLAN §7.7 已接受的 Codex 缺少回報模型 ID 限制衝突；正式設定原本就正確。
+
+- 已套用 `autoload_v3`：只對 GPT tier1 的 unverified/null，檢查請求 argv 自我一致、受限 catalog、CLI／judge／runtime 指紋及正式 model+effort 驗收；保留 unverified/null，新增 model_evidence，不宣稱實際模型 ID 已驗證。其他兩線仍需 verified，mismatch 優先處理。
+- 完整 **2838 passed**、相關 **179 passed**，新增 49 項回歸；Claude 親自完整複審／Gemini 獨立最終程式審查 PASS，Claude 最終文件複核 PASS。受審／受測／已部署兩檔 SHA 一致。
+- UTC 13:43:35～13:43:52 六鎖互斥套用；前後各六項正式 preflight 全過、py_compile 通過，無 STOP 或未結維護。正式模型、effort、M5 與受保護設定／驗收指紋不變。
+- 舊 D124 run 仍是 measurement_failed；唯讀診斷另留證據（r1 與 r2 分別標 SHA；r2 使用截至原 run 結束的帳冊副本且 runtime 與當時相符）。不回填 PASS、不新增 canary 呼叫、名額不恢復。
+- R2-C 真正自動重驗仍未實作；此相容缺陷已修正，後續繼續 24 小時限制／原子預算／候選與驗收精確綁定。整批載入量測仍無 PASS，來源不能據此改為資訊性；若需要新載入實測，另定有界授權。
+
+文件：`docs/tasks/D125-CODEX-AUTOLOAD-COMPATIBILITY.md`；審查：`reviews/*-d125-*`；ignored 操作／測試／原始審查／備份：`data/operations/d125-autoload-model-20261103/`。本段的 commit／push 結果見最新主持人摘要與 git，不從本文推定。
+
+
 ## D124 維護與 observe 已上線（UTC 2026-11-03 13:10，PLAN v1.77）
 
 GPT 接手主持後完成隔離實作；Claude 親自完整審查曾提出六項阻擋，修正後 Claude／Gemini 最終兩批均 PASS。完整隔離 **2789 passed**，相關恢復／額度 **302 passed**。正式部署 12 檔與受審及測試 SHA 完全相同；固定設定、M5 開關、adapters／runner／netguard 不變。原 e76f1fc 已 push；本批 commit／push 狀態見最新進度，不從這段推定。
