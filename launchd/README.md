@@ -4,7 +4,7 @@
 
 D117歷史部署見 [D117](../docs/tasks/MINIBENCH-LIVE-D117.md)：Louis已核准有限MiniBench live，UTC2026-11-03 01:53:56載入cycle並驗證waiting，後由D118提前取代。`cycle_v8`在開始前只記waiting、到期後只記expired，不啟動worker；live必須有綁定campaign全文hash與設定hash的`live_window_v1`合約。每600秒檢查，窗口開始後下一輪才登記與前檢；窗口截止另限制worker及實際POST，沒有自動續期。下文是通用範本／安裝說明，不取代PLAN中的當次授權。
 
-Telegram 介面另見 [手機控制台設定指南](../docs/telegram.md)。`org.forecast-lab.telegram.plist` 已有對應程式；完成 Token 設定與帳號配對後，可用 `telegram_bot.py install` 安裝。它提供報告、通知排程與隔離的 Codex 開發任務，不啟動預測或送出流程。**模型隔離驗收期間，不可安裝、重載或改動 LaunchAgents。**以下 trial／驗收前置條件適用於預測排程，與 Telegram 服務分開。
+Telegram 介面另見 [手機控制台設定指南](../docs/telegram.md)。`org.forecast-lab.telegram.plist` 已有對應程式；完成 Token 設定與帳號配對後，可用 `telegram_bot.py install` 安裝。它提供報告、通知排程與 D91 私密工作對話（舊 D73 Codex 開發任務已停用），不啟動預測或送出流程。**模型隔離驗收期間，不可安裝、重載或改動 LaunchAgents。**以下 trial／驗收前置條件適用於預測排程，與 Telegram 服務分開。
 
 以下預測工作只提供範本，不會自動安裝或載入排程。安裝前須由 Louis 核准 `trial`、完成機器人帳號與場地核准、M1 隔離／模型／全域基準驗收，以及 M3-W1 的送出驗收與本次程式審查。`submit.py` 缺席時只記錄 unavailable，不代表已送出。不得用人類帳號。
 
@@ -16,14 +16,14 @@ supervisor 的硬上限由 `src/cycle.py:timing_limits()` 計算。單一工作�
 
 持續題集需要事先準備 `config/cycle_campaign.json`（不含憑證）；不沿用 M2 的 64 次量測值作預設。欄位如下：
 
-- `version`: `continuous_v8`；`campaign_id`: 唯一字串。
+- `version`: `continuous_v9`（含 `budget_handoff_v1` 時必須為 `v9`；一般題集相容 `continuous_v8`）；`campaign_id`: 唯一字串。
 - `venues`: 已允許的場地名稱清單。local/trial 僅允許 `trial_ground_types`；live 每場都須 `submit_whitelisted`。
 - `budget_window_start`／`budget_window_end`: UTC ISO 8601，有效窗口最多七天。
 - `weekly_attempt_caps`: claude、gemini、gpt 各線明確正整數上限，包含舊嘗試與驗收；不得高於 quota policy 已設定上限。
 - `expected_new_questions`、`repair_reserve`、`urgent_slack_s`: 事先固定的非負整數；前兩項為第 1 層與修復保留容量。
 - `run_config_sha256`／`quota_policy_sha256`: 使用 `flab.ids.hash_obj` 計算目前設定的 hash。
 
-local／trial 的 `venues` 包含 `main_site_questions` 時，必須使用 `continuous_v8`，並加上
+local／trial 的 `venues` 包含 `main_site_questions` 時，必須使用 `continuous_v8` 或 `continuous_v9`，並加上
 `"main_site_trial": {"version": "main_site_trial_v1", "max_questions": 4, "max_pages": 5}`。
 `max_questions` 是每窗口最多 1～6 題，`max_pages` 是每次主站掃描最多 1～5 頁（每頁 50 筆），兩者只接受整數。
 不含主站場地時不得帶此欄位。選題先涵蓋 binary、multiple_choice，再依決策截止與題號排序；

@@ -9,6 +9,8 @@ from pathlib import Path
 import pytest
 
 from flab.config import (
+    DEFAULT_CONFIG_DIR,
+     VALID_SUBMIT_MODES,
     ConfigError,
     load_agg_config,
     load_all_configs,
@@ -19,7 +21,9 @@ from flab.config import (
     load_submit_mode,
     load_tournaments,
     validate_config,
+    validate_submit_mode,
 )
+import live_window as LW
 
 
 def test_all_actual_config_files_validate() -> None:
@@ -73,10 +77,25 @@ def test_all_actual_config_files_validate() -> None:
             if info["submit_whitelisted"]} <= {"minibench"}
 
     submit_cfg = load_submit_mode()
-    assert submit_cfg == {"mode": "local"}
+    assert submit_cfg["mode"] in VALID_SUBMIT_MODES
+
+    raw_submit_cfg = validate_submit_mode(
+        json.loads((DEFAULT_CONFIG_DIR / "submit_mode.json").read_text(encoding="utf-8"))
+    )
+    assert raw_submit_cfg["mode"] in VALID_SUBMIT_MODES
+    if raw_submit_cfg["mode"] == "live":
+        LW.bounds(raw_submit_cfg, LW.campaign_from(DEFAULT_CONFIG_DIR), DEFAULT_CONFIG_DIR)
 
     enabled_cfg = load_players_enabled()
     assert enabled_cfg == {"claude": True, "gemini": True, "gpt": True}
+
+
+def test_synthetic_host_forces_local_submit_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    from offline_workcopy import SyntheticHost
+
+    host_plugin = SyntheticHost()
+    host_plugin.host.__wrapped__(host_plugin, tmp_path, monkeypatch)
+    assert load_submit_mode() == {"mode": "local"}
 
 
 def test_missing_field_and_wrong_type_report_filename_and_field_path(tmp_path: Path) -> None:

@@ -474,7 +474,12 @@ def test_main_feed_filter_reloads_flags(enabled):
     assert client.params["forecast_type"] == "binary,multiple_choice,discrete"
 
 
-def test_legacy_bitwise_golden_and_protected_files():
+def test_legacy_bitwise_golden_and_protected_files(tmp_path, monkeypatch):
+    disabled = tmp_path / "question_types.json"
+    disabled.write_text('{"numeric":false,"discrete":false}')
+    monkeypatch.setattr(Q, "CONFIG_PATH", disabled)
+    assert Q.supported_types() == Q.LEGACY_TYPES
+
     golden = json.loads((ROOT / "tests/fixtures/m5_legacy_golden.json").read_text())
     for row in golden["rows"]:
         snap = row["snapshot"]
@@ -491,4 +496,6 @@ def test_legacy_bitwise_golden_and_protected_files():
     assert P.snapshot_from_post({"id":1,"group_of_questions":{"questions":[]}}, "synthetic") is None
     for path, digest in golden["protected"].items():
         assert hashlib.sha256((ROOT / path).read_bytes()).hexdigest() == digest, path
-    assert json.loads((ROOT / "config/question_types.json").read_text()) == {"numeric":False,"discrete":False}
+    actual_flags = json.loads((ROOT / "config/question_types.json").read_text())
+    assert isinstance(actual_flags, dict) and set(actual_flags) == set(N.TYPES)
+    assert all(type(v) is bool for v in actual_flags.values())

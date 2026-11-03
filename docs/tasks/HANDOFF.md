@@ -1,6 +1,6 @@
 # 給下一個對話的接手紀錄
 
-## 三方共識：加速迭代窗口與分階段清理／迭代計畫表（UTC 2026-11-03 15:15，PLAN v1.78）
+## 三方共識：加速迭代窗口與分階段清理／迭代計畫表（UTC 2026-11-03 16:20，PLAN v1.79 / D126）
 
 依 Louis 指示（「沒必要 0 寫入，不會有影響的直接處理，並加快模型迭代速度」），由 Gemini 盤點並經 Claude（`claude-opus-5-5` high）與 GPT（`gpt-6-astra` high）兩輪獨立 CLI 評估收斂，確立以下迭代窗口機制與分階段執行表：
 
@@ -24,7 +24,7 @@
 
 | 階段 | 時機（台北時間） | 具體動作（清理 ＋ 迭代工具） | 套用方式 | 風險控制與驗收條件 |
 |---|---|---|---|---|
-| **階段 A**<br>立即展開 | **即日起（11/03 晚 ～ 11/05）** | 1. **已完成**：刪除 29 個零引用過時 `.md`、更新 `README.md`、瘦身 `docs/tasks/HANDOFF.md`。<br>2. **修測試隔離**：`tests/test_numeric.py:494` 改用 monkeypatch 測 `false` 預設；`tests/test_config.py:75` 拆開「真實設定 schema 驗證（允許 `local`/`trial`/`live`）」與「隔離 runner 強制 `local`」。<br>3. **建索引不搬檔**：在 `docs/tasks/` 與 `reviews/` 新增 `INDEX.md` 標註 `ACTIVE` / `SUPERSEDED` / `CLOSED`。<br>4. **同步 `PLAN.md` 正文**：在 §5.3、§7.5、§7.7、§9、§12 V15 舊段落加上 `【已由 Dxxx 取代】` 內聯標記，並將 M5、D121、D123～D125 同步進正文。<br>5. **上線每日健檢工具**：實作 `review_eligible` 三道閘門與唯讀健檢腳本，對已關閉的 MiniBench 題目做首次健檢。 | **全部免鎖**（純文件、測試與獨立唯讀新腳本，不碰執行期模組） | 在隔離副本**不修改任何 `config/`** 直接跑過完整 pytest 回歸；健檢工具先用合成 open 題測試確認 100% 阻擋洩漏；兩份保護雜湊（`d121_protected_hashes.json` 11 檔、`m5_legacy_golden.json` 17 檔）100% 不變。 |
+| **階段 A**<br>✅ 已完成 | **11/03 晚（已完成）** | 1. **已完成**：刪除 29 個零引用過時 `.md`、更新 `README.md`、瘦身 `docs/tasks/HANDOFF.md`。<br>2. **已完成（修測試隔離）**：`tests/test_numeric.py` 改用 monkeypatch 測 `false` 預設；`tests/test_config.py` 拆開「真實設定 schema 驗證（允許 `local`/`trial`/`live`）」與「隔離 runner 強制 `local`」。<br>3. **已完成（建索引不搬檔）**：在 `docs/tasks/INDEX.md` 與 `reviews/INDEX.md` 標註 `ACTIVE` / `SUPERSEDED` / `CLOSED`。<br>4. **已完成（同步 `PLAN.md` v1.79 / D126）**：在舊段落加上 `【已由 Dxxx 取代】` 內聯標記，並將 M5、D121、D123～D126 同步進正文。<br>5. **已完成（上線每日健檢工具）**：實作 `src/post_close_audit.py`（`post_close_audit_v1`）與 `tests/test_post_close_audit.py`（`275 passed`），完成首次已關閉題目健檢。 | **全部免鎖**（純文件、測試與獨立唯讀新腳本，不碰執行期模組） | 在隔離與正式副本**不修改任何 `config/`** 直接跑過 pytest（`275 passed`）；保護雜湊 100% 不變；經 GPT 與 Gemini 雙審通過。 |
 | **階段 B**<br>首題開獎前 | **11/05 ～ 11/06 21:00 前** | 1. **上線 M4 結算與計分**：實作並測試 `resolve.py` 與 `score.py`（含預先登記數值題 CDF 計分公式），在 11/06 21:00 `qid=46289` 預定結算時做首次實戰驗收。<br>2. **準備 `budget_handoff_v2` 與 R2-C**：離線完成多跳鏈式 handoff（保留根窗口 `accounting_start`）與 R2-C 自動重驗（24h 限制／原子預算／候選綁定），送三方雙審。 | `resolve.py` / `score.py` 初版手動執行**免鎖**；若套用 `budget_handoff_v2` 或 R2-C 至執行期則**需六鎖** | `resolve.py` 必須與正式排程共用 `api_backoff_v3` 跨程序退避鎖且優先序低於送出；`budget_handoff_v2` 須通過分叉／延長／漏算舊消耗的回歸測試。 |
 | **階段 B′**<br>換窗前平靜期 | **11/07 ～ 11/09** | 1. **拆分 `PLAN.md` §14 歷史審查**：將 §14 早期審查回合移至歷史檔（保留 §15 決策編號與原位連結）。<br>2. **解除測試耦合**：將跨測試共用的 helper 分批抽到 `tests/helpers/`，消除 `test_*.py` 互相 import。<br>3. **抽離舊模組共用函式**：將 `src/m2_campaign.py` 的 `discover_tournaments` 與 `src/flab/dev_runner.py` 的 `clean_env, codex_binary` 抽到獨立共用模組（舊路徑保留薄轉接 wrapper 以維持相容）。 | 1、2 **免鎖**；<br>3 若修改 `continuous.py` / `team_runner.py` 則**需六鎖** | 拆分 §14 前確認不影響 `AGENTS.md` 保護雜湊；測試重構前後收集題數與 PASS 數一致；舊入口保留轉接不破任何 import。 |
 | **階段 C**<br>週期換窗 | **11/10 12:00**（UTC 04:00） | 1. **登記新 7 天窗口**：核對前窗完整消耗與無未決請求，將 `fail_soft.py` 常數正式遷入新版 `quota_policy` / `run_config`（若有經證據核准的設定調整一併打包）。 | **需六鎖**（選在無在途嘗試的空檔切換） | 換窗批次**只做換窗與設定更新，不夾帶程式重構**；切換後先跑 local `bounds()` 檢查通過再放鎖。 |

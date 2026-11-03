@@ -1,11 +1,11 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.78（v1.0 凍結後的修訂，見 §16；D108 起由 GPT 主持，D120 將 D119 後續交 Claude 並已完成）
+> 版本：v1.79（v1.0 凍結後的修訂，見 §16；D126 由 Gemini 依 Louis 指示整合階段 A 清理與加速迭代窗口）
 > 初稿：Claude
-> 本回合整合者：GPT（D108；Claude 依 D95 主持至 D107，交接見 `docs/tasks/M3-E2E-D105-MONITOR.md`）
+> 本回合整合者：Gemini（D126；前輪 D108～D125 由 GPT／Claude 主持，見 `docs/tasks/HANDOFF.md`）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
 > 最後更新：2026-11-03
-> 狀態：D118 MiniBench 進行中（固定截止 UTC 11/10 04:00）；M5、D121 第一批與 D123 已上線，三線 ready。D124：維護修正已互斥套用，完整 2789 passed、Claude／Gemini 最終雙審查 PASS；單次載入量測已還原，六項前檢通過；D124 Codex 量測因判定與 §7.7 不相容而未 PASS；D125 autoload_v3 修正與 2838 項回歸及雙審已完成，UTC 13:43 已互斥套用、前後六項前檢全過；observe 已上線、真正自動重驗未開放（v1.0 於 2026-10-31 經 Louis 核准凍結，D54）
+> 狀態：D118 MiniBench 進行中（固定截止 UTC 11/10 04:00）；M5、D121 第一批與 D123 已上線，三線 ready。D124 observe 與 D125 autoload_v3 已上線；D126 確立加速迭代窗口（每日已關閉題目三閘門健檢＋11/06 前 M4 結算計分）並完成階段 A 過時文件清理、測試隔離修正、INDEX 建立與 PLAN 正文同步（v1.0 於 2026-10-31 經 Louis 核准凍結，D54）
 
 ---
 
@@ -45,7 +45,7 @@
 - 試驗期不在比賽題目上作答（§3.6，D45）。
 - 機器人賽的預測不經人類逐題介入（§3.6）。
 - 程式不以任何人類帳號送出預測；人類賽由本人判斷，並親自手動送出（§8）。
-- 第一階段不做數值題與離散題（§3.2，D39）。
+- 第一階段不做數值題與離散題（§3.2，D39）。【狀態更新：M5 數值題與離散題已於 v1.74（D122、D123）正式上線，見 `docs/tasks/M5-NUMERIC-SPEC.md`】
 
 ---
 
@@ -95,7 +95,7 @@
 
 - 由 `poll_questions.py` 以 Metaculus API 每 10 分鐘查詢一次白名單場地中開放作答的題目（D52）。查詢只呼叫 Metaculus API，不消耗模型額度。
 - 試驗期（D45）：主賽與 MiniBench 的題目只記錄開放與關閉時間、題型等中繼資料，不交給模型作答；作答只在試驗場地進行（§3.1）。
-- 題型：第一階段只處理是非題與多選題；數值題與離散題在 M5 加入，排在主賽上線之前（D39、D49）。不支援的題型記為 `unsupported_type`，列入報告的漏答數。
+- 題型：第一階段只處理是非題與多選題；數值題與離散題在 M5 加入，排在主賽上線之前（D39、D49）。【狀態更新：M5 數值題 `numeric` 與離散題 `discrete` 已於 v1.74（D122、D123）提前驗證並加入 D118 MiniBench 正式參賽，由 `config/question_types.json` 控制開關，規格見 `docs/tasks/M5-NUMERIC-SPEC.md`】不支援的題型記為 `unsupported_type`，列入報告的漏答數。
 - 題目資料只保存白名單欄位：
   - 識別：比賽（`tournament_id`）、post ID、question ID、內容 hash 與快照 ID。post ID 與 question ID 不同：送出預測用 question ID，留言用 post ID（§3.6）。
   - 內容：題型、標題、背景、結算條件、fine print，以及多選題選項的識別與標籤。
@@ -378,8 +378,11 @@ forecast-lab/
 │   ├── quota_policy.json      額度預算、保留線與優先序；修改即升版
 │   ├── tournaments.json       比賽清單與送出白名單；修改須經 Louis 核准
 │   ├── submit_mode.json       local、trial 或 live；改為 trial 或 live 須經 Louis 核准（§3.6）
-│   └── players_enabled.json   各線啟用開關；修改不升版，每次執行記錄當時狀態
+│   ├── players_enabled.json   各線啟用開關；修改不升版，每次執行記錄當時狀態
+│   ├── question_types.json    M5 數值題與離散題動態開關（D122）
+│   └── cycle_campaign.json    持續模式預算窗口、各線週上限與設定雜湊（D105、D118）
 ├── docs/
+│   ├── tasks/                 任務規格、交接紀錄（HANDOFF.md）與狀態索引（INDEX.md）
 │   └── tournament_checks/     比賽規則核對紀錄（§3.7），例如 futureeval.md
 ├── prompts/
 │   ├── forecast_v2.md         第 1 層
@@ -389,18 +392,23 @@ forecast-lab/
 │   └── output_schema_v2.json
 ├── src/
 │   ├── poll_questions.py
+│   ├── continuous.py          持續輪詢佇列與週期窗口登記（continuous_v9）
+│   ├── cycle.py               單次有界輪詢／預測／送出週期執行器（cycle_v8）
+│   ├── numeric.py             M5 數值題與離散題 CDF 轉換、整合與驗證（D122）
+│   ├── post_close_audit.py    已關閉題目唯讀三閘門健檢工具（D126）
 │   ├── quota.py
 │   ├── acceptance.py
 │   ├── forecast.py
 │   ├── scheduler.py            M2 有界本地跨題佇列
 │   ├── budget.py               逐次預算保留與熔斷
-│   ├── m2_campaign.py          試驗場地中繼資料與同步題檢查
-│   ├── m2_prepare.py           輸出前準備固定 20 題名單
-│   ├── m2_report.py            有效率、成本與驗收缺口
-│   ├── telegram_bot.py         手機控制台：私人配對、狀態、營運報告、通知排程、開發任務入口（D73）
+│   ├── m2_campaign.py          試驗場地中繼資料與同步題共用發現器
+│   ├── m2_prepare.py           輸出前準備固定 20 題名單（M2 歷史工具）
+│   ├── m2_report.py            有效率、成本與驗收缺口（M2 歷史工具）
+│   ├── telegram_bot.py         手機控制台：私人配對、狀態、營運報告、工作對話（D91 取代 D73 開發任務）
+│   ├── project_control.py      主持人進度發布與手機決策同步工具（D91）
 │   ├── flab/ops_report.py      只輸出計數的營運摘要
-│   ├── flab/dev_tasks.py       手機開發任務佇列與上限
-│   ├── flab/dev_runner.py      隔離的 Codex 開發執行器
+│   ├── flab/dev_tasks.py       【已由 D91 取代：舊 D73 手機開發佇列停用，僅保留相容匯入】
+│   ├── flab/dev_runner.py      【已由 D91 取代：舊 D73 開發執行器停用，保留 clean_env/codex_binary 共用輔助】
 │   ├── adapters/
 │   │   ├── claude.py
 │   │   ├── gemini.py
@@ -470,7 +478,7 @@ D110 的 `src/cycle_monitor.py`（`cycle_monitor_v1`）是桌面主持人啟動�
   - agy：原本以 `/usage` 前後的差值計算，第 2 層每題上限為 Argon 週額度的 5%（D49）。D97 起取消：D96 證實讀數不一致，差值不是單次成本。agy 第 2 層改用與 claude、codex 相同的 token 上限與熔斷，不另設每題額度上限。
   - claude 與 codex：在找到可靠的額度查詢方式之前（V14），以該線第 1 層 token 用量中位數的 3 倍作為上限。
   - 計算包含該題該線的所有嘗試：兩層、格式修復與補跑。有子代理時，記錄用量是否涵蓋整個子代理樹；無法取得的用量不當成 0。
-  - 任何一線超過上限，該線在本次額度週期剩下的時間內不再升級（§9）。這是事後的保守熔斷，不是事前的成本上限。
+  - 任何一線超過上限，該線在本次額度週期剩下的時間內不再升級（§9）。這是事後的保守熔斷，不是事前的成本上限。【已由 D121 R4 取代：第 2 層每題 token 超標改為該線第 2 層冷卻 6 小時後自動恢復，不再鎖死整週，見 `docs/tasks/D121-FAIL-SOFT-BATCH1.md`】
 
 指令骨架：
 
@@ -547,7 +555,7 @@ D110 的 `src/cycle_monitor.py`（`cycle_monitor_v1`）是桌面主持人啟動�
 | `reported_model_id`、`model_check` | CLI 回報的模型 ID，無法取得時為 `null`；`model_check` 為 `verified`、`unverified`、`mismatch` 或 `undetermined`（§7.7） |
 | `cli_version` | 執行當下的 CLI 版本 |
 | `prompt_version`、`schema_version`、`run_config_version` | 例如 `forecast_v2`、`output_schema_v2`、`run_config_v2` |
-| `pipeline_version` | 流程實作版本；目前 W8 為 `forecast_pipeline_v2`，不回填或混同先前未標版本的紀錄 |
+| `pipeline_version` | 流程實作版本；早期 W8 為 `forecast_pipeline_v2`，現行版本已演進為 `forecast_pipeline_v8`（D121、D124），不回填或混同先前未標版本的紀錄 |
 | `started_at_utc`、`finished_at_utc`、`deadline_utc` | 起訖時間與該題的截止時間 |
 | `probability`、`option_probabilities` | 依題型；失敗時為 `null` |
 | `validation_status` | `valid`、`incomplete`（CLI 未正常完成）、`parse_failed`、`schema_failed`、`semantic_failed`（題號或選項不符、機率不是有限數值、超出範圍，或多選題總和不符）或 `late`（完成時已超過截止時間）；只有 `valid` 可被採用 |
@@ -562,7 +570,7 @@ D110 的 `src/cycle_monitor.py`（`cycle_monitor_v1`）是桌面主持人啟動�
 | `error_type` | `null`、`quota_exhausted`、`timeout`、`invalid_output`、`tool_denied`、`tool_scope_violation`（流程偵測到超出已驗收工具範圍）、`cli_error`、`model_mismatch`、`budget_skipped` 或 `disabled` |
 | `error` | 錯誤訊息，沒有則為 `null` |
 
-- `data/forecast_attempt_starts.jsonl`：呼叫模型 CLI 前先追加並 fsync 啟動紀錄；以 attempt ID 與 `forecasts.jsonl` 的結果對帳。重啟時只有啟動而沒有結果，因安全檢查也未知，`forecast_pipeline_v2` 先停整條線並通知 Louis；該題保持 `interrupted_attempt_unresolved`，不自動重新呼叫或重新取得嘗試額度。只依技術證據處理停線及重新驗收，不由人類逐題看答案決定是否重跑。尚不實作自動復原未完成結果。
+- `data/forecast_attempt_starts.jsonl`：呼叫模型 CLI 前先追加並 fsync 啟動紀錄；以 attempt ID 與 `forecasts.jsonl` 的結果對帳。重啟時只有啟動而沒有結果，因安全檢查也未知，早期 `forecast_pipeline_v2` 先停整條線並通知 Louis；該題保持 `interrupted_attempt_unresolved`，不自動重新呼叫或重新取得嘗試額度。【已由 D121 R3 fail-soft 取代：重啟遇到孤兒啟動紀錄時，先確認程序已不在執行、清除暫存目錄並記為孤兒終結，不再因此永久停整條線；現行版本為 `forecast_pipeline_v8`】只依技術證據處理停線及重新驗收，不由人類逐題看答案決定是否重跑。尚不實作自動復原未完成結果。
 - W8 的 forecast 明細另存 `tool_violations` 與 `nonfinite_fields`；無效輸出的非有限浮點值只在帳冊副本改為 `null` 並記錄欄位路徑，原始 CLI 檔案保留。安全停線寫入 `data/line_status.jsonl`，執行摘要與採用結果寫入 `data/forecast_runs.jsonl`。
 - `data/aggregates.jsonl`：每次整合一行，記錄題號、階段（`tier1` 或 `final`）、整合規則版本、各線採用的 attempt ID、整合結果、升級判斷、觸發條件與強度。
 - `data/audit_impacts.jsonl`：事後稽核的來源登錄與影響紀錄。`dependency_registered`、`audit_registered` 保存不可變來源 hash；`audit_impact` 以稽核事件及受影響節點建立確定的 ID，包含旗標、理由、題目映射及送出原狀態。每次重播只追加缺行，舊事件也會傳到新出現的後代；不覆寫機率、採用或送出回執。錯誤／遺漏來源、循環或損壞帳冊一律停止，詳細契約見 `docs/tasks/M2-W2.md`。
@@ -684,7 +692,7 @@ token 欄位的對應（D29）：
   - 每次執行前，由主程式比對各線的 CLI 版本與基準雜湊。
 - **變更處理**（D21）：
   - CLI 版本改變，或一般設定改變（例如預設模型、介面偏好、權限規則）：自動重跑 §7.6 驗收。通過就繼續並更新基準；未通過就停止該線，並通知 Louis。
-  - 全域指示、記憶、skills、hooks、plugins 或 MCP 的內容改變，包括設定檔中相關欄位的改變：停止該線並通知 Louis，經人工審查後再重跑驗收。自動測試只能確認這些來源會不會被載入，無法判斷新內容是否含有答案或危險指令。
+  - 全域指示、記憶、skills、hooks、plugins 或 MCP 的內容改變，包括設定檔中相關欄位的改變：停止該線並通知 Louis，經人工審查後再重跑驗收。自動測試只能確認這些來源會不會被載入，無法判斷新內容是否含有答案或危險指令。【D123 窄範圍例外：互動式 Claude Code 自動同步之 `~/.claude/skills/synced/` 目錄已改列為資訊性來源 `claude.skills_synced`（因無互動執行傳入 `--disable-slash-commands` 與 `--tools` 且 init 宣告 `skills=[]`，若宣告非空則由 `forecast.tool_violations` 停線）；個人 `~/.claude/skills/` 與其他內容來源仍維持停線審查】
   - CLI 支援關閉自動更新時就關閉；不支援時，以執行前的版本檢查處理。
   - D119：比賽啟動環境以專案 wrapper 固定已驗收的官方 Claude 2.1.316，核對複本 SHA-256 並設 DISABLE_AUTOUPDATER=1；全域 CLI 不降版。外掛盤點 `claude_plugin_inventory_v2` 僅將精確 synced UUID bucket 的合法 round token、etag、updated_at 值列資訊，listedFor／來源／版本／未知欄位與其餘檔案仍受內容保護；新舊格式不得自動核准。候選以固定 SHA 綁定人工接受，且必須有對應候選的新隔離驗收通過證據，才可只替換 claude.plugins 一個來源，其他已核准來源保持不變。
 - **D124 分階段落地**：D121 C 的第一批只啟用 `auto_reaccept_v1` 觀察模式；在正常週期結束後、鎖已釋放時最多觀察 120 秒。只針對 8 個 instruction／rule／skill 白名單來源記錄格式代碼與受保護指紋，沒有模型呼叫、基準核准或來源重新分類；CLI 版本變更只觀察。真正自動重驗仍待原子預算、24 小時限制、驗收與候選精確綁定等另批審查，不能把 observe 當成已實作 D21／D121 自動恢復。純文字格式篩選不能證明內容沒有比賽資訊，禁止人工介入個別預測仍適用。
@@ -798,12 +806,12 @@ token 欄位的對應（D29）：
 - **額度不足、逾時、工具被拒或 CLI 錯誤**：在截止時間內最多補跑一次，跨排程執行也一樣。
   - 額度不足時，依 CLI 回報的重置時間（沒有時以固定退避）暫停該線，不在每次輪詢時重新嘗試同一題。
   - API 端的節流與模型額度分開處理（D90）：HTTP Retry-After 的秒數或日期正規化為 UTC，讀寫共用跨程序冷卻帳冊。長等待交回排程，不截短期限、不自動重送寫入；429 沒有有效未來期限（含零秒／過期日期）時保守等待 60 秒。
-  - W8 的 `forecast_pipeline_v2` 在尚未完成 V5 重置時間格式實測前使用 30 分鐘固定退避，保存 `quota_retry_at_utc`；不在額度耗盡的同一輪立刻補跑。跨執行與跨題也套用這個暫停，到期後仍受原本最多一次補跑的限制。
+  - W8 的 `forecast_pipeline_v2` 在尚未完成 V5 重置時間格式實測前使用 30 分鐘固定退避，保存 `quota_retry_at_utc`；不在額度耗盡的同一輪立刻補跑。跨執行與跨題也套用這個暫停，到期後仍受原本最多一次補跑的限制。【已由 D121 R6/R7 fail-soft 取代：現行 `forecast_pipeline_v8` 固定額度退避改為 15 分鐘，Gemini 5 小時桶等待上限為 30 分鐘】
   - 各 CLI 額度不足的判斷方式（結束代碼與錯誤訊息）在正常授權工作中被動蒐集，已觀察樣態納入 adapter 回歸（V5、D89）。未觀察的線照實列示，不再單獨阻擋 M2；模型核對、未知錯誤拒絕、停線／退避與最多一次補跑的驗收全部保留。
 - **採用規則**：每題、每線、每層固定採用第一個 `validation_status = "valid"` 的嘗試；之後的嘗試只保留紀錄，不參與整合，也不得在多次結果中挑選。
 - **開啟 metaculus.com**（`leak_confirmed`）：保留原始輸出並標記，不重試，該答案不納入整合（§4.2）。同一條線 7 天內出現 2 次以上時，停止該線並通知 Louis。
   - 停線後須經 Louis 明確恢復；恢復不刪除歷史。新一輪停線判定只計最近一次明確恢復之後、且仍在 7 天內的暴露，避免 resume 已記錄卻仍被同一批舊事件鎖住。錯誤模型與工具違規的停線同樣尊重這個恢復邊界。
-- **模型不符**（`model_mismatch`，§7.7）：答案無效、不納入整合；停止該線並通知 Louis。
+- **模型不符**（`model_mismatch`，§7.7）：答案無效、不納入整合；早期規則為立即停止該線並通知 Louis。【已由 D121 R1 fail-soft 取代：單次 `model_mismatch` 僅作廢該次答案並讓該線退避 60 分鐘；同一條線在 24 小時內發生 2 次以上才停線並通知 Louis，見 `docs/tasks/D121-FAIL-SOFT-BATCH1.md`】
 - **CLI 改版與設定改變**：每次執行都記錄 CLI 版本；依 §7.2 的變更處理重新驗收。
 - 所有失敗與重試都追加寫入，不覆寫。
 
@@ -873,13 +881,14 @@ token 欄位的對應（D29）：
     - 每次查詢 `/usage` 前後，都以 `ps` 偵測本程序樹以外的 agy：另一個無互動的 `agy -p` 在執行時不啟動；互動式 `agy` 或 Antigravity 桌面 app 開著時照常執行，但該次成本記為 `undetermined`，不作為估算樣本（D75）。
 
     讀取 JSON 中的浮點數欄位 `buckets[].remaining_fraction`，不解析 `response` 文字中的整數百分比；單題消耗常小於 1%，整數百分比不會變動（D52）。
+  - 【以下三點為早期 Pro／專屬 Argon 桶規則，已由上方 D75 Ultra 共用桶、D96/D97 窗口估計與 D121 R8/R9/R10（移除執行前後 `/usage` 強制阻擋）取代，僅保留歷史沿革】
   - 執行前若 Argon 剩餘低於「保留線 + 本次預估消耗」（§9），就不啟動，記為 `quota_exhausted`。
   - 執行後的判斷：
     - Argon 桶沒有減少、Flash／Pro 桶卻減少：判為 `model_mismatch`。
     - 額度都沒有變化、不同桶同時變化，或資料可能有延遲：記為 `unverified` 或 `undetermined`，不憑差值反推使用的模型。
     - 同一時間 Louis 也在使用 agy 時，額度差值會混入個人使用，記為 `undetermined`。
     - 每次執行的 `--log-file` 會記錄模型名稱的解析與替換（changelog 1.1.28），作為輔助證據。
-  - 實測（2026-10-31）：Gemini 第 4 回合審查前後，Argon 桶減少約 4.4%，Flash／Pro 桶沒有變化。
+  - 實測（2026-10-31，歷史 Pro 方案數據，不可直接用於 Ultra 容量估算）：Gemini 第 4 回合審查前後，Argon 桶減少約 4.4%，Flash／Pro 桶沒有變化。
   - 以 `--settings` 關閉 AI credits（候選鍵見 §7.3）。Louis 的帳號沒有 AI credits（`/credits` 的 `remaining_credits` 為 0），因此不另外設定帳號端的超額選項，改把「`remaining_credits` 為 0」納入全域基準（§7.2）：每次執行前檢查，數值變成大於 0 就停止該線並通知 Louis（D54）。設定值與宣告只是控制手段，是否真的生效，以 M1 的 `/config` 查詢與額度變化確認。
   - 依據：官方文件說明，無互動模式指定的模型無法使用時會直接失敗，額度用完時會立即回報、不會重試；但沒有說明額度用完時是否會自動改用其他模型，所以須以額度差值驗證。
 - **claude**：以 `--output-format json` 回報的模型用量欄位，比對指定的模型（欄位於 M1 確認）。
@@ -906,7 +915,9 @@ token 欄位的對應（D29）：
 
 ## 9. 排程與額度
 
-依 D84，本輪由 GPT 主持，與 Gemini 討論並推進已授權的開發、驗收及操作；Claude 預計台北 2026-11-02 00:30（UTC 2026-11-01 16:30）恢復後安排獨立複驗。開發複驗使用不含機密或預測資料的隔離副本；預測線仍遵守既有退避與安全停線。例行技術選擇由 GPT／Gemini 處理，確實需要 Louis 判斷、既定本人核准或本人操作的事項才停止並留下報告；這項授權不等同正式參賽核准，也不免除驗收門檻。
+> 【章節導讀】本節前段（D84～D95）為 M2 本地固定題集階段的沿革紀錄；現行持續輪詢與 D118 MiniBench 正式參賽採用 `continuous_v9`／`cycle_v8`／`budget_v6`／`quota_policy_v5`（每周嘗試上限 Claude 130、Gemini 200、GPT 130，見 D101、D118、D121）。
+
+依 D84（歷史紀錄，已由 D95／D108／D126 後續交接取代），本輪由 GPT 主持，與 Gemini 討論並推進已授權的開發、驗收及操作；Claude 預計台北 2026-11-02 00:30（UTC 2026-11-01 16:30）恢復後安排獨立複驗。開發複驗使用不含機密或預測資料的隔離副本；預測線仍遵守既有退避與安全停線。例行技術選擇由 GPT／Gemini 處理，確實需要 Louis 判斷、既定本人核准或本人操作的事項才停止並留下報告；這項授權不等同正式參賽核准，也不免除驗收門檻。
 
 M2 已落地的本地入口為 `scheduler_v1`／`budget_v1`（D68），只接受預先固定題集與明確窗口／上限的 campaign。`m2_prepare.py` 的初始量測配置為 20 題、七天窗口、每線最多 64 次（含窗口內舊嘗試與驗收）、預期新題 0、修復保留 2 次；這是本地量測的有限預算，不是已量測的正式帳號容量。正式 `quota_policy.json` 待定上限不因此改寫。啟動前必須通過既有 baseline 與正式模型驗收，不提供 waiver；三線以逐線鎖併行，共用帳冊交易僅涵蓋短時間讀寫。持續納入新題、launchd 安裝及正式送出屬 M3。
 
@@ -924,7 +935,7 @@ M2 執行時透過官方 API 發現已允許試驗場地類型的數字 ID，不
 
 新題集準備與持續輪詢／送出的共用發現器，將「須排除的輪次」與「可以送出的輪次」分開計算：ongoing 或未來開始的輪次一律排除；只有已開始的 ongoing 輪次可進入 live 候選集合。未來輪次被提前標為 ongoing，不阻擋安全主站題的準備；ID／別名不一致、缺漏必要欄位或無法解析時間仍拒絕。固定 M2 題集的既有 `SafeSnapshots` 保持不變（D83）。
 
-持續模式另有選填的 `weekly_rollover_v1`（D86）：執行前凍結有限週數、七天 UTC 錨點、各線每週上限、場地與設定 hash，換週只登記當前窗口，不追補漏週、不累積未用額度、不重設歷史或未知嘗試。舊單窗口設定仍會到期；已封存的快照跨週保持完成（包括預算跳過），只有新題／合法新快照可使用新週容量。任何設定變動、窗口重疊或時鐘退回舊窗口均拒絕。此功能完成不代表已選定正式容量；目前尚未建立／啟用 `cycle_campaign.json`。
+持續模式另有選填的 `weekly_rollover_v1`（D86）：執行前凍結有限週數、七天 UTC 錨點、各線每週上限、場地與設定 hash，換週只登記當前窗口，不追補漏週、不累積未用額度、不重設歷史或未知嘗試。舊單窗口設定仍會到期；已封存的快照跨週保持完成（包括預算跳過），只有新題／合法新快照可使用新週容量。任何設定變動、窗口重疊或時鐘退回舊窗口均拒絕。此功能完成不代表已選定正式容量；當時（D86）尚未建立／啟用 `cycle_campaign.json`。【狀態更新：`config/cycle_campaign.json` 已於 D105（M3 試驗）與 D117／D118（MiniBench 正式參賽 `d118_minibench_20261103T0400Z`）正式建立並啟用】
 
 - **排程**（macOS launchd）：
   - 每 10 分鐘執行一次 `poll_questions.py`，並啟動或接續 `forecast.py` 的工作佇列（D52）；執行前比對各線的 CLI 版本與全域基準（§7.2）。
@@ -1045,7 +1056,7 @@ v0.4 新增：
   D85 已依唯讀實機回應與釘選的官方原始碼修正讀回契約：本帳號預測為 `my_forecasts.history/latest`，預測成功可能只回 201 空物件，讀回以 question／author／start_time 三元組、送出前基準及精確機率比對；留言查詢用 `post`，完整分頁後要求唯一新匹配。無法證明結果時維持 unknown，不重送。多選題缺少可驗證的歷史選項順序時，在首次 POST 前拒絕。
 
   D87 的 binary 元件實機測試於 UTC 18:30 完成一次預測 POST 與獨立讀回；第一個私人留言被明確拒絕；D88 的第二次留言於 18:44:30Z 回 HTTP 429，已達本筆上限，完整元件驗收未通過。沒有重送預測，試驗結束後回到 local；D78 的未來 trial 授權保留。
-  D99：多選題在歷史順序為 null 時可送出，讀回以多重集合精確核對（`api_transport_v5`）；仍需多選題的真實 POST 與讀回實測。
+  D99【已由下方 D115 `api_transport_v7` 取代：現行多選題寫入與讀回均要求有效 `all_options_ever` 歷史標籤順序，已移除 `null` 多重集合退路】：多選題在歷史順序為 null 時可送出，讀回以多重集合精確核對（`api_transport_v5`）；仍需多選題的真實 POST 與讀回實測。
   D98：官方客戶端在每個請求前固定等 3.5 秒加最多 1 秒抖動；官方後端的留言建立流程中，我們的私人留言沒有任何會被拒的條件，第一次 4xx 很可能也是閘道限流（推論）。`api_backoff_v2` 已對正式連線的所有請求加上跨程序共用的間隔。多選題寫入以目前選項標籤為鍵即可；讀回的順序在「重新加回曾刪除選項」與寬限期時會例外，因此改用不依賴順序的核對（待實作）。`/api/questions/bulk-forecast-comment/` 可由一般 bot token 原子寫入預測加私人留言，列為候選。bot 私人留言超過 500 字元滿 30 天後只保留前 200 字元。見 `docs/tasks/PLATFORM-CLUES-D98.md`。
   D102／D104（UTC 2026-11-02 11:27～11:49）：bot testing area 多選題的有界元件驗收**完成**。加上請求間隔後，預測 POST 1 次讀回 found（歷史選項順序為 null，以多重集合核對，順序也相符）；私人留言 POST 1 次由伺服器接受（無 429），讀回因本專案查詢缺少 `is_private=true` 而記 unknown，修正為 `api_transport_v6` 後以唯讀對帳轉為 found（留言 1250911），留言屬性（私人、作者、貼文、文字雜湊、`included_forecast` 的多選值）全部核對通過；沒有重送。這是合成元件證據，不是 launchd 端到端驗收。
   D113（UTC 2026-11-02）：D105 四題自動端到端全部完成，兩題型的預測與私人留言均獨立 found。D107 A2 三項實測完成：同一是非題兩次合成預測皆 found，歷史筆數由基準 1 變 2、3；2000／10000／50000／150000 字元的 ASCII 合成私人留言皆立即全文長度及雜湊相符；正式 Submitter 路徑先預測 found，再在任何留言網路 I/O 前注入一次確認失敗，之後只補一次真實留言並 found，沒有重送預測。正式送出帳冊未變，未知請求 0。見 `docs/tasks/D107-A2-BTA-REUSE-PROBE.md`。
@@ -1797,10 +1808,17 @@ view_image                  stable true
 
 | D124 | 2026-11-03 | Louis 回覆「今晚就開工如何 目前似乎題目較少該預測的都預測完了」，接受今晚開始 D121 第二批 R2-C／R12 及載入實測的維護時段；C 方向沿用 D121，不重問 | GPT 接手，Claude 定稿與親自完整審查，Gemini 獨立審查。先核對無在途工作，準備安全還原與有界控制器，通過後在空檔持 cycle／scheduler／submit／三線鎖實測；若有新工作先等自然結束。不得繞過基準或讀開放題答案，不改 D118 三份固定設定及 adapters／runner／netguard；既有 live 截止、預算與場地不變。Claude 額度不足則延後其審查，不以其他模型代替。決策當下未改預測行為；後續已雙審 PASS、2789 passed，UTC 13:06 套用維護修正、13:10 套用 observe。單次三線載入量測完整還原、六項前檢通過，但 GPT model_check=unverified，保留 measurement_failed、不重跑、不核准或重新分類；真正自動重驗續作仍待完成 |
 | D125 | 2026-11-03 | Louis 指出「codex 模型是 gpt-6-astra 啊」，並問「那這邊要如何解決」；GPT 主持依既有 D121 C／D124 與 §7.7 修正載入量測相容性，不新增模型或載入實測授權 | `autoload_v3` 對 Codex 缺少 reported ID 的已知限制，核對固定請求、受限 catalog 與有效正式驗收後記錄相容判定，保留 unverified/null；原 verified 路徑與維護互斥／還原／工具檢查不變，mismatch 優先於一般錯誤。只改 autoload.py 及新增回歸測試，保留舊 D124 failed 與已用名額，不核准 baseline、不重新分類、不啟用真正自動重驗。完整 2838 passed、179 相關測試及 Claude／Gemini 程式雙審 PASS。D124 名額已用完且仍無整批載入量測 PASS，不能據此將來源改成資訊性；若要新增載入量測須另定有界授權，結果見 §16 |
+| D126 | 2026-11-03 | Louis 要求盤點專案過時文件與測試，經 Gemini 初審及 Claude／GPT 獨立 CLI 評估後，Louis 指示「沒必要 0 寫入，真的不會有影響的刪掉就好」，並詢問最快何時能得知預測準確率、要求縮短回饋與迭代週期並重訂分階段計畫。經三方第二輪評估收斂，Louis 指示「把這個計劃表記起來 方便交接」「先 commit + push 再進行階段 A 做完給 gpt 審查」 | (1) 迭代與回饋機制：預算總窗口維持 7 天（至 UTC 11/10 04:00），但診斷與修 Bug 改為每日節奏；建立唯讀健檢工具 `src/post_close_audit.py`，強制通過 `review_eligible` 三道 AND 閘門（官方 API 確認 `closed/resolved` 且截止滿 15 分鐘、本地帳冊收斂無 unknown、已移出排程佇列）才揭露已關閉題目內容；M4 `resolve.py` 與 `score.py` 提前於 11/06 21:00 首題開獎前上線。(2) 階段 A 清理與防呆：刪除 29 個零引用過時 `.md` 檔（`392335b`）、更新 `README.md` 與 `docs/tasks/HANDOFF.md`、建立 `docs/tasks/INDEX.md` 與 `reviews/INDEX.md`、修正 `tests/test_numeric.py` 與 `tests/test_config.py` 設定隔離（不再要求改正式設定求 PASS）、同步 `PLAN.md` 正文與淘汰標記。兩份受保護雜湊 100% 不變 |
 
 ---
 
 ## 16. 變更紀錄
+
+- **v1.79**（2026-11-03）：D126，依 Louis 指示與三方兩輪評估完成階段 A 清理、測試隔離修正、PLAN 正文淘汰標記同步與已關閉題目唯讀健檢工具（`src/post_close_audit.py`、`tests/test_post_close_audit.py`）：
+  - 刪除 29 個全專案零引用的過時 `.md` 檔（含 `PLAN_v1.md`、`reviews/review-claude.md`、12 份過渡 `r1` 審查與 15 份早期子任務檔），更新 `README.md` 與 `launchd/README.md`，精簡 `docs/tasks/HANDOFF.md` 並寫入階段 A～D 加速迭代計畫表，新增 `docs/tasks/INDEX.md` 與 `reviews/INDEX.md`。
+  - 修正測試隔離：`tests/test_numeric.py` 的 legacy golden 測試改以 monkeypatch 驗證 `{"numeric":false,"discrete":false}` 並檢查真實 `config/question_types.json` 的布林 schema；`tests/test_config.py` 驗證真實 `config/submit_mode.json` schema 與 `live_window` 合約，並獨立測試 `SyntheticHost` 強制 `local` 的行為。完整回歸不再需要手動修改任何 `config/`。
+  - 同步 `PLAN.md` 正文：於 §1.3、§3.2、§5.2、§5.3、§5.5、§7.2、§7.5、§7.7、§9、§12 V15 補入 M5、D121、D123～D125 現況與 `【已由 Dxxx 取代】` 內聯標記。
+  - 新增 `src/post_close_audit.py`（`post_close_audit_v1`）：實作 `review_eligible` 三道 AND 安全閘門（官方新鮮狀態 `closed/resolved` 且過截止 15 分鐘、本地嘗試與送出對帳收斂、已移出待辦佇列），未通過題目一律遮罩，嚴格遵守 D45 不預覽開放題原則。兩份受保護雜湊（`d121_protected_hashes.json` 11 檔、`m5_legacy_golden.json` 17 檔）驗證 100% 完好。
 
 - **v1.78**（2026-11-03）：D125，修正 Codex 載入量測要求 verified 與 §7.7 的衝突，`autoload_v3` 保留原 model_check／reported ID，以請求、catalog 與有效驗收證據給出相容判定，新增共 49 項回歸，涵蓋真實 GPT parser 合成 JSONL、參數／catalog／驗收拒絕及控制器行為。另明確傳入證據專案根目錄，模型 mismatch 不被一般錯誤掩蓋。最終完整 2838 passed（142.85 秒）、相關 179 passed，Claude 親自完整複審／Gemini 獨立最終程式審查均 PASS。UTC 13:43 已持六鎖互斥套用，前後各六項 preflight 全過、py_compile 通過、無 STOP／未結維護，受保護設定與執行指紋不變；文件複核 PASS，結果見交接及操作帳冊；歷史 D124 failed 不改，不增加 canary 呼叫，正式模型、effort、固定設定與驗收指紋不變。
 
