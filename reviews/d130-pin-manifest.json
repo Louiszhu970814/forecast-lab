@@ -1,0 +1,21 @@
+{
+  "files": {
+    "agy-wrapper.sh": "93743416f5089792ada3540c24ef7dfd62ebe6951a525fff36714cc87b095dbf",
+    "repair_gemini_pin.py": "9ec3c9ffe54716514d0ccf443c1deee25e87c0be25120d71461d83f2a0903487",
+    "test_agy_cli_pin.py": "de3c6e2b3b0f11d9dea19382fef8e1c001134cea91bb6f1c6c3d348b8532f6e3",
+    "agy-real-wrapper-smoke-r2.json": "4b354edb64ee6000a19d412078cb6d1edc14958b79f51ce11466ed45a7136706",
+    "protected-checks.json": "a5301ee7a8668b6220ac19bf72a2707d746c7010a86dcebba9162351830b83c0"
+  },
+  "reviews": {
+    "claude": "claude-d130-pin-review-r2.md",
+    "gemini": "gemini-d130-pin-review-r1.md"
+  },
+  "protected_entries": 28,
+  "distinct_protected_paths": 17,
+  "wrapper_test": "1 passed; 7 behavior checks",
+  "deployment_completed_at": "2026-11-04T14:25:43.706Z",
+  "isolation_record_id": "acc_1793802323516_b0387ed0",
+  "baseline_id": "base_1793802331069_37388663",
+  "gemini_model_calls": 6,
+  "next_version_maintenance_at": "2026-11-07T14:25:43.706000Z"
+}

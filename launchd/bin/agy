@@ -1,0 +1,23 @@
+#!/bin/sh
+set -eu
+# Project-only official CLI; exact bytes match D124's accepted runtime.
+project_dir=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+binary="$project_dir/data/cli_pins/agy/1.4.12"
+if [ ! -f "$binary" ] || [ -L "$binary" ] || [ ! -x "$binary" ]; then
+    echo "Forecast Lab: accepted Antigravity CLI pin is unavailable" >&2
+    exit 69
+fi
+expected_sha256="34423fc9b0af3841e7646aa72a2d40ffeab8218b22d1cb99eac7355f9eba31e3"
+actual_sha256=$(/usr/bin/shasum -a 256 "$binary")
+actual_sha256=${actual_sha256%% *}
+if [ "$actual_sha256" != "$expected_sha256" ]; then
+    echo "Forecast Lab: accepted Antigravity CLI pin hash differs" >&2
+    exit 69
+fi
+export AGY_CLI_DISABLE_AUTO_UPDATE=true
+# Legacy callers use bare `changelog` as an installed-version probe, but the
+# official changelog lists upstream releases. Query the verified binary itself.
+if [ "$#" -eq 1 ] && [ "$1" = "changelog" ]; then
+    exec "$binary" --version
+fi
+exec "$binary" "$@"

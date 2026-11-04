@@ -1,5 +1,12 @@
 # 給下一個對話的接手紀錄
 
+## D130 Gemini 已恢復；Claude／GPT 待固定候選接受（UTC 2026-11-04T14:25:43.706Z）
+
+- Louis已授權修復並指定版本每3天集中更新。Gemini 1.5.0停用read_url_content，已固定官方同SHA的1.4.12，官方雙審PASS；新3calls隔離29項PASS、兩層preflight無waiver。舊failed3calls保留，Gemini本輪共6calls。
+- `changelog`原是上游發布目錄；wrapper精確轉官方`--version`，實際合成CLI日誌均1.4.12且記自更新disabled。全域1.5.0保留，核心/固定設定不改。
+- Claude／GPT仍待Louis接受 [D130固定plugin候選](D130-THREE-LINE-REPAIR.md)；尚未呼叫重驗/核准。已備妥 `data/operations/d130-three-line-repair-20261104/repair_claude.py`、`repair_gpt.py`，須先保存真實接受事件，不能自行創建授權。每線各3calls，新PASS後才窄範圍核准。
+- 下一次版本維護檢查：UTC 2026-11-07T14:25:43.706000Z（台北11/07 22:25:43）。政策已登記，尚未新增自動升版執行器；3天節奏不等於外掛內容概括接受。詳見 [D130修復紀錄](D130-THREE-LINE-REPAIR.md)與最新主持人摘要；commit/push及自然排程以實際紀錄為準。
+
 ## D129 已上線：D128 診斷與 P1～P4（UTC 2026-11-04T13:05:21.446Z，PLAN v1.82）
 
 - `resolve_v2`／`score_v2` 手動入口已部署；Claude／Gemini `r2` 皆 PASS，相關 446 passed、完整 3091 passed／100 個基線失敗（集合不變），保護清單28/28。詳見 [D129 交付](D129-ITT-IMPLEMENTATION.md)。

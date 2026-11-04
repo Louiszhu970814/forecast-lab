@@ -1,11 +1,11 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.82（v1.0 凍結後的修訂，見 §16；D129 上線 D128 診斷與 M4 相容性修補）
+> 版本：v1.83（v1.0 凍結後的修訂，見 §16；D130 三線前檢恢復）
 > 初稿：Claude
-> 本回合整合者：GPT（D128／D129；D127 由 Claude、D126 由 Gemini 整合，見 `docs/tasks/HANDOFF.md`）
+> 本回合整合者：GPT（D130；D127 由 Claude、D126 由 Gemini 整合，見 `docs/tasks/HANDOFF.md`）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
 > 最後更新：2026-11-04
-> 狀態：D129 `resolve_v2`／`score_v2` 手動入口已上線，D128 live 母體診斷已實作；首次決策未完整落盤，歷史與 live 完整 ITT 結論均維持禁止；D118 MiniBench 進行中（固定截止 UTC 11/10 04:00）；D127 M4 `resolve.py`／`score.py` 手動入口已上線（未啟用排程，首題實戰結算待台北 11/06 21:00）；M5、D121 第一批與 D123 已上線，三線 ready。D124 observe 與 D125 autoload_v3 已上線；D126 確立加速迭代窗口（每日已關閉題目三閘門健檢＋11/06 前 M4 結算計分）並完成階段 A 過時文件清理、測試隔離修正、INDEX 建立與 PLAN 正文同步（v1.0 於 2026-10-31 經 Louis 核准凍結，D54）
+> 狀態：D129 `resolve_v2`／`score_v2` 手動入口已上線，D128 live 母體診斷已實作；首次決策未完整落盤，歷史與 live 完整 ITT 結論均維持禁止；D118 MiniBench 進行中（固定截止 UTC 11/10 04:00）；D127 M4 `resolve.py`／`score.py` 手動入口已上線（未啟用排程，首題實戰結算待台北 11/06 21:00）；M5、D121 第一批與 D123 已上線；D130 已恢復 Gemini（專案 pin 1.4.12，兩層前檢通過），Claude／GPT 固定外掛候選仍待 Louis 接受。D124 observe 與 D125 autoload_v3 已上線；D126 確立加速迭代窗口（每日已關閉題目三閘門健檢＋11/06 前 M4 結算計分）並完成階段 A 過時文件清理、測試隔離修正、INDEX 建立與 PLAN 正文同步（v1.0 於 2026-10-31 經 Louis 核准凍結，D54）
 
 ---
 
@@ -701,6 +701,7 @@ token 欄位的對應（D29）：
   - 全域指示、記憶、skills、hooks、plugins 或 MCP 的內容改變，包括設定檔中相關欄位的改變：停止該線並通知 Louis，經人工審查後再重跑驗收。自動測試只能確認這些來源會不會被載入，無法判斷新內容是否含有答案或危險指令。【D123 窄範圍例外：互動式 Claude Code 自動同步之 `~/.claude/skills/synced/` 目錄已改列為資訊性來源 `claude.skills_synced`（因無互動執行傳入 `--disable-slash-commands` 與 `--tools` 且 init 宣告 `skills=[]`，若宣告非空則由 `forecast.tool_violations` 停線）；個人 `~/.claude/skills/` 與其他內容來源仍維持停線審查】
   - CLI 支援關閉自動更新時就關閉；不支援時，以執行前的版本檢查處理。
   - D119：比賽啟動環境以專案 wrapper 固定已驗收的官方 Claude 2.1.316，核對複本 SHA-256 並設 DISABLE_AUTOUPDATER=1；全域 CLI 不降版。外掛盤點 `claude_plugin_inventory_v2` 僅將精確 synced UUID bucket 的合法 round token、etag、updated_at 值列資訊，listedFor／來源／版本／未知欄位與其餘檔案仍受內容保護；新舊格式不得自動核准。候選以固定 SHA 綁定人工接受，且必須有對應候選的新隔離驗收通過證據，才可只替換 claude.plugins 一個來源，其他已核准來源保持不變。
+- **D130 版本節奏**：Louis 指示有版本更新時每 3 天集中處理；正式預測環境固定已驗收版本，於維護檢查完成隔離驗收後才切換。開發用全域 CLI 更新與正式 pin 分離。此節奏不免除受保護內容的人工接受，也不代表 D124 尚未實作的自動核准已啟用。首個後續版本維護檢查登記於 UTC 2026-11-07T14:25:43.706000Z（台北11/07 22:25:43）；未部署自動升版執行器。
 - **D124 分階段落地**：D121 C 的第一批只啟用 `auto_reaccept_v1` 觀察模式；在正常週期結束後、鎖已釋放時最多觀察 120 秒。只針對 8 個 instruction／rule／skill 白名單來源記錄格式代碼與受保護指紋，沒有模型呼叫、基準核准或來源重新分類；CLI 版本變更只觀察。真正自動重驗仍待原子預算、24 小時限制、驗收與候選精確綁定等另批審查，不能把 observe 當成已實作 D21／D121 自動恢復。純文字格式篩選不能證明內容沒有比賽資訊，禁止人工介入個別預測仍適用。
 - 不接續任何舊 session：不使用 claude 的 `--continue`／`--resume`、codex 的 `resume`／`fork`、agy 的 `-c`／`--continue`／`--conversation`。
 - 各線使用帳號本人以官方 CLI 在本機登入的狀態；不複製、也不解析任何 CLI 的登入憑證。
@@ -1819,9 +1820,13 @@ view_image                  stable true
 | D128 | 2026-11-04 | Louis 交 GPT 接手 Claude 已完成階段，明確選「1. push、2. B」；在未讀結算結果前登記 live 模式開始後的升級母體 | 已 push D127 `b52f935` 至 origin/main。於 2026-11-04T11:57:44.514Z 登記 `live_itt_cohort_v1`，固定 D118 實際啟動至既定窗口終點的所有根升級決策，包含正式失敗／未送出；排除試驗期必須有來源證據，不能按成功選樣或重設歷史。保留 D127 缺漏、設定分段、成本與結論限制；本機結算帳冊不存在，僅查存在性／事件類型計數，未讀預測內容或結算值。GPT 整合並做獨立只讀規則複核；本輪純文件事前登記，score_v1、正式設定／排程未變，新 selector 待合成測試及 Claude／Gemini 雙審。詳見 D128-LIVE-ITT.md |
 | D129 | 2026-11-04 | Louis 在 D128 push＋B 決定後指示 GPT「繼續做吧」，沿用雙審驗證後直接上線授權 | 上線 resolve_v2／score_v2、live_itt_cohort_v1／live_itt_report_v1 與共用 submission identity。完成 P1～P4、dry-candidates 錯誤回報、D128 固定來源母體與未知保留、原始損毀時間診斷、按設定/題型的描述性報表。發現首次 candidate 未完整持久化，live 與歷史 D52 均加入 decision_capture_incomplete，禁止完整 ITT 結論及效率，不移動登記邊界。Claude／Gemini r1 blockers 已修，r2 雙 PASS；相關 446 passed，完整 3091 passed／100 failed，失敗節點與 D127 一致；保護清單 28/28，受審/受測/部署 SHA 相同，空資料 CLI 冒煙成功。只更新手動入口，不改預測/預算/排程，首題台北 11/06 21:00 實戰驗收待辦。詳見 D129-ITT-IMPLEMENTATION.md |
 
+| D130 | 2026-11-04 | Louis 指示「請處理3線阻塞」，並補充有版本更新時每3天集中處理；GPT主持維護 | Gemini 1.5.0停用舊讀頁工具，首組3calls未通過；改用與D124同SHA的官方1.4.12專案pin，修正changelog版本誤判（精確轉官方--version），關閉自更新。Claude/Gemini雙審PASS，新增3call隔離29項PASS，UTC14:25:43兩層preflight通過，僅核准Gemini一般設定；舊failed保留。固定設定/窗口/核心指紋不變，28筆保護hash全符。Claude/GPT固定plugin候選仍待Louis接受，尚未重驗/核准；3天政策不代表概括接受新內容或已部署自動升版。詳見D130-THREE-LINE-REPAIR.md |
+
 ---
 
 ## 16. 變更紀錄
+
+- **v1.83**（2026-11-04）：D130 已恢復 Gemini。新增專案 agy 1.4.12 pin wrapper與精確版本探測轉接，官方SHA/簽章及兩家程式審查通過，新增3call隔離29項PASS、兩層前檢無waiver。保留1.5.0 failed3calls；核心Python/預測設定未改，保護清單28筆/17獨立路徑一致。同步每3天版本維護政策與首個檢查時點，但未啟用自動升版；Claude/GPT固定外掛候選仍待本人接受，腳本已準備但未執行。
 
 - **v1.82**（2026-11-04）：D129，部署 D128 固定 live episode 診斷及 M4 P1～P4；score_v2／resolve_v2 共用送出身分與狀態解析。明列未持久化首次 candidate 的證據限制，live／歷史 D52 同時禁止完整 ITT 優越、總增益及效率；保留觀測子集與官方計分。更新 §4.3、§15、交接、操作與審查索引。相關 446 passed；完整 3091 passed／100 個原有失敗，失敗集合無變；官方 CLI r2 Claude/Gemini 雙 PASS，保護雜湊與部署一致。真實首題結算驗收仍待 11/06。
 

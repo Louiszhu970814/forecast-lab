@@ -7,10 +7,11 @@
 
 | 檔案 | 對應決策 | 說明 |
 |---|---|---|
+| [`D130-THREE-LINE-REPAIR.md`](D130-THREE-LINE-REPAIR.md) | D130 | **ACTIVE** 三線前檢修復、固定CLI版本與三天更新節奏；外掛候選接受與實際恢復結果 |
 | [`M4-RESOLVE-SCORE.md`](M4-RESOLVE-SCORE.md) | D126 階段 B／D127／D129 | **ACTIVE（手動入口已上線）**：r1～r6 修補與雙審紀錄、操作指令、P1～P4 已由D129完成；首題實戰結算待台北 11/06 21:00 |
 | [`D128-LIVE-ITT.md`](D128-LIVE-ITT.md) | D128 | **已事前登記**固定live母體，D129已實作診斷；完整捕捉限制保留 |
 | [`D129-ITT-IMPLEMENTATION.md`](D129-ITT-IMPLEMENTATION.md) | D129 | **已上線** resolve_v2／score_v2、P1～P4與live ITT診斷，雙審／驗證／後續工作 |
-| [`HANDOFF.md`](HANDOFF.md) | D118～D129 | **現行唯一交接入口**（含加速迭代窗口與階段 A～D 計畫表） |
+| [`HANDOFF.md`](HANDOFF.md) | D118～D130 | **現行唯一交接入口**（含加速迭代窗口與階段 A～D 計畫表） |
 | [`MINIBENCH-EARLY-D118.md`](MINIBENCH-EARLY-D118.md) | D118 | 現行 MiniBench live 窗口授權（`continuous_v9` + `budget_handoff_v1`，至 UTC 2026-11-10 04:00） |
 | [`D125-CODEX-AUTOLOAD-COMPATIBILITY.md`](D125-CODEX-AUTOLOAD-COMPATIBILITY.md) | D125 | `autoload_v3` Codex tier1 載入量測相容性規格（已部署） |
 | [`D124-BATCH2-OPERATIONS.md`](D124-BATCH2-OPERATIONS.md) | D124 | D124 維護模式（`autoload_maintenance_v1`）與 `auto_reaccept_v1` **observe** 模式操作紀錄 |
