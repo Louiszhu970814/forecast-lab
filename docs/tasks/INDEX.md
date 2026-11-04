@@ -8,6 +8,7 @@
 | 檔案 | 對應決策 | 說明 |
 |---|---|---|
 | [`M4-RESOLVE-SCORE.md`](M4-RESOLVE-SCORE.md) | D126 階段 B／D127 | **ACTIVE（手動入口已上線）**：r1～r6 修補與雙審紀錄、操作指令、P1～P4 後續項目；首題實戰結算待台北 11/06 21:00 |
+| [`D128-LIVE-ITT.md`](D128-LIVE-ITT.md) | D128 | **已核准／已事前登記** live ITT 母體；selector 尚未實作 |
 | [`HANDOFF.md`](HANDOFF.md) | D118～D126 | **現行唯一交接入口**（含加速迭代窗口與階段 A～D 計畫表） |
 | [`MINIBENCH-EARLY-D118.md`](MINIBENCH-EARLY-D118.md) | D118 | 現行 MiniBench live 窗口授權（`continuous_v9` + `budget_handoff_v1`，至 UTC 2026-11-10 04:00） |
 | [`D125-CODEX-AUTOLOAD-COMPATIBILITY.md`](D125-CODEX-AUTOLOAD-COMPATIBILITY.md) | D125 | `autoload_v3` Codex tier1 載入量測相容性規格（已部署） |
