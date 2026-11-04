@@ -1,5 +1,7 @@
 > 2026-11-04 D128 更新：Louis 已選 push＋B，D127 `b52f935` 已 push；ITT 規則見 [D128-LIVE-ITT.md](D128-LIVE-ITT.md)。下方待決記載為歷史，現行 score_v1 尚未切換母體。
 
+> D129 最新狀態：resolve_v2／score_v2 已上線；P1～P4 與 D128 診斷完成，完整 ITT 捕捉限制保留。驗證、雙審與後續工作見 [D129](D129-ITT-IMPLEMENTATION.md)。下方 r1～r6 留作 D127 沿革。
+
 # M4 結算與計分接手（2026-11-04，D126 階段 B／D127）
 
 > **現況（UTC 2026-11-04 06:30）：手動入口已上線（PLAN v1.80 D127）。** 部署 SHA = r6 雙審 SHA（`data/operations/m4-takeover-20261104/r6-sha256.txt`）。未啟用排程；首題台北 11/06 21:00 結算前不宣稱實戰驗收。下方「最終交接狀態（05:37）」等段落為歷史紀錄。
@@ -125,7 +127,7 @@ GPT 額度暫停，Louis 指示 Claude 接手。修補直接做在主工作區�
 
 首題 qid 46289 預定台北 11/06 21:00 結算：結算後先 `--dry-candidates` 確認在列，再跑 `resolve.py` 與 `score.py`，核對 `resolution_event`、官方分數欄位與（若有）`ranking_observation`，這才是實戰端到端驗收。
 
-## 後續項目（不擋上線）
+## D127 當時後續項目（P1～P4 已於 D129 完成）
 
 1. **P1**：skip 條件改 mode 白名單（只有明確非 live 值才 skip；mode 缺失或格式不符一律報錯），並補測試。
 2. **P2**：resolve／score 共用 snapshot_id 與 mode 正規化 helper（空字串、純空白一致），補對照測試。
@@ -133,4 +135,4 @@ GPT 額度暫停，Louis 指示 Claude 接手。修補直接做在主工作區�
 4. **P4**：live 缺 snapshot 的 resolve 測試補 status／結束碼；score 補 live 負向測試。
 5. N3 後續：已穩定的已結算題停止重抓、排行榜重抓間隔。N8：非 darwin 探鎖改只探測。
 6. agg 的 `reconcile_prompt_version`／`escalation.run_config_version` 仍為「有值才檢查」（正式整合沒有前者）；若日後補欄位再改嚴格。
-7. **交 Louis 的計畫層待決**：依現行 D52，未送出升級題是永久缺漏；正式資料已有 30 個未送出的升級 episode，ITT 優劣與第 2 層效率實際上永遠無法宣稱。若希望日後能下結論，需在看結果前預先登記 ITT 母體規則（例如只納入某 run_config／live 模式之後的 episode）。
+7. **已由 D128 決定 B、D129 實作診斷，不再待決**：依現行 D52，未送出升級題是永久缺漏；正式資料已有 30 個未送出的升級 episode，ITT 優劣與第 2 層效率實際上永遠無法宣稱。若希望日後能下結論，需在看結果前預先登記 ITT 母體規則（例如只納入某 run_config／live 模式之後的 episode）。

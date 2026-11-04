@@ -1,11 +1,11 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.81（v1.0 凍結後的修訂，見 §16；D128 由 GPT 依 Louis 選擇 push＋B 登記 live ITT 母體）
+> 版本：v1.82（v1.0 凍結後的修訂，見 §16；D129 上線 D128 診斷與 M4 相容性修補）
 > 初稿：Claude
-> 本回合整合者：GPT（D128；D127 由 Claude、D126 由 Gemini 整合，見 `docs/tasks/HANDOFF.md`）
+> 本回合整合者：GPT（D128／D129；D127 由 Claude、D126 由 Gemini 整合，見 `docs/tasks/HANDOFF.md`）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
 > 最後更新：2026-11-04
-> 狀態：D128 `live_itt_cohort_v1` 已事前登記（程式尚未切換母體）；D118 MiniBench 進行中（固定截止 UTC 11/10 04:00）；D127 M4 `resolve.py`／`score.py` 手動入口已上線（未啟用排程，首題實戰結算待台北 11/06 21:00）；M5、D121 第一批與 D123 已上線，三線 ready。D124 observe 與 D125 autoload_v3 已上線；D126 確立加速迭代窗口（每日已關閉題目三閘門健檢＋11/06 前 M4 結算計分）並完成階段 A 過時文件清理、測試隔離修正、INDEX 建立與 PLAN 正文同步（v1.0 於 2026-10-31 經 Louis 核准凍結，D54）
+> 狀態：D129 `resolve_v2`／`score_v2` 手動入口已上線，D128 live 母體診斷已實作；首次決策未完整落盤，歷史與 live 完整 ITT 結論均維持禁止；D118 MiniBench 進行中（固定截止 UTC 11/10 04:00）；D127 M4 `resolve.py`／`score.py` 手動入口已上線（未啟用排程，首題實戰結算待台北 11/06 21:00）；M5、D121 第一批與 D123 已上線，三線 ready。D124 observe 與 D125 autoload_v3 已上線；D126 確立加速迭代窗口（每日已關閉題目三閘門健檢＋11/06 前 M4 結算計分）並完成階段 A 過時文件清理、測試隔離修正、INDEX 建立與 PLAN 正文同步（v1.0 於 2026-10-31 經 Louis 核准凍結，D54）
 
 ---
 
@@ -298,7 +298,7 @@ FutureEval 主賽與 MiniBench 的核對已依 Louis 提供的資源頁與正式
 - 升級題目是依分歧程度挑出來的，所以第 2 層的效果只能在升級題目內比較，不能推論到全部題目。
 - 第 2 層的效益另外報告：每單位增加的額度換到的分數改善、升級後未能完成的比例，以及因此錯過其他題目的成本。只比較成功完成第 2 層的題目會高估效益，所以要包含全部升級題目（D52）。
   - 實作口徑（D127）：「最終整合 vs 第 1 層整合」只在升級題目內比較。升級後沒有送出的題目沒有結算來源，記為永久缺漏，不補 0。任何缺漏、尚未結算或未送出的升級題目存在時，不宣稱優越。成本缺值不當成 0 或 1，額度總額與每單位效益改為不完整（空值）。升級題目內的 ITT 只要有任何缺口，總增益與每次第 2 層效率都不輸出，只列明示為子集的加總；observed pair 只是已完成個案的描述，不能當成效益結論；缺口原因是原因計數，同一題可同時計入多項。
-  - D128 事前登記 `live_itt_cohort_v1`：首個母體 `d118_live_itt_v1` 限 D118 campaign／bot311763／核准 MiniBench，納入根升級決策時間在 [2026-11-03T04:12:32.156Z, 2026-11-10T04:00:00.000Z) 的全部 episode；起點依既有實際啟動證據，與 04:00 授權窗口、舊預算 accounting_start 分開。納入不得依是否啟動、完成、送出或已結算決定；以 campaign／准入／cycle 與根來源鏈佐證，不能以 submissions.mode 或 aggregate.mode 篩選。未送出、失敗及來源不明保留缺漏並沿 D127 禁止完整 ITT 結論。歷史試驗資料保留獨立診斷，不預設既有 30 個未送出 episode 都可排除；晚到重試沿原根歸屬，同題多 episode 不灌高樣本數。每個新窗口開始前另行登記，保留歷史及累積缺漏，不能換窗洗掉失敗。詳見 `docs/tasks/D128-LIVE-ITT.md`（根 ID、截止／缺漏規則與合成驗收條件）。**本輪只登記規則，現行 score_v1 仍按 D127 全歷史口徑；新版 selector 經測試與雙審前不得宣稱新母體已生效。**
+  - D128 事前登記 `live_itt_cohort_v1`：首個母體 `d118_live_itt_v1` 限 D118 campaign／bot311763／核准 MiniBench，納入根升級決策時間在 [2026-11-03T04:12:32.156Z, 2026-11-10T04:00:00.000Z) 的全部 episode；起點依既有實際啟動證據，與 04:00 授權窗口、舊預算 accounting_start 分開。納入不得依是否啟動、完成、送出或已結算決定；以 campaign／准入／cycle 與根來源鏈佐證，不能以 submissions.mode 或 aggregate.mode 篩選。未送出、失敗及來源不明保留缺漏並沿 D127 禁止完整 ITT 結論。歷史試驗資料保留獨立診斷，不預設既有 30 個未送出 episode 都可排除；晚到重試沿原根歸屬，同題多 episode 不灌高樣本數。每個新窗口開始前另行登記，保留歷史及累積缺漏，不能換窗洗掉失敗。詳見 `docs/tasks/D128-LIVE-ITT.md`（根 ID、截止／缺漏規則與合成驗收條件）。**D129 已部署獨立 live 母體診斷；歷史診斷保留。既有 runtime 未持久化所有首次 candidate 決策，因此 live 與歷史 D52 均強制 decision_capture_incomplete，禁止完整 ITT 優越／總增益／效率結論，只列觀測子集描述。未來須先補決策帳冊，再於新窗口前另登記母體，不回填虛構歷史或更動 D128 邊界。** 詳見 `docs/tasks/D129-ITT-IMPLEMENTATION.md`。
   - 設定分段只依來源連結（`input_attempt_ids`、`prev_attempt_id`、送出的整合紀錄）判定；沒有來源證據的紀錄列為無法分段，不以檔案順序、設定相似或萬用比對歸段。
 - **結論紀律**（沿用 v0.3）：
 
@@ -1817,10 +1817,13 @@ view_image                  stable true
 | D126 | 2026-11-03 | Louis 要求盤點專案過時文件與測試，經 Gemini 初審及 Claude／GPT 獨立 CLI 評估後，Louis 指示「沒必要 0 寫入，真的不會有影響的刪掉就好」，並詢問最快何時能得知預測準確率、要求縮短回饋與迭代週期並重訂分階段計畫。經三方第二輪評估收斂，Louis 指示「把這個計劃表記起來 方便交接」「先 commit + push 再進行階段 A 做完給 gpt 審查」 | (1) 迭代與回饋機制：預算總窗口維持 7 天（至 UTC 11/10 04:00），但診斷與修 Bug 改為每日節奏；建立唯讀健檢工具 `src/post_close_audit.py`，強制通過 `review_eligible` 三道 AND 閘門（官方 API 確認 `closed/resolved` 且截止滿 15 分鐘、本地帳冊收斂無 unknown、已移出排程佇列）才揭露已關閉題目內容；M4 `resolve.py` 與 `score.py` 提前於 11/06 21:00 首題開獎前上線。(2) 階段 A 清理與防呆：刪除 29 個零引用過時 `.md` 檔（`392335b`）、更新 `README.md` 與 `docs/tasks/HANDOFF.md`、建立 `docs/tasks/INDEX.md` 與 `reviews/INDEX.md`、修正 `tests/test_numeric.py` 與 `tests/test_config.py` 設定隔離（不再要求改正式設定求 PASS）、同步 `PLAN.md` 正文與淘汰標記。兩份受保護雜湊 100% 不變 |
 | D127 | 2026-11-04 | Louis 指示 GPT 接手 Gemini 未完成的 `resolve.py`／`score.py`，「雙審與驗證完後直接上線」，並預留預測額度、做不完交接 Claude；GPT 額度暫停後，Louis 指示 Claude「接手 gpt 的工作」「先頂一下」 | Claude 依 r1 審查修正 B1～B5 與 C2，並補 C1、C3～C6 相依證據（題組題不建 snapshot、comment 必在 forecast_ok 後、讓路例外不被吞、TYPES 不含 date、正式第 2 層以 input_attempt_ids 直連第 1 層）。主要變更：排名需比對 bot 身分並另存 `ranking_observation`；以實際送出 payload 計分；第 2 層效果只比升級題；未送出升級題為永久缺漏、不補 0；成本缺值不默認、ITT 不完整時不輸出總增益與效率（B1-R）；含 unknown 的分段一律不合併；非 live 且無 snapshot 的 V15 探針送出列（D87）列為 skipped，不算錯誤；移除猜測式分段；`cdf_score_v1` 預先登記於 §4.1。驗證：相關 268 passed；隔離完整 2913 passed／100 failed，失敗節點與移除 M4 的基線完全一致；正式帳冊唯讀檢查 14 筆送出 payload 重算全部相符，副本合成結算端到端 14 題皆以凍結 payload 計分、無法分段 0；受保護雜湊 28/28。Claude／Gemini 官方 CLI 獨立複審 r2～r6（tools-disabled），r6 兩位皆 PASS；r2 Claude 唯一 blocker B1-R 於 r3 修正，上線冒煙發現的 V15 探針誤報於 r5／r6 修正並經雙審。只上線手動入口（resolve 僅 GET、低於送出優先序；score 唯讀、報告新建），不啟用排程、不改正式預測設定；首題台北 11/06 21:00 結算前不宣稱實戰驗收 |
 | D128 | 2026-11-04 | Louis 交 GPT 接手 Claude 已完成階段，明確選「1. push、2. B」；在未讀結算結果前登記 live 模式開始後的升級母體 | 已 push D127 `b52f935` 至 origin/main。於 2026-11-04T11:57:44.514Z 登記 `live_itt_cohort_v1`，固定 D118 實際啟動至既定窗口終點的所有根升級決策，包含正式失敗／未送出；排除試驗期必須有來源證據，不能按成功選樣或重設歷史。保留 D127 缺漏、設定分段、成本與結論限制；本機結算帳冊不存在，僅查存在性／事件類型計數，未讀預測內容或結算值。GPT 整合並做獨立只讀規則複核；本輪純文件事前登記，score_v1、正式設定／排程未變，新 selector 待合成測試及 Claude／Gemini 雙審。詳見 D128-LIVE-ITT.md |
+| D129 | 2026-11-04 | Louis 在 D128 push＋B 決定後指示 GPT「繼續做吧」，沿用雙審驗證後直接上線授權 | 上線 resolve_v2／score_v2、live_itt_cohort_v1／live_itt_report_v1 與共用 submission identity。完成 P1～P4、dry-candidates 錯誤回報、D128 固定來源母體與未知保留、原始損毀時間診斷、按設定/題型的描述性報表。發現首次 candidate 未完整持久化，live 與歷史 D52 均加入 decision_capture_incomplete，禁止完整 ITT 結論及效率，不移動登記邊界。Claude／Gemini r1 blockers 已修，r2 雙 PASS；相關 446 passed，完整 3091 passed／100 failed，失敗節點與 D127 一致；保護清單 28/28，受審/受測/部署 SHA 相同，空資料 CLI 冒煙成功。只更新手動入口，不改預測/預算/排程，首題台北 11/06 21:00 實戰驗收待辦。詳見 D129-ITT-IMPLEMENTATION.md |
 
 ---
 
 ## 16. 變更紀錄
+
+- **v1.82**（2026-11-04）：D129，部署 D128 固定 live episode 診斷及 M4 P1～P4；score_v2／resolve_v2 共用送出身分與狀態解析。明列未持久化首次 candidate 的證據限制，live／歷史 D52 同時禁止完整 ITT 優越、總增益及效率；保留觀測子集與官方計分。更新 §4.3、§15、交接、操作與審查索引。相關 446 passed；完整 3091 passed／100 個原有失敗，失敗集合無變；官方 CLI r2 Claude/Gemini 雙 PASS，保護雜湊與部署一致。真實首題結算驗收仍待 11/06。
 
 - **v1.81**（2026-11-04）：D128，依 Louis push＋B 選擇在 §4.3 登記 `live_itt_cohort_v1`，固定 D118 根升級事件母體、時間／來源身分、保留失敗與未知、歷史對照及跨窗限制；新增 `docs/tasks/D128-LIVE-ITT.md`，同步交接與索引。D127 commit 已推送。純文件變更，未改 score_v1 計算、預測行為或正式設定；新規則的程式實作須另經驗證雙審。
 

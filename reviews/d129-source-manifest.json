@@ -1,0 +1,112 @@
+{
+  "source_sha256": {
+    "src/score.py": "9659617edd8ab96a65bb928716de8b5497a0db0e219a357d306d7d5eea7aa6fc",
+    "src/resolve.py": "2ef9d23c92749f8e476017a75506a700430ec477e9db699e2ff733022e864d0c",
+    "src/flab/itt_cohort.py": "e02850d2dd6324887ff783169d2338438b25b42568d1083f4f23ff593b5bd491",
+    "src/flab/itt_report.py": "400b71d67cbe3fddeabb28bb2668557c3f104fd961a1d59804e45c65d0bc13de",
+    "src/flab/submission_identity.py": "d141eaef31ff4a0add0d375c65580e6e7438ff4325420da1c36eaa37bb406159",
+    "tests/test_resolve.py": "3ffda7d5e819596e1f08cb163086d46241cb8b0e8afab0e4b7f4c68a20eb96c5",
+    "tests/test_itt_cohort.py": "b5e95463295d8a7b81044ccf8b4018692f7801b111b78c19c21d703ca4b40d9a",
+    "tests/test_itt_report.py": "ae6173bf9a74fb2db5004cc8070de3517004b4200bbcba1369014dcea0a20b42",
+    "tests/test_score_live_itt.py": "bdb5ed3ab893cc7f141ea7d843e37d47a08a6e58a06be45d85c0ebb996f6eceb",
+    "tests/test_submission_identity.py": "111d1df70be6022eb119d3c0712feb48c6a7111344441a8a5e770923ca33de29",
+    "tests/test_score.py": "56abe876667e4edee082bac8e0b814872cb2a019aa4ff4dcff023b2cb3a4a817"
+  },
+  "review_round": "r2",
+  "packet_sha256": "3f4e0edd4e775c31e76091d16164936c25f534b8a17a891dadd498bd7ba4fe56",
+  "review_answer_sha256": {
+    "claude": "ca435d143c7fca61dabce544f25734fea4028f624258b8c78f3c465d07bf8794",
+    "gemini": "177b0dc38614c9c5333bc43676539cbde7aa081fb4918848d4916550f2105481"
+  },
+  "tests": {
+    "baseline_failed": 100,
+    "current_failed": 100,
+    "added": [],
+    "removed": [],
+    "passed": 3091,
+    "targeted_passed": 446,
+    "protected_manifest_entries_matching": 28,
+    "protected_distinct_paths": 17
+  },
+  "deployed_at_utc": "2026-11-04T13:05:21.446Z",
+  "smoke": [
+    {
+      "entry": "resolve",
+      "exit_code": 0,
+      "empty_data": true
+    },
+    {
+      "entry": "score",
+      "exit_code": 0,
+      "empty_data": true
+    },
+    {
+      "entry": "score-md",
+      "exit_code": 0,
+      "empty_data": true
+    }
+  ],
+  "predeploy_metadata_checks": {
+    "resolution_ledger_absent": true,
+    "resolve_dry": {
+      "status": "ok",
+      "exit_code": 0,
+      "candidate_count": 0,
+      "error_count": 0,
+      "skipped_count": 2
+    },
+    "live": {
+      "included_episode_count": 3,
+      "excluded_episode_count": 32,
+      "unknown_episode_count": 0,
+      "submitted_episode_count": 3,
+      "unsubmitted_episode_count": 0,
+      "paired_question_count": 0,
+      "complete_itt_coverage": false,
+      "itt_gap_reasons": {
+        "decision_capture_incomplete": 1,
+        "not_yet_evaluable": 3,
+        "unsegmented_episode": 3
+      },
+      "resources": {
+        "scope": "recorded_linked_attempts_only",
+        "tier2_attempt_count": 9,
+        "tier2_subagent_count": 0,
+        "missing_attempt_ids": [],
+        "budget_cost_missing_count": 9,
+        "conflicting_cost_record_count": 0,
+        "missing_subagent_record_count": 0,
+        "invalid_time_record_count": 0,
+        "unidentified_subagent_record_count": 0,
+        "cost_fields": [],
+        "mixed_cost_fields": false,
+        "subagent_cost_accounting": "no_subagents",
+        "budget_cost_complete": false,
+        "budget_units": null
+      },
+      "unknown_resources": {
+        "scope": "recorded_linked_attempts_only",
+        "tier2_attempt_count": 0,
+        "tier2_subagent_count": 0,
+        "missing_attempt_ids": [],
+        "budget_cost_missing_count": 0,
+        "conflicting_cost_record_count": 0,
+        "missing_subagent_record_count": 0,
+        "invalid_time_record_count": 0,
+        "unidentified_subagent_record_count": 0,
+        "cost_fields": [],
+        "mixed_cost_fields": false,
+        "subagent_cost_accounting": "no_subagents",
+        "budget_cost_complete": true,
+        "budget_units": 0.0
+      }
+    },
+    "markdown_flags": {
+      "interim": true,
+      "capture_gap": true,
+      "complete_false": true
+    },
+    "no_api": true,
+    "no_forecast_output_exposed": true
+  }
+}

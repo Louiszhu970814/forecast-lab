@@ -1,6 +1,8 @@
 """Compute local Log Score, clamped Log Score, Brier/CRPS Score, and 4-way pairwise bootstrap comparisons (PLAN.md §4.1–§4.4).
 
-Key guarantees (score_v1 / cdf_score_v1):
+Key guarantees (score_v2 / cdf_score_v1):
+- D128 live_itt is an independent preregistered episode view; historical summaries remain intact.
+  Missing decision capture evidence blocks full-ITT conclusions even when observed pairs are complete.
 - Strictly read-only on `data/` and `config/`; validates `--report-path` to reject any destination
   inside protected directories (`data/`, `config/`, `src/`, `prompts/`, `tests/`, `.git/`).
 - Uses only records and the latest `resolution_event` per question with timestamps `<= as_of_utc`.
@@ -56,10 +58,13 @@ if str(_SRC_DIR) not in sys.path:
 from aggregate import EXCLUDED, effective_flags  # noqa: E402
 from flab.ids import hash_obj  # noqa: E402
 from flab.ledger import read_complete  # noqa: E402
+from flab.submission_identity import submission_identity, is_snapshotless_probe, submission_status  # noqa: E402
+from flab.itt_cohort import select_cohort  # noqa: E402
+from flab.itt_report import build_live_itt  # noqa: E402
 from flab.timeutil import parse_iso, to_iso, utc_now  # noqa: E402
 import numeric as N  # noqa: E402
 
-VERSION = "score_v1"
+VERSION = "score_v2"
 CDF_SCORE_VERSION = "cdf_score_v1"
 DEFAULT_DATA_DIR = _REPO_ROOT / "data"
 DEFAULT_REPORTS_DIR = _REPO_ROOT / "reports"
@@ -92,8 +97,7 @@ def _coerce_now(now: Any) -> datetime:
 
 
 def _status(row: Dict[str, Any]) -> str:
-    val = row.get("status") or row.get("state")
-    return val.strip().lower() if isinstance(val, str) else ""
+    return submission_status(row)
 
 
 def _clamp(p: float, lo: float = CLAMP_MIN, hi: float = CLAMP_MAX) -> float:
@@ -954,7 +958,7 @@ def evaluate_scoreboard(
                         **base,
                         **row,
                         "aggregate_id": base.get("aggregate_id") or row.get("aggregate_id"),
-                        "question_snapshot_id": base.get("question_snapshot_id") or row.get("question_snapshot_id"),
+                        **submission_identity(row, base),
                         "_all_sub_ids": cand_sub_ids,
                         "_merged_audit_flags": sorted(
                             set(base.get("audit_flags") or []) | set(row.get("audit_flags") or [])
@@ -1075,7 +1079,7 @@ def evaluate_scoreboard(
 
     for qid, sub in sorted(submitted_intent_by_qid.items()):
         res = latest_res_by_qid.get(qid)
-        if res is None and sub.get("question_snapshot_id") is None and sub.get("mode") != "live":
+        if res is None and is_snapshotless_probe(sub):
             # Mirrors resolve.py: non-live snapshot-less submissions (e.g. D87 V15 synthetic probes) are never polled.
             excluded_counts["submitted_without_snapshot_id"] = excluded_counts.get("submitted_without_snapshot_id", 0) + 1
             continue
@@ -1392,6 +1396,7 @@ def evaluate_scoreboard(
             "question_type": snap.get("question_type"),
             "snapshot_id": canonical_snap_id,
             "submitted_aggregate_id": agg_id,
+            "tier1_aggregate_id": tier1_agg.get("record_id") if tier1_agg is not None else None,
             "submission_status": _status(sub),
             "_base_config_tuple": (run_cfg_ver, agg_ver, t1_prompt_ver),
             "_t2_prompt_ver": t2_prompt_ver,
@@ -1912,6 +1917,7 @@ def evaluate_scoreboard(
             "superiority_assessment_eligible": False,
             "can_claim_superiority": False,
             "superiority_claim": claim,
+            "tier": "descriptive_only",
             "itt_incomplete_reasons": dict(reasons),
         }
 
@@ -2131,7 +2137,10 @@ def evaluate_scoreboard(
 
         # B1-R (PLAN §4.3 D52): every efficiency / total-gain figure must cover ALL escalated episodes.
         # Any gap means only a complete-case subset is evaluatable, which overstates Tier 2 benefit.
+        # D129: unlogged first candidate decisions affect the historical denominator too.
+        # Preserve observed descriptive values, but never call this complete ITT.
         itt_gaps = {
+            "decision_capture_incomplete": 1,
             "missing_outcome": len(missing_outcome_reasons),
             "not_yet_evaluable": len(not_yet_evaluable_reasons),
             "escalated_unsubmitted": len(unsubmitted_episodes),
@@ -2612,6 +2621,29 @@ def evaluate_scoreboard(
             rankings_by_tour[str(tid)] = (sort_k, {k: row[k] for k in ranking_out_keys if k in row})
     official_rankings_by_tournament = {k: v[1] for k, v in sorted(rankings_by_tour.items())}
 
+    # D128 is a separate episode-level view. Keep all historical rows for
+    # provenance and the existing score/official summaries; never time-slice
+    # input forecasts to manufacture a live-only successful subset.
+    def cohort_ledger(name):
+        return read_complete(data_dir / name) if (data_dir / name).exists() else []
+
+    cohort = select_cohort(
+        questions=raw_questions, forecasts=raw_forecasts, aggregates=raw_aggregates,
+        budget_events=cohort_ledger("budget_events.jsonl"),
+        campaigns=cohort_ledger("continuous_campaigns.jsonl"),
+        live_authorizations=cohort_ledger("live_authorizations.jsonl"),
+        scheduler_runs=cohort_ledger("scheduler_runs.jsonl"),
+        scheduler_jobs=cohort_ledger("scheduler_jobs.jsonl"),
+        reconciliation_runs=cohort_ledger("reconciliation_runs.jsonl"),
+        as_of=as_of_iso,
+    )
+    live_itt = build_live_itt(
+        cohort, scored_questions=scorable_questions, submissions=raw_submissions,
+        forecasts=raw_forecasts, aggregates=raw_aggregates, resolutions=resolutions,
+        subagents=raw_subagents, as_of=as_of_iso, n_boot=n_boot,
+        build_draws=_build_synchronized_draws, ci_from_draws=_ci_from_synchronized_draws,
+        conclusion=pairwise_conclusion_discipline,
+    )
     multi_seg_prohibited = len(segments_out) > 1
     return {
         "version": VERSION,
@@ -2658,6 +2690,8 @@ def evaluate_scoreboard(
             "official_rankings_by_tournament": official_rankings_by_tournament,
             "unverified_ranking_observations": unverified_ranking_observations,
         },
+        "historical_d52_scope": "all_history_d127",
+        "live_itt": live_itt,
         "overall": overall_summary,
         "by_config_segment": segments_out,
         "questions": scorable_questions,
@@ -2785,7 +2819,7 @@ def render_scoreboard_markdown(board: Dict[str, Any]) -> str:
         "column; it is not an ordinary Brier score, and log scores of different question types are not "
         "on one scale.",
         "",
-        "## 1. Overall 4-Way Series & Pairwise Summary",
+        "## 1. Historical 4-Way Series & Pairwise Summary (D127)",
         "",
         *_render_subset_tables(board["overall"]),
     ]
@@ -2804,6 +2838,44 @@ def render_scoreboard_markdown(board: Dict[str, Any]) -> str:
                 *_render_subset_tables(seg_data),
             ]
 
+    live = board.get("live_itt")
+    if live is not None:
+        cohort = live["cohort"]
+        window_closed = parse_iso(live["as_of_utc"]) >= parse_iso(cohort["end_utc"])
+        lines += [
+            "", "## 3. Registered Live ITT (D128)", "",
+            f"- Cohort: `{cohort.get('cohort_id')}` / `{cohort.get('version')}`; "
+            f"source SHA: `{cohort.get('source_sha256')}`.",
+            f"- Report version: `{live['version']}`; cohort as-of: `{cohort.get('as_of_utc')}`; "
+            f"analysis cutoff: `{board.get('analysis_cutoff_utc')}`.",
+            f"- Decision interval: [`{cohort['start_utc']}`, `{cohort['end_utc']}`); "
+            f"window status: {'closed for new episodes' if window_closed else 'interim (window still open)'}.",
+            "- Observed-pair subset (descriptive only; NOT full ITT). "
+            f"Paired / included questions: {live['paired_question_count']}/{live['included_question_count']}.",
+            "- Historical tables above remain D127 all-history diagnostics; they do not determine live cohort membership.",
+            f"- Included episodes/questions: {live['included_episode_count']}/{live['included_question_count']}; "
+            f"historical/out-of-scope: {live['excluded_episode_count']}; unknown: {live['unknown_episode_count']}.",
+            f"- Submitted: {live['submitted_episode_count']}; unsubmitted: {live['unsubmitted_episode_count']}; "
+            f"paired questions: {live['paired_question_count']}; complete ITT: `{live['complete_itt_coverage']}`.",
+            f"- Gaps (may overlap): `{json.dumps(live['itt_gap_reasons'], sort_keys=True)}`.",
+            f"- Decision capture complete: `{cohort.get('decision_capture_complete', False)}`; "
+            f"limitations: `{json.dumps(cohort.get('capture_limitations', []))}`.",
+            f"- Resources: `{json.dumps(live['resources'], sort_keys=True)}`.",
+            "- Effects apply only to registered escalated questions. Missing outcomes are never imputed as zero; "
+            "configurations and question types are not pooled. Every unknown/missing episode blocks full-ITT claims.",
+        ]
+        for group in live["by_config_and_type"]:
+            lines += ["", f"### Observed-pair subset: `{group['config_segment']}` / `{group['question_type']}` (descriptive only)", "",
+                      f"Paired questions / included episodes in segment: {group['paired_question_count']}/{group['episode_count']}.", "",
+                      "| Metric difference (final − tier 1) | Mean / 95% CI question / cluster | Claim |",
+                      "|---|---|---|"]
+            for metric, result in group["pairwise"].items():
+                lines.append(f"| {metric} | {_fmt_metric(result)} | "
+                             f"{result['conclusion_discipline']['superiority_claim']} |")
+            lines += [f"- Observed-pair subset log gain (descriptive): `{group['evaluatable_subset_log_score_gain_nats']}`.",
+                      f"- Full ITT log gain: `{group['total_log_score_gain_nats']}`; "
+                      f"per Tier 2 attempt: `{group['log_score_gain_per_tier2_attempt']}`; "
+                      f"per budget unit: `{group['log_score_gain_per_budget_unit']}`."]
     return "\n".join(lines) + "\n"
 
 

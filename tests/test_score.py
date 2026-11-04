@@ -622,7 +622,8 @@ def test_missing_or_invalid_provenance_disqualifies_final_aggregate_and_enforces
     seg_v1_d52 = board["by_config_segment"]["run_config_v3|agg_v1|forecast_v2|reconcile_v1"]["tier2_escalation_analysis"]
     seg_v2_d52 = board["by_config_segment"]["run_config_v3|agg_v1|forecast_v2|reconcile_v2"]["tier2_escalation_analysis"]
     assert seg_v1_d52["pooling_prohibited"] is False
-    assert seg_v1_d52["total_log_score_gain_nats"] == pytest.approx(math.log(0.70) - math.log(0.60))
+    assert seg_v1_d52["total_log_score_gain_nats"] is None
+    assert seg_v1_d52["evaluatable_subset_log_score_gain_nats"] == pytest.approx(math.log(0.70) - math.log(0.60))
     assert seg_v1_d52["missed_question_opportunity_cost"]["budget_skipped_questions_in_cycles"] == 1
     assert seg_v1_d52["missed_question_opportunity_cost"]["unattributed_cycle_budget_skips"] == 0
     assert seg_v2_d52["missed_question_opportunity_cost"]["budget_skipped_questions_in_cycles"] == 0
@@ -1019,7 +1020,8 @@ def test_round4_regressions_dag_lineage_itt_baseline_segment_d52_and_cycle_skips
     assert seg_d52["missed_question_opportunity_cost"]["unattributed_tier2_attempts"] == 0
     assert seg_d52["itt_fallback_zero_count"] == 0
     assert seg_d52["missing_outcome_count"] == 0
-    assert seg_d52["intent_to_treat_log_score_diff"]["complete_itt_coverage"] is True
+    assert seg_d52["intent_to_treat_log_score_diff"]["complete_itt_coverage"] is False
+    assert seg_d52["itt_gap_reasons"]["decision_capture_incomplete"] == 1
 
     # Segment R2 ("rc1|agg_v1|p1|r2") preserves Q20's same-rc1, different-reconcile-prompt run separately!
     # Its Tier 2 run produced no submission -> permanent ITT gap (B1), never a 0.0 imputation.
@@ -1377,7 +1379,7 @@ def test_b1_unsubmitted_escalation_blocks_itt_superiority_and_budget_cost_is_nev
     assert itt["evaluatable_count"] == 1
     assert itt["complete_itt_coverage"] is False
     assert itt["conclusion_discipline"]["can_claim_superiority"] is False
-    assert itt["conclusion_discipline"]["itt_incomplete_reasons"] == {"missing_outcome": 1, "escalated_unsubmitted": 1}
+    assert itt["conclusion_discipline"]["itt_incomplete_reasons"] == {"decision_capture_incomplete": 1, "missing_outcome": 1, "escalated_unsubmitted": 1}
     # Six Tier 2 attempts, none with budget_cost / quota_weight: totals are incomplete, never 1.0 each
     assert seg["extra_tier2_attempts_used"] == 6
     assert seg["tier2_budget_units_consumed"] is None
@@ -1398,7 +1400,7 @@ def test_b1_unsubmitted_escalation_blocks_itt_superiority_and_budget_cost_is_nev
     for comp in ("final_vs_tier1_aggregate", "final_vs_player_tier2:claude"):
         assert seg_pw[comp]["conclusion_discipline"]["can_claim_superiority"] is False
         assert seg_pw[comp]["log_score_diff"]["conclusion_discipline"]["itt_incomplete_reasons"] == {
-            "missing_outcome": 1, "escalated_unsubmitted": 1,
+            "decision_capture_incomplete": 1, "missing_outcome": 1, "escalated_unsubmitted": 1,
         }
     # Ordinary (non-Tier-2) comparisons are not gated by D52
     assert "itt_incomplete_reasons" not in seg_pw["final_vs_player_tier1:claude"]["conclusion_discipline"]
@@ -1435,13 +1437,14 @@ def test_b2_final_vs_tier1_compares_only_escalated_and_b5_unadopted_escalation_n
     assert seg["pairwise"]["final_vs_player_tier1:claude"]["paired_count"] == 8
     assert seg["series"]["player_tier2:claude"]["eligible_questions"] == 2
     d52 = seg["tier2_escalation_analysis"]
-    assert d52["tier2_efficiency_status"] == "complete_itt"
-    assert d52["total_log_score_gain_nats"] == pytest.approx(expected * 2)
+    assert d52["tier2_efficiency_status"] == "incomplete_itt"
+    assert d52["total_log_score_gain_nats"] is None
+    assert d52["evaluatable_subset_log_score_gain_nats"] == pytest.approx(expected * 2)
     # ITT charges the stray Q10 escalation's 3 Tier 2 attempts (zero gain on what was actually submitted)
     # on top of Q20/Q21's 6, without flipping Q10's row or its pairwise membership.
     assert d52["itt_tier2_attempts"] == 9
-    assert d52["log_score_gain_per_tier2_attempt"] == pytest.approx(expected * 2 / 9.0)
-    assert "itt_incomplete_reasons" not in pw["conclusion_discipline"]
+    assert d52["log_score_gain_per_tier2_attempt"] is None
+    assert pw["conclusion_discipline"]["itt_incomplete_reasons"]["decision_capture_incomplete"] == 1
 
 
 def test_c2_scores_the_frozen_submitted_payload_and_rejects_missing_or_mismatched(tmp_path: Path):
@@ -1518,8 +1521,8 @@ def test_e6_overall_tier2_pairwise_is_gated_when_questions_fall_outside_the_sing
     assert list(board["by_config_segment"]) == ["rc1|agg_v1|p1|r1"]
     assert board["overall"]["unsegmentable_question_ids"] == [51]
     seg = board["by_config_segment"]["rc1|agg_v1|p1|r1"]
-    assert seg["tier2_escalation_analysis"]["tier2_efficiency_status"] == "complete_itt"
-    assert "itt_incomplete_reasons" not in seg["pairwise"]["final_vs_tier1_aggregate"]["conclusion_discipline"]
+    assert seg["tier2_escalation_analysis"]["tier2_efficiency_status"] == "incomplete_itt"
+    assert seg["pairwise"]["final_vs_tier1_aggregate"]["conclusion_discipline"]["itt_incomplete_reasons"]["decision_capture_incomplete"] == 1
     overall = board["overall"]
     assert overall["tier2_escalation_analysis"]["tier2_efficiency_status"] == "pooling_prohibited"
     gated = overall["pairwise"]["final_vs_tier1_aggregate"]["conclusion_discipline"]
@@ -1541,3 +1544,40 @@ def test_snapshotless_probe_submission_is_excluded_separately(tmp_path: Path):
     assert board["scorable_resolved_count"] == 1
     assert board["excluded_counts"]["submitted_without_snapshot_id"] == 1
     assert board["excluded_counts"]["no_resolution_event"] == 0
+
+
+def test_d129_capture_gap_blocks_historical_claims_even_with_100_complete_pairs(tmp_path):
+    parts = [_mini_question(q, p_t1=0.6, p_t2=0.8) for q in range(1000, 1100)]
+    for part in parts:
+        for attempt in part["forecasts.jsonl"]:
+            attempt["budget_cost"] = 1.0
+    _write_mini(tmp_path, *parts)
+    board = _REAL_EVALUATE(tmp_path, as_of=_AS_OF, n_boot=1000)
+    for view in [board["overall"], *board["by_config_segment"].values()]:
+        d52 = view["tier2_escalation_analysis"]
+        assert d52["paired_count"] == 100
+        assert d52["itt_gap_reasons"] == {"decision_capture_incomplete": 1}
+        assert d52["tier2_efficiency_status"] == "incomplete_itt"
+        assert d52["total_log_score_gain_nats"] is None
+        assert d52["log_score_gain_per_tier2_attempt"] is None
+        assert d52["log_score_gain_per_budget_unit"] is None
+        assert d52["evaluatable_subset_log_score_gain_nats"] == pytest.approx(100 * math.log(.8/.6))
+        for name, pair in view["pairwise"].items():
+            if name == "final_vs_tier1_aggregate" or name.startswith("final_vs_player_tier2:"):
+                for result in [pair, pair["log_score_diff"], pair["log_score_clamped_diff"], pair["brier_score_diff"]]:
+                    assert result["conclusion_discipline"]["can_claim_superiority"] is False
+                    assert result["conclusion_discipline"]["tier"] == "descriptive_only"
+        # A positive ordinary comparison still passes its existing CI gate:
+        # the capture change is specific to Tier 2 effect claims.
+        assert view["pairwise"]["final_vs_player_tier1:claude"]["conclusion_discipline"]["can_claim_superiority"] is True
+
+
+def test_d129_markdown_shows_fixed_interval_cutoffs_and_subset_label(tmp_path):
+    board = _REAL_EVALUATE(tmp_path, as_of="2026-11-04T00:00:00Z", n_boot=10)
+    text = SC.render_scoreboard_markdown(board).split("## 3. Registered Live ITT (D128)")[1]
+    for marker in ("2026-11-03T04:12:32.156Z", "2026-11-10T04:00:00.000Z", "2026-11-04T00:00:00.000Z",
+                   "live_itt_report_v1", "cohort as-of", "analysis cutoff", "interim", "descriptive only; NOT full ITT",
+                   "Paired / included questions: 0/0", "decision_capture_incomplete"):
+        assert marker in text
+    board = _REAL_EVALUATE(tmp_path, as_of="2026-11-11T00:00:00Z", n_boot=10)
+    assert "closed for new episodes" in SC.render_scoreboard_markdown(board)

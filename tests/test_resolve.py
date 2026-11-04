@@ -1,4 +1,4 @@
-"""Unit tests for src/resolve.py (resolve_v1, PLAN.md §4.1, §4.4, §5.1)."""
+"""Unit tests for src/resolve.py (resolve_v2, PLAN.md §4.1, §4.4, §5.1)."""
 from __future__ import annotations
 
 import sys
@@ -817,5 +817,91 @@ def test_snapshotless_probe_submission_is_skipped_not_an_error(tmp_path: Path):
          "mode": "live", "tournament_id": 33135, "bot_id": 77, "at": "2026-11-03T10:00:00Z"},
     ])
     res_live = R.poll_resolutions(live_dir, fetch_post=lambda _pid: {}, now=NOW)
+    assert res_live["status"] == "error"
     assert res_live["skipped"] == []
     assert res_live["errors"] == [{"question_id": 101, "snapshot_id": None, "error_type": "MissingSubmittedSnapshot"}]
+
+
+@pytest.mark.parametrize('mode', [None, '', ' ', 'Live', 'live ', ' trial', 'TRIAL', 'dry_run', 'unknown', 1])
+@pytest.mark.parametrize('snapshot_id', [None, '', '   '])
+def test_snapshotless_malformed_mode_is_error_not_probe(tmp_path, mode, snapshot_id):
+    _write_jsonl(tmp_path / 'submissions.jsonl', [
+        {'question_id': 101, 'intent_id': 'i1', 'status': 'forecast_ok', 'mode': mode,
+         'question_snapshot_id': snapshot_id, 'at': '2026-11-03T10:00:00Z'},
+    ])
+    result = R.poll_resolutions(tmp_path, now=NOW)
+    assert result['status'] == 'error'
+    assert result['skipped'] == []
+    assert result['errors'] == [{'question_id': 101, 'snapshot_id': None, 'error_type': 'MissingSubmittedSnapshot'}]
+
+
+def test_live_receipt_without_mode_inherits_intent_and_cli_fails(tmp_path, monkeypatch, capsys):
+    _write_jsonl(tmp_path / 'submissions.jsonl', [
+        {'question_id': 101, 'intent_id': 'i1', 'status': 'intent', 'mode': 'live',
+         'question_snapshot_id': None, 'at': '2026-11-03T09:00:00Z'},
+        {'question_id': 101, 'intent_id': 'i1', 'status': 'forecast_ok',
+         'at': '2026-11-03T10:00:00Z'},
+    ])
+    result = R.poll_resolutions(tmp_path, now=NOW)
+    assert result['status'] == 'error' and result['skipped'] == []
+    assert result['errors'][0]['error_type'] == 'MissingSubmittedSnapshot'
+
+    class NoNetwork:
+        def get_post(self, _post_id):
+            raise AssertionError('Invalid identity must not call the API')
+        def get(self, *_args, **_kwargs):
+            raise AssertionError('Invalid identity must not call the API')
+    monkeypatch.setattr(R, '_build_client', lambda *_a, **_kw: NoNetwork())
+    assert R.main(['--data-dir', str(tmp_path)]) == 1
+    import json
+    assert json.loads(capsys.readouterr().out)['status'] == 'error'
+
+
+def test_conflicting_receipt_mode_cannot_downgrade_live_to_trial(tmp_path):
+    _write_jsonl(tmp_path / 'submissions.jsonl', [
+        {'question_id': 101, 'intent_id': 'i1', 'status': 'intent', 'mode': 'live',
+         'question_snapshot_id': None, 'at': '2026-11-03T09:00:00Z'},
+        {'question_id': 101, 'intent_id': 'i1', 'status': 'forecast_ok', 'mode': 'trial',
+         'at': '2026-11-03T10:00:00Z'},
+    ])
+    result = R.poll_resolutions(tmp_path, now=NOW)
+    assert result['status'] == 'error' and result['skipped'] == []
+    assert result['errors'][0]['error_type'] == 'MissingSubmittedSnapshot'
+
+
+@pytest.mark.parametrize('mode,skip', [('local', True), ('trial', True), ('live', False),
+                                     (None, False), (' trial', False)])
+def test_dry_candidates_preserves_diagnostics_without_api_or_writes(tmp_path, monkeypatch, capsys, mode, skip):
+    _write_jsonl(tmp_path / 'questions.jsonl', [_snap(102, 9002)])
+    _write_jsonl(tmp_path / 'submissions.jsonl', [
+        {'question_id': 101, 'intent_id': 'i1', 'status': 'intent', 'mode': mode,
+         'question_snapshot_id': None, 'at': '2026-11-03T09:00:00Z'},
+        {'question_id': 101, 'intent_id': 'i1', 'status': 'forecast_ok', 'at': '2026-11-03T10:00:00Z'},
+        {'question_id': 102, 'intent_id': 'i2', 'status': 'forecast_ok', 'mode': 'live',
+         'question_snapshot_id': 'snap_102', 'at': '2026-11-03T10:00:00Z'},
+    ])
+    before = {p.name: p.read_bytes() for p in tmp_path.iterdir()}
+    def no_client(*_args, **_kwargs):
+        raise AssertionError('Dry candidates must not create an API client')
+    monkeypatch.setattr(R, '_build_client', no_client)
+    monkeypatch.setattr(R, 'utc_now', lambda: R.parse_iso(NOW))
+    assert R.main(['--data-dir', str(tmp_path), '--dry-candidates']) == int(not skip)
+    import json
+    result = json.loads(capsys.readouterr().out)
+    assert result['status'] == ('ok' if skip else 'error')
+    assert result['skipped'] == ([{'question_id': 101, 'skip_reason': 'submitted_without_snapshot_id'}] if skip else [])
+    assert result['errors'] == ([] if skip else [{'question_id': 101, 'snapshot_id': None, 'error_type': 'MissingSubmittedSnapshot'}])
+    assert [c['question_id'] for c in result['candidates']] == [102]
+    assert {p.name: p.read_bytes() for p in tmp_path.iterdir()} == before
+
+
+def test_dry_candidates_empty_directory_is_success(tmp_path, monkeypatch, capsys):
+    def no_client(*_args, **_kwargs):
+        raise AssertionError('Dry candidates must not create an API client')
+    monkeypatch.setattr(R, '_build_client', no_client)
+    assert R.main(['--data-dir', str(tmp_path), '--dry-candidates']) == 0
+    import json
+    assert json.loads(capsys.readouterr().out) == {
+        'version': R.VERSION, 'status': 'ok', 'candidates': [], 'errors': [], 'skipped': [],
+    }
+    assert list(tmp_path.iterdir()) == []

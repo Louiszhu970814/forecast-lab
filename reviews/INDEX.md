@@ -4,6 +4,10 @@
 
 | 檔案 | 對應決策／批次 | 審查者 | 狀態 | 說明 |
 |---|---|---|---|---|
+| [`claude-d129-code-review-r2.md`](claude-d129-code-review-r2.md) | D129 | claude official CLI | `CLOSED (PASS)` | 最終程式複審；來源SHA見d129-source-manifest.json |
+| [`gemini-d129-code-review-r2.md`](gemini-d129-code-review-r2.md) | D129 | gemini official CLI | `CLOSED (PASS)` | 最終程式複審；來源SHA見d129-source-manifest.json |
+| [`claude-d129-code-review-r1.md`](claude-d129-code-review-r1.md) | D129 | claude official CLI | `CLOSED (SUPERSEDED)` | r1阻擋已於後續修正；Gemini封包截斷亦已補全 |
+| [`gemini-d129-code-review-r1.md`](gemini-d129-code-review-r1.md) | D129 | gemini official CLI | `CLOSED (SUPERSEDED)` | r1阻擋已於後續修正；Gemini封包截斷亦已補全 |
 | [`claude-m4-code-review-r6.md`](claude-m4-code-review-r6.md) | D127 M4 | Claude (Opus 5.5) | `CLOSED (PASS)` | M4 `resolve.py`／`score.py` 最終複審 PASS（附 P1～P4 後續建議） |
 | [`gemini-m4-code-review-r6.md`](gemini-m4-code-review-r6.md) | D127 M4 | Gemini (Argon High) | `CLOSED (PASS)` | M4 最終獨立複審 PASS |
 | [`claude-m4-code-review-r2.md`](claude-m4-code-review-r2.md) | D127 M4 | Claude (Opus 5.5) | `CLOSED (SUPERSEDED)` | r2 完整複審：B1-R blocker 與 E1～E3 證據要求（r3 起已修正並補證據） |

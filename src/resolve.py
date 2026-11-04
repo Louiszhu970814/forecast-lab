@@ -1,11 +1,13 @@
 """Fetch official Metaculus resolutions and scores for submitted questions (PLAN.md §4.1, §4.4, §5.1).
 
-Key guarantees (resolve_v1):
+Key guarantees (resolve_v2):
 - Only queries questions that have a submitted forecast (`forecast_ok` or `comment_ok` in
   `data/submissions.jsonl`, or `--include-dry-run` when explicitly requested for local testing)
   AND whose `scheduled_close_time <= now` AND (`scheduled_resolve_time <= now` unless
   `--allow-before-scheduled-resolve` is explicitly passed). `--question-id` filters IDs without
   bypassing submission or timestamp requirements. Never queries open questions.
+- `--dry-candidates` performs local selection only, exposes skipped probes and integrity errors,
+  and exits nonzero on errors without creating an API client or writing ledger records.
 - Shares `api_backoff_v3` (`data/api_cooldowns.jsonl` with `pace=True`) across processes and
   yields immediately (`deferred_busy_lock`) whenever `submit.lock` or `cycle.lock` is held
   (including before/after pacing sleeps and before each HTTP retry), keeping resolution polling
@@ -46,10 +48,11 @@ from flab.ids import hash_obj, new_id  # noqa: E402
 from flab.jsonl import append_record  # noqa: E402
 from flab.ledger import read_complete, transaction  # noqa: E402
 from flab.timeutil import parse_iso, to_iso, utc_now  # noqa: E402
+from flab.submission_identity import submission_identity, is_snapshotless_probe, submission_status  # noqa: E402
 from metaculus import MetaculusClient, _default_opener  # noqa: E402
 import numeric as N  # noqa: E402
 
-VERSION = "resolve_v1"
+VERSION = "resolve_v2"
 DEFAULT_DATA_DIR = _REPO_ROOT / "data"
 SUBMITTED_STATUSES = {"forecast_ok", "comment_ok"}
 AMBIGUOUS_TOKENS = {"ambiguous", "ambiguity"}
@@ -75,8 +78,7 @@ FetchRanking = Callable[[int, int], Dict[str, Any]]  # (tournament_id, expected_
 
 
 def _status(row: Dict[str, Any]) -> str:
-    val = row.get("status") or row.get("state")
-    return val.strip().lower() if isinstance(val, str) else ""
+    return submission_status(row)
 
 
 def _parse_iso_safe(value: Any) -> Optional[datetime]:
@@ -340,9 +342,9 @@ def _select_candidates_with_diagnostics(
                 is_real = st in SUBMITTED_STATUSES
                 if submitted_real_by_qid.get(qid, False) and not is_real:
                     continue
-                snap_id = r.get("question_snapshot_id") or base.get("question_snapshot_id")
-                submitted_snap_by_qid[qid] = snap_id if isinstance(snap_id, str) and snap_id.strip() else None
-                submitted_mode_by_qid[qid] = r.get("mode") or base.get("mode")
+                identity = submission_identity(r, base)
+                submitted_snap_by_qid[qid] = identity["question_snapshot_id"]
+                submitted_mode_by_qid[qid] = identity["mode"]
                 submitted_real_by_qid[qid] = is_real
 
     wanted = {int(q) for q in question_ids} if question_ids is not None else None
@@ -363,10 +365,9 @@ def _select_candidates_with_diagnostics(
             continue
 
         sub_snap_id = submitted_snap_by_qid[qid]
-        if sub_snap_id is None and submitted_mode_by_qid.get(qid) != "live":
-            # Non-live submitted rows with no question_snapshot_id (e.g. D87 V15 synthetic probes) carry no local
-            # forecast provenance and are never scored: skipped, not reported as errors. A live row without a
-            # snapshot id stays a MissingSubmittedSnapshot error (integrity problem).
+        if is_snapshotless_probe({"question_snapshot_id": sub_snap_id, "mode": submitted_mode_by_qid.get(qid)}):
+            # Only explicit local/trial probes may omit a snapshot. Missing,
+            # malformed, contradictory, or live modes remain integrity errors.
             diagnostics.append({"question_id": qid, "skip_reason": "submitted_without_snapshot_id"})
             continue
         snap = snapshots_by_id.get(sub_snap_id) if isinstance(sub_snap_id, str) else None
@@ -723,7 +724,7 @@ def poll_resolutions(
 
         return {
             "version": VERSION,
-            "status": "ok",
+            "status": "error" if errors else "ok",
             "polled": polled,
             "candidates": len(candidates),
             "appended": len(appended_events),
@@ -849,15 +850,20 @@ def main(argv: Optional[List[str]] = None) -> int:
 
     data_dir = Path(args.data_dir)
     if args.dry_candidates:
-        cands = candidate_questions(
+        cands, diagnostics = _select_candidates_with_diagnostics(
             data_dir,
             now_dt=utc_now(),
             question_ids=args.question_id,
             include_dry_run=args.include_dry_run,
             allow_before_scheduled_resolve=args.allow_before_scheduled_resolve,
         )
+        skipped = [d for d in diagnostics if "skip_reason" in d]
+        errors = [d for d in diagnostics if "skip_reason" not in d]
         print(json.dumps({
             "version": VERSION,
+            "status": "error" if errors else "ok",
+            "errors": errors,
+            "skipped": skipped,
             "candidates": [
                 {
                     "question_id": c["question_id"],
@@ -869,7 +875,7 @@ def main(argv: Optional[List[str]] = None) -> int:
                 for c in cands
             ],
         }, indent=2, sort_keys=True))
-        return 0
+        return 1 if errors else 0
 
     client = _build_client(data_dir)
     fetch_ranking = _build_client_ranking_fetcher(data_dir, client=client)
