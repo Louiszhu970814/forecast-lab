@@ -4,6 +4,7 @@
 
 | 檔案 | 對應決策／批次 | 審查者 | 狀態 | 說明 |
 |---|---|---|---|---|
+| [`d131-restoration-verification.md`](d131-restoration-verification.md) | D131 | GPT independent metadata verification | `CLOSED (PASS)` | 固定候選接受、各3call／29項PASS、僅來源替換、六項前檢；來源與證據見d131-restoration-manifest.json |
 | [`claude-d130-pin-review-r2.md`](claude-d130-pin-review-r2.md) | D130 | claude official CLI | `CLOSED (PASS)` | Gemini pin／有界維護；補可重入鎖證據，來源SHA見d130-pin-manifest.json |
 | [`gemini-d130-pin-review-r1.md`](gemini-d130-pin-review-r1.md) | D130 | gemini official CLI | `CLOSED (PASS)` | 同一份wrapper及維護script獨立審查 |
 | [`claude-d130-pin-review-r1.md`](claude-d130-pin-review-r1.md) | D130 | claude official CLI | `CLOSED (SUPERSEDED)` | 缺少ledger來源之阻擋已由r2補證解除 |

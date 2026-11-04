@@ -1,11 +1,11 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.83（v1.0 凍結後的修訂，見 §16；D130 三線前檢恢復）
+> 版本：v1.84（v1.0 凍結後的修訂，見 §16；D131 接受固定外掛候選並恢復 Claude／GPT）
 > 初稿：Claude
-> 本回合整合者：GPT（D130；D127 由 Claude、D126 由 Gemini 整合，見 `docs/tasks/HANDOFF.md`）
+> 本回合整合者：GPT（D131；D127 由 Claude、D126 由 Gemini 整合，見 `docs/tasks/HANDOFF.md`）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
 > 最後更新：2026-11-04
-> 狀態：D129 `resolve_v2`／`score_v2` 手動入口已上線，D128 live 母體診斷已實作；首次決策未完整落盤，歷史與 live 完整 ITT 結論均維持禁止；D118 MiniBench 進行中（固定截止 UTC 11/10 04:00）；D127 M4 `resolve.py`／`score.py` 手動入口已上線（未啟用排程，首題實戰結算待台北 11/06 21:00）；M5、D121 第一批與 D123 已上線；D130 已恢復 Gemini（專案 pin 1.4.12，兩層前檢通過），Claude／GPT 固定外掛候選仍待 Louis 接受。D124 observe 與 D125 autoload_v3 已上線；D126 確立加速迭代窗口（每日已關閉題目三閘門健檢＋11/06 前 M4 結算計分）並完成階段 A 過時文件清理、測試隔離修正、INDEX 建立與 PLAN 正文同步（v1.0 於 2026-10-31 經 Louis 核准凍結，D54）
+> 狀態：D129 `resolve_v2`／`score_v2` 手動入口已上線，D128 live 母體診斷已實作；首次決策未完整落盤，歷史與 live 完整 ITT 結論均維持禁止；D118 MiniBench 進行中（固定截止 UTC 11/10 04:00）；D127 M4 `resolve.py`／`score.py` 手動入口已上線（未啟用排程，首題實戰結算待台北 11/06 21:00）；M5、D121 第一批與 D123 已上線；D130 已恢復 Gemini（專案 pin 1.4.12，兩層前檢通過），D131 已完成 Claude／GPT 新隔離驗收與限縮基準核准，三線兩層前檢全過。D124 observe 與 D125 autoload_v3 已上線；D126 確立加速迭代窗口（每日已關閉題目三閘門健檢＋11/06 前 M4 結算計分）並完成階段 A 過時文件清理、測試隔離修正、INDEX 建立與 PLAN 正文同步（v1.0 於 2026-10-31 經 Louis 核准凍結，D54）
 
 ---
 
@@ -1820,11 +1820,15 @@ view_image                  stable true
 | D128 | 2026-11-04 | Louis 交 GPT 接手 Claude 已完成階段，明確選「1. push、2. B」；在未讀結算結果前登記 live 模式開始後的升級母體 | 已 push D127 `b52f935` 至 origin/main。於 2026-11-04T11:57:44.514Z 登記 `live_itt_cohort_v1`，固定 D118 實際啟動至既定窗口終點的所有根升級決策，包含正式失敗／未送出；排除試驗期必須有來源證據，不能按成功選樣或重設歷史。保留 D127 缺漏、設定分段、成本與結論限制；本機結算帳冊不存在，僅查存在性／事件類型計數，未讀預測內容或結算值。GPT 整合並做獨立只讀規則複核；本輪純文件事前登記，score_v1、正式設定／排程未變，新 selector 待合成測試及 Claude／Gemini 雙審。詳見 D128-LIVE-ITT.md |
 | D129 | 2026-11-04 | Louis 在 D128 push＋B 決定後指示 GPT「繼續做吧」，沿用雙審驗證後直接上線授權 | 上線 resolve_v2／score_v2、live_itt_cohort_v1／live_itt_report_v1 與共用 submission identity。完成 P1～P4、dry-candidates 錯誤回報、D128 固定來源母體與未知保留、原始損毀時間診斷、按設定/題型的描述性報表。發現首次 candidate 未完整持久化，live 與歷史 D52 均加入 decision_capture_incomplete，禁止完整 ITT 結論及效率，不移動登記邊界。Claude／Gemini r1 blockers 已修，r2 雙 PASS；相關 446 passed，完整 3091 passed／100 failed，失敗節點與 D127 一致；保護清單 28/28，受審/受測/部署 SHA 相同，空資料 CLI 冒煙成功。只更新手動入口，不改預測/預算/排程，首題台北 11/06 21:00 實戰驗收待辦。詳見 D129-ITT-IMPLEMENTATION.md |
 
-| D130 | 2026-11-04 | Louis 指示「請處理3線阻塞」，並補充有版本更新時每3天集中處理；GPT主持維護 | Gemini 1.5.0停用舊讀頁工具，首組3calls未通過；改用與D124同SHA的官方1.4.12專案pin，修正changelog版本誤判（精確轉官方--version），關閉自更新。Claude/Gemini雙審PASS，新增3call隔離29項PASS，UTC14:25:43兩層preflight通過，僅核准Gemini一般設定；舊failed保留。固定設定/窗口/核心指紋不變，28筆保護hash全符。Claude/GPT固定plugin候選仍待Louis接受，尚未重驗/核准；3天政策不代表概括接受新內容或已部署自動升版。詳見D130-THREE-LINE-REPAIR.md |
+| D130 | 2026-11-04 | Louis 指示「請處理3線阻塞」，並補充有版本更新時每3天集中處理；GPT主持維護 | Gemini 1.5.0停用舊讀頁工具，首組3calls未通過；改用與D124同SHA的官方1.4.12專案pin，修正changelog版本誤判（精確轉官方--version），關閉自更新。Claude/Gemini雙審PASS，新增3call隔離29項PASS，UTC14:25:43兩層preflight通過，僅核准Gemini一般設定；舊failed保留。固定設定/窗口/核心指紋不變，28筆保護hash全符。Claude/GPT固定plugin候選當時待Louis接受（後由D131接受並恢復）；3天政策不代表概括接受新內容或已部署自動升版。詳見D130-THREE-LINE-REPAIR.md |
+
+| D131 | 2026-11-04 | Louis 針對 D130 明列的固定 Claude／GPT 外掛候選回覆「OK 接受驗收後恢復」 | 接受兩個完整SHA（D130文件），GPT舊逐檔差異限制已揭露。Claude/GPT各3call新隔離、各29項PASS，UTC14:35:11／14:38:26完成；分別僅替換claude.plugins／codex.plugins，其他來源/版本保留，GPT新catalog綁定最新驗收。三線六項preflight均ok且無waiver，正式模型/effort、執行期程式、預算與窗口不變。原話/時間/候選及新證據記錄於D130 operations；不得重問同一接受，未來更新不自動涵蓋。 |
 
 ---
 
 ## 16. 變更紀錄
+
+- **v1.84**（2026-11-04）：D131，Louis明確接受D130兩個固定外掛候選後，Claude/GPT各3call新隔離、各29項PASS，只更新各自plugin來源並保留Gemini與其他來源/版本。GPT新catalog納入驗收，三線六項前檢全過、無waiver；未修改執行期程式/正式設定/窗口，歷史與本輪全部呼叫均保留。同步完成交接、來源與metadata獨立核對記錄。
 
 - **v1.83**（2026-11-04）：D130 已恢復 Gemini。新增專案 agy 1.4.12 pin wrapper與精確版本探測轉接，官方SHA/簽章及兩家程式審查通過，新增3call隔離29項PASS、兩層前檢無waiver。保留1.5.0 failed3calls；核心Python/預測設定未改，保護清單28筆/17獨立路徑一致。同步每3天版本維護政策與首個檢查時點，但未啟用自動升版；Claude/GPT固定外掛候選仍待本人接受，腳本已準備但未執行。
 

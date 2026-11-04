@@ -1,10 +1,17 @@
 # 給下一個對話的接手紀錄
 
-## D130 Gemini 已恢復；Claude／GPT 待固定候選接受（UTC 2026-11-04T14:25:43.706Z）
+## D131 三線均已恢復（UTC 2026-11-04T14:38:26.329Z，PLAN v1.84）
+
+- Louis已明確接受D130兩個固定外掛候選「OK 接受驗收後恢復」，**不是待決，不得重問**。兩份human-acceptance.json保存原話／時間／完整SHA。
+- Claude新驗收 `acc_1793802906153_9ce65180`，GPT新驗收 `acc_1793803102170_aa565e83`；各3calls、各29項PASS，兩層前檢均ok且無waiver。新基準僅分別替換claude.plugins／codex.plugins，其他來源/版本逐位元保留；Gemini維持1.4.12專案pin與ready。
+- 三線六項前檢已通過；核心/固定設定/預算/窗口不改，完整歷史保留。詳細metadata與獨立核對見 [D130／D131紀錄](D130-THREE-LINE-REPAIR.md)。自然排程與commit/push以最新主持人摘要為準。
+- 下一次版本維護仍為台北11/07 22:25:43；3天政策已記錄，未新增自動升版或未來外掛概括核准。
+
+## D130 歷史狀態：Gemini先恢復，另外兩線後由D131完成（UTC 2026-11-04T14:25:43.706Z）
 
 - Louis已授權修復並指定版本每3天集中更新。Gemini 1.5.0停用read_url_content，已固定官方同SHA的1.4.12，官方雙審PASS；新3calls隔離29項PASS、兩層preflight無waiver。舊failed3calls保留，Gemini本輪共6calls。
 - `changelog`原是上游發布目錄；wrapper精確轉官方`--version`，實際合成CLI日誌均1.4.12且記自更新disabled。全域1.5.0保留，核心/固定設定不改。
-- Claude／GPT仍待Louis接受 [D130固定plugin候選](D130-THREE-LINE-REPAIR.md)；尚未呼叫重驗/核准。已備妥 `data/operations/d130-three-line-repair-20261104/repair_claude.py`、`repair_gpt.py`，須先保存真實接受事件，不能自行創建授權。每線各3calls，新PASS後才窄範圍核准。
+- 本段是D130當時的歷史狀態；[固定plugin候選](D130-THREE-LINE-REPAIR.md)已由D131接受並完成重驗/核准。已備妥 `data/operations/d130-three-line-repair-20261104/repair_claude.py`、`repair_gpt.py`，須先保存真實接受事件，不能自行創建授權。每線各3calls，新PASS後才窄範圍核准。
 - 下一次版本維護檢查：UTC 2026-11-07T14:25:43.706000Z（台北11/07 22:25:43）。政策已登記，尚未新增自動升版執行器；3天節奏不等於外掛內容概括接受。詳見 [D130修復紀錄](D130-THREE-LINE-REPAIR.md)與最新主持人摘要；commit/push及自然排程以實際紀錄為準。
 
 ## D129 已上線：D128 診斷與 P1～P4（UTC 2026-11-04T13:05:21.446Z，PLAN v1.82）

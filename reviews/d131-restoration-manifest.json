@@ -1,0 +1,111 @@
+{
+  "verification_at": "2026-11-04T14:40:05.282Z",
+  "accepted_candidates": {
+    "claude": {
+      "source_id": "claude.plugins",
+      "content_sha256": "cd60d598f7557c6c2346fd3265ae911669e19c2499ea8c1ddcd4a6c53375a605"
+    },
+    "gpt": {
+      "source_id": "codex.plugins",
+      "content_sha256": "9a54162305987971609f1da78db5eb025e8c55f91d0f1f6446eb26d273b070f2"
+    }
+  },
+  "scripts": {
+    "repair_claude.py": "55c40b369cfe3a288418a3f8947408db29561ece8315e96650469c252007fad8",
+    "repair_gpt.py": "accbd57bb68bb0c1614080e46e8e729008bebbb2153d7cde7b77cac4700947cf"
+  },
+  "acceptance_results": [
+    {
+      "record_id": "acc_1793802906153_9ce65180",
+      "player": "claude",
+      "run_id": "d130_claude_1793802842211_89631d79",
+      "line_pass": true,
+      "model_call_count": 3,
+      "cli_version": "2.1.316",
+      "evidence_path": "data/acceptance_runs/d130_claude_1793802842211_89631d79/claude/evidence.json",
+      "evidence_sha256": "e08b4877ddde8ca9069a209aeeed6db24d8c84ac24065aa506e8c0fed6d0eabf",
+      "catalog_entry_sha256": null
+    },
+    {
+      "record_id": "acc_1793803102170_aa565e83",
+      "player": "gpt",
+      "run_id": "d130_gpt_1793802983630_be495ded",
+      "line_pass": true,
+      "model_call_count": 3,
+      "cli_version": "0.166.0",
+      "evidence_path": "data/acceptance_runs/d130_gpt_1793802983630_be495ded/gpt/evidence.json",
+      "evidence_sha256": "ff597feaa55e18036a3e2cfb1980640b02b0370ea0a8809b948831fcc9f69866",
+      "catalog_entry_sha256": "29a9c09bd450d93d421397e257c3a356fb4145f6ff37da51746c0348ec36574e"
+    }
+  ],
+  "final_baseline_id": "base_1793803103661_66326b64",
+  "preflights": [
+    {
+      "player": "claude",
+      "tier": 1,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793802906153_9ce65180",
+      "production_record_id": "acc_1793529463945_ced0ca65",
+      "cli_version": "2.1.316"
+    },
+    {
+      "player": "claude",
+      "tier": 2,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793802906153_9ce65180",
+      "production_record_id": "acc_1793529642642_fba87085",
+      "cli_version": "2.1.316"
+    },
+    {
+      "player": "gemini",
+      "tier": 1,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793802323516_b0387ed0",
+      "production_record_id": "acc_1793537753400_66af4ff6",
+      "cli_version": "1.4.12"
+    },
+    {
+      "player": "gemini",
+      "tier": 2,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793802323516_b0387ed0",
+      "production_record_id": "acc_1793537992394_7d15d846",
+      "cli_version": "1.4.12"
+    },
+    {
+      "player": "gpt",
+      "tier": 1,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793803102170_aa565e83",
+      "production_record_id": "acc_1793529560992_5eb64938",
+      "cli_version": "0.166.0"
+    },
+    {
+      "player": "gpt",
+      "tier": 2,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793803102170_aa565e83",
+      "production_record_id": "acc_1793529742498_10cd7eab",
+      "cli_version": "0.166.0"
+    }
+  ],
+  "weekly_usage": {
+    "claude": 24,
+    "gemini": 23,
+    "gpt": 22
+  },
+  "protected_entries": 28,
+  "distinct_protected_paths": 17
+}
