@@ -1,11 +1,11 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.79（v1.0 凍結後的修訂，見 §16；D126 由 Gemini 依 Louis 指示整合階段 A 清理與加速迭代窗口）
+> 版本：v1.80（v1.0 凍結後的修訂，見 §16；D127 由 Claude 接手完成 M4 結算與計分手動工具上線）
 > 初稿：Claude
-> 本回合整合者：Gemini（D126；前輪 D108～D125 由 GPT／Claude 主持，見 `docs/tasks/HANDOFF.md`）
+> 本回合整合者：Claude（D127；D126 由 Gemini 整合，前輪 D108～D125 由 GPT／Claude 主持，見 `docs/tasks/HANDOFF.md`）
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
-> 最後更新：2026-11-03
-> 狀態：D118 MiniBench 進行中（固定截止 UTC 11/10 04:00）；M5、D121 第一批與 D123 已上線，三線 ready。D124 observe 與 D125 autoload_v3 已上線；D126 確立加速迭代窗口（每日已關閉題目三閘門健檢＋11/06 前 M4 結算計分）並完成階段 A 過時文件清理、測試隔離修正、INDEX 建立與 PLAN 正文同步（v1.0 於 2026-10-31 經 Louis 核准凍結，D54）
+> 最後更新：2026-11-04
+> 狀態：D118 MiniBench 進行中（固定截止 UTC 11/10 04:00）；D127 M4 `resolve.py`／`score.py` 手動入口已上線（未啟用排程，首題實戰結算待台北 11/06 21:00）；M5、D121 第一批與 D123 已上線，三線 ready。D124 observe 與 D125 autoload_v3 已上線；D126 確立加速迭代窗口（每日已關閉題目三閘門健檢＋11/06 前 M4 結算計分）並完成階段 A 過時文件清理、測試隔離修正、INDEX 建立與 PLAN 正文同步（v1.0 於 2026-10-31 經 Louis 核准凍結，D54）
 
 ---
 
@@ -262,11 +262,13 @@ FutureEval 主賽與 MiniBench 的核對已依 Louis 提供的資源頁與正式
 ### 4.1 指標
 
 - **比賽分數**：Metaculus 公布的官方分數（例如 spot peer score）與排名，由 `resolve.py` 在題目結算後抓取。試驗期只觀察已核准試驗場地；依 D79，Metaculus Cup 不再作為機器人試驗場地。
+  - 排名只採該賽事主要排行榜中 `userEntry.user.id` 等於本專案已送出紀錄 `bot_id` 的條目；身分無法證明就不記錄。不記錄參賽人數，也不從其他人的條目推算名次（D127）。
 - **本地指標**：只涵蓋實際送出過的題目，因為 API 只提供這些題目的結算值（§3.2）。
   - log score：主要的本地指標，因為比賽分數以對數計分為基礎。
-    - 以實際送出的機率計算；多選題取最後結果那個選項的機率，不逐項截斷，以免總和不為 1。
+    - 以實際送出的機率計算，即送出 intent 凍結的 `forecast_payload`（例如多選題前 K−1 項四捨五入到小數 6 位、最後一項取餘數）；它必須等於由來源連結的最終整合重算的 payload，缺值或不符就不計分（D127）。多選題取最後結果那個選項的機率，不逐項截斷，以免總和不為 1。
     - 另外報告截斷到 [0.01, 0.99] 的診斷值（D10），兩者分開呈現。
   - Brier score：次要指標；多選題使用多類別 Brier。
+  - 數值題與離散題（`cdf_score_v1`，D127 預先登記）：離散題 log score 取結果格的質量 ln(F[k+1]−F[k])，次要指標為 RPS＝Σ(F[i]−H[i])²／(N+1)；連續數值題在線性或對數縮放的單位區間取格內密度 ln(N·(F[k+1]−F[k]))，次要指標為分段線性 CDF 的精確 CRPS 積分。開放邊界的尾端結果改用尾端質量（下尾 H＝1、上尾 H＝0）。截斷診斷值：質量截斷到 [0.01, 0.99]，密度只設下限 0.01。報表的 `brier_score` 欄對這兩類題目代表 RPS／CRPS，不是一般 Brier，不同題型的 log score 也不在同一尺度。
   - 校準曲線、錯誤相關性（殘差的 Pearson 相關），以及方向正確率（只用於定期報告）。
 - 機器人賽沒有可以拿來比較的社群預測快照，所以本地評估以「同一組題目、不同設定之間的成對比較」為主（§4.3）。
 
@@ -295,6 +297,8 @@ FutureEval 主賽與 MiniBench 的核對已依 Louis 提供的資源頁與正式
   每項比較都附上樣本數、漏答數與 bootstrap 95% 信賴區間。bootstrap 重抽 1,000 次，所有比較對象同步重抽；同一事件的多題標為同一題群，另外做以題群為單位的重抽。
 - 升級題目是依分歧程度挑出來的，所以第 2 層的效果只能在升級題目內比較，不能推論到全部題目。
 - 第 2 層的效益另外報告：每單位增加的額度換到的分數改善、升級後未能完成的比例，以及因此錯過其他題目的成本。只比較成功完成第 2 層的題目會高估效益，所以要包含全部升級題目（D52）。
+  - 實作口徑（D127）：「最終整合 vs 第 1 層整合」只在升級題目內比較。升級後沒有送出的題目沒有結算來源，記為永久缺漏，不補 0。任何缺漏、尚未結算或未送出的升級題目存在時，不宣稱優越。成本缺值不當成 0 或 1，額度總額與每單位效益改為不完整（空值）。升級題目內的 ITT 只要有任何缺口，總增益與每次第 2 層效率都不輸出，只列明示為子集的加總；observed pair 只是已完成個案的描述，不能當成效益結論；缺口原因是原因計數，同一題可同時計入多項。
+  - 設定分段只依來源連結（`input_attempt_ids`、`prev_attempt_id`、送出的整合紀錄）判定；沒有來源證據的紀錄列為無法分段，不以檔案順序、設定相似或萬用比對歸段。
 - **結論紀律**（沿用 v0.3）：
 
 | 已結算題數 | 能說什麼 |
@@ -309,7 +313,8 @@ FutureEval 主賽與 MiniBench 的核對已依 Louis 提供的資源頁與正式
 ### 4.4 結算紀錄
 
 - 每筆結算事件都有 `resolution_event_id`，保存原始結算狀態、平台的結算時間，以及本專案首次觀測到的時間與來源。只有能明確對應到結果的正式結算值，才進入計分。
-- 正式參賽的題目，另外保存 Metaculus 公布的官方分數與抓取時間。
+- 正式參賽的題目，另外保存 Metaculus 公布的官方分數與抓取時間（含官方分數首次觀測時間）。
+- 賽事排名不寫進結算事件，另以 `ranking_observation` 追加到同一帳冊：每次執行、每個賽事最多一筆，只在已驗證的排名狀態改變時追加，避免排名變動為每一道已結算題目製造新的結算事件（D127）。
 - 平台更正結算時，追加一筆新事件，不覆寫舊紀錄；計分時採用截止時間以前、每題最新的結算事件。
 - 每份報告註明結算紀錄與分析的截止時間。結算或稽核更正後重算時，另存新報告。
 
@@ -1809,10 +1814,13 @@ view_image                  stable true
 | D124 | 2026-11-03 | Louis 回覆「今晚就開工如何 目前似乎題目較少該預測的都預測完了」，接受今晚開始 D121 第二批 R2-C／R12 及載入實測的維護時段；C 方向沿用 D121，不重問 | GPT 接手，Claude 定稿與親自完整審查，Gemini 獨立審查。先核對無在途工作，準備安全還原與有界控制器，通過後在空檔持 cycle／scheduler／submit／三線鎖實測；若有新工作先等自然結束。不得繞過基準或讀開放題答案，不改 D118 三份固定設定及 adapters／runner／netguard；既有 live 截止、預算與場地不變。Claude 額度不足則延後其審查，不以其他模型代替。決策當下未改預測行為；後續已雙審 PASS、2789 passed，UTC 13:06 套用維護修正、13:10 套用 observe。單次三線載入量測完整還原、六項前檢通過，但 GPT model_check=unverified，保留 measurement_failed、不重跑、不核准或重新分類；真正自動重驗續作仍待完成 |
 | D125 | 2026-11-03 | Louis 指出「codex 模型是 gpt-6-astra 啊」，並問「那這邊要如何解決」；GPT 主持依既有 D121 C／D124 與 §7.7 修正載入量測相容性，不新增模型或載入實測授權 | `autoload_v3` 對 Codex 缺少 reported ID 的已知限制，核對固定請求、受限 catalog 與有效正式驗收後記錄相容判定，保留 unverified/null；原 verified 路徑與維護互斥／還原／工具檢查不變，mismatch 優先於一般錯誤。只改 autoload.py 及新增回歸測試，保留舊 D124 failed 與已用名額，不核准 baseline、不重新分類、不啟用真正自動重驗。完整 2838 passed、179 相關測試及 Claude／Gemini 程式雙審 PASS。D124 名額已用完且仍無整批載入量測 PASS，不能據此將來源改成資訊性；若要新增載入量測須另定有界授權，結果見 §16 |
 | D126 | 2026-11-03 | Louis 要求盤點專案過時文件與測試，經 Gemini 初審及 Claude／GPT 獨立 CLI 評估後，Louis 指示「沒必要 0 寫入，真的不會有影響的刪掉就好」，並詢問最快何時能得知預測準確率、要求縮短回饋與迭代週期並重訂分階段計畫。經三方第二輪評估收斂，Louis 指示「把這個計劃表記起來 方便交接」「先 commit + push 再進行階段 A 做完給 gpt 審查」 | (1) 迭代與回饋機制：預算總窗口維持 7 天（至 UTC 11/10 04:00），但診斷與修 Bug 改為每日節奏；建立唯讀健檢工具 `src/post_close_audit.py`，強制通過 `review_eligible` 三道 AND 閘門（官方 API 確認 `closed/resolved` 且截止滿 15 分鐘、本地帳冊收斂無 unknown、已移出排程佇列）才揭露已關閉題目內容；M4 `resolve.py` 與 `score.py` 提前於 11/06 21:00 首題開獎前上線。(2) 階段 A 清理與防呆：刪除 29 個零引用過時 `.md` 檔（`392335b`）、更新 `README.md` 與 `docs/tasks/HANDOFF.md`、建立 `docs/tasks/INDEX.md` 與 `reviews/INDEX.md`、修正 `tests/test_numeric.py` 與 `tests/test_config.py` 設定隔離（不再要求改正式設定求 PASS）、同步 `PLAN.md` 正文與淘汰標記。兩份受保護雜湊 100% 不變 |
+| D127 | 2026-11-04 | Louis 指示 GPT 接手 Gemini 未完成的 `resolve.py`／`score.py`，「雙審與驗證完後直接上線」，並預留預測額度、做不完交接 Claude；GPT 額度暫停後，Louis 指示 Claude「接手 gpt 的工作」「先頂一下」 | Claude 依 r1 審查修正 B1～B5 與 C2，並補 C1、C3～C6 相依證據（題組題不建 snapshot、comment 必在 forecast_ok 後、讓路例外不被吞、TYPES 不含 date、正式第 2 層以 input_attempt_ids 直連第 1 層）。主要變更：排名需比對 bot 身分並另存 `ranking_observation`；以實際送出 payload 計分；第 2 層效果只比升級題；未送出升級題為永久缺漏、不補 0；成本缺值不默認、ITT 不完整時不輸出總增益與效率（B1-R）；含 unknown 的分段一律不合併；非 live 且無 snapshot 的 V15 探針送出列（D87）列為 skipped，不算錯誤；移除猜測式分段；`cdf_score_v1` 預先登記於 §4.1。驗證：相關 268 passed；隔離完整 2913 passed／100 failed，失敗節點與移除 M4 的基線完全一致；正式帳冊唯讀檢查 14 筆送出 payload 重算全部相符，副本合成結算端到端 14 題皆以凍結 payload 計分、無法分段 0；受保護雜湊 28/28。Claude／Gemini 官方 CLI 獨立複審 r2～r6（tools-disabled），r6 兩位皆 PASS；r2 Claude 唯一 blocker B1-R 於 r3 修正，上線冒煙發現的 V15 探針誤報於 r5／r6 修正並經雙審。只上線手動入口（resolve 僅 GET、低於送出優先序；score 唯讀、報告新建），不啟用排程、不改正式預測設定；首題台北 11/06 21:00 結算前不宣稱實戰驗收 |
 
 ---
 
 ## 16. 變更紀錄
+
+- **v1.80**（2026-11-04）：D127，M4 結算與計分手動工具上線（`src/resolve.py` `resolve_v1`、`src/score.py` `score_v1`／`cdf_score_v1`，`tests/test_resolve.py`、`tests/test_score.py`）。r1 初稿由 Gemini 撰寫、GPT 接手修正排名路由，Claude r1 審查 REQUEST CHANGES；r2 由 Claude 修補 B1～B5、C2 並補證據。§4.1 增列排名身分與實際送出 payload 口徑、預先登記 `cdf_score_v1`；§4.3 增列 D52 實作口徑與來源分段；§4.4 增列 `ranking_observation`。Claude／Gemini 官方 CLI 獨立複審 r2～r6（tools-disabled），r6 兩位皆 PASS；r2 Claude 唯一 blocker B1-R 於 r3 修正，上線冒煙發現的 V15 探針誤報於 r5／r6 修正並經雙審。審查封包與操作證據在 ignored `data/operations/m4-takeover-20261104/`。
 
 - **v1.79**（2026-11-03）：D126，依 Louis 指示與三方兩輪評估完成階段 A 清理、測試隔離修正、PLAN 正文淘汰標記同步與已關閉題目唯讀健檢工具（`src/post_close_audit.py`、`tests/test_post_close_audit.py`）：
   - 刪除 29 個全專案零引用的過時 `.md` 檔（含 `PLAN_v1.md`、`reviews/review-claude.md`、12 份過渡 `r1` 審查與 15 份早期子任務檔），更新 `README.md` 與 `launchd/README.md`，精簡 `docs/tasks/HANDOFF.md` 並寫入階段 A～D 加速迭代計畫表，新增 `docs/tasks/INDEX.md` 與 `reviews/INDEX.md`。

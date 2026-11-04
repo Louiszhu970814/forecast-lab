@@ -1,5 +1,24 @@
 # 給下一個對話的接手紀錄
 
+## M4 已上線（手動入口，UTC 2026-11-04 06:30，PLAN v1.80 D127）
+
+- Claude 接手 GPT，依 r1～r5 審查修補 B1～B5、C2、B1-R、E6 與上線冒煙發現的 V15 探針誤報；**r6 Claude／Gemini 皆 PASS**，部署 SHA 等於 r6 審查 SHA。詳見 [M4-RESOLVE-SCORE.md](M4-RESOLVE-SCORE.md)（含操作指令與後續項目 P1～P4）。
+- 驗證：相關 268 passed；完整 2913 passed / 100 failed，與基線失敗集合一致；受保護雜湊 28/28；正式 `resolve.py` ok／結束碼 0（skipped 2 探針、0 API），`score.py` 正常輸出。
+- **未啟用排程**，未改正式預測設定，未讀開放題預測。首題 qid 46289 台北 11/06 21:00 結算後，手動跑 resolve＋score 才算實戰端到端驗收。
+- 下一步（GPT 今晚接手可做）：P1～P4 小修＋雙審；11/06 首題實戰驗收；Louis 待決 ITT 母體預先登記（見任務檔第 7 項）。
+
+## M4 接手 Claude：未上線、待修正與雙審（2026-11-04，歷史紀錄，已由上方 D127 取代）
+
+Louis 本輪要求 GPT 接手 Gemini 未完的 `resolve.py` / `score.py`，雙審與驗證完後直接上線；並要求 GPT 預留下午預測額度，做不完交接 Claude（台北 19:40 重置）。GPT 已完成初步接手及修補，但 Claude 第一輪提出五類 blocker，故停止擴大 GPT 實作並留下具體接手單。**目前 Claude 只完成審查，尚未接手實作；文件交接不會自動啟動桌面 Claude。**
+
+- 詳細狀態、公式與操作：[M4-RESOLVE-SCORE.md](M4-RESOLVE-SCORE.md)；第一輪完整審查：[Claude](../../reviews/claude-m4-code-review-r1.md)。Gemini 第一輪約 9 分鐘未回覆；GPT 於 UTC 05:37:24 結束該次程序並釋放共用鎖，**沒有 Gemini 審查結論**，需由 Claude 修正後重新送審。
+- 初稿 38 項專項測試 PASS；GPT 修正不存在的排名 API 路由，改讀官方主要排行榜的 `userEntry.rank`，補身份／專案／主要榜驗證與跨程序鎖測試後，相關 **255 passed**。兩組保護雜湊 **28/28** 相符。
+- 全套 **2892 passed / 100 failed**；移除 M4 的相同基線 **2854 passed / 100 failed**，失敗節點集合完全一致（新增失敗 0）。不得寫成完整 PASS。
+- Claude 下一步：先 `project_control.py status`；依 B1～B5 修正 D52 不完整樣本／成本、升級題成對比較、排名與結算事件分離、來源證據不足時不可猜設定版本。排名 fetcher 的初步修正尚需複審。補 C1～C6 的相依模組證據，新增最小回歸，再送 Claude/Gemini 最終完整複審。
+- 通過後 Louis 已授權直接上線手動工具入口，同步 PLAN 正文／§15／§16／版本與交接並由 Claude commit；不需重問。首題台北 11/06 21:00 尚未到，不得宣稱真實結算驗收已完成。不額外啟用排程。
+- 四個程式／測試檔仍未追蹤，GPT 未 commit；未更動正式預測設定、未讀取開放題預測、未執行正式 resolve/score。證據在 ignored `data/operations/m4-takeover-20261104/`。
+
+
 ## 三方共識：加速迭代窗口與分階段清理／迭代計畫表（UTC 2026-11-03 16:20，PLAN v1.79 / D126）
 
 依 Louis 指示（「沒必要 0 寫入，不會有影響的直接處理，並加快模型迭代速度」），由 Gemini 盤點並經 Claude（`claude-opus-5-5` high）與 GPT（`gpt-6-astra` high）兩輪獨立 CLI 評估收斂，確立以下迭代窗口機制與分階段執行表：
