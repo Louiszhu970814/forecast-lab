@@ -107,4 +107,4 @@ def test_no_baseline_approval_before_matching_new_isolation_pass(tmp_path,change
     import forecast as F
     pf=F.Preflight('claude')
     F.check_baseline(pf,B.latest_approved(log),c['snapshot'],allow_unapproved=False)
-    assert not pf.ok  # The old STOP gate remains until fresh acceptance and scoped approval.
+    assert not pf.ok  # This fixture changes inventory kind; D144 does not waive inventory definitions.

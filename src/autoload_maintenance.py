@@ -255,7 +255,7 @@ class Session:
             identity = self.identities()
             before = self.snapshot(admit=True)
             approved = B.latest_approved(self.root/'acceptance.jsonl')
-            if not approved or set(B.compare(approved,before)['decisions'].values()) != {'ok'}:
+            if not approved or set(B.compare(approved,before,catalog_drift=False)['decisions'].values()) != {'ok'}:
                 raise MaintenanceError('baseline is not approved for every line')
             hashes = self.protected_hashes()
             self.preflights()
@@ -268,7 +268,7 @@ class Session:
                         raise MaintenanceError('weekly acceptance capacity exhausted')
             # Refresh after all external queries, still before global mutation.
             refreshed = self.snapshot(admit=True)
-            if any(c['category'] != B.INFORMATIONAL for c in B.compare(before,refreshed)['changes']):
+            if any(c['category'] != B.INFORMATIONAL for c in B.compare(before,refreshed,catalog_drift=False)['changes']):
                 raise MaintenanceError('baseline changed during precheck')
             before = refreshed
             self.idle(self.root,now=self.now(),horizon_s=bound)
@@ -303,7 +303,7 @@ class Session:
                 if paths and not orphan.no_process(paths):
                     raise MaintenanceError('post-probe process absence unverified')
                 after = self.snapshot()
-                if any(c['category'] != B.INFORMATIONAL for c in B.compare(before,after)['changes']):
+                if any(c['category'] != B.INFORMATIONAL for c in B.compare(before,after,catalog_drift=False)['changes']):
                     raise MaintenanceError('protected state changed during maintenance')
                 if identity != self.identities() or hashes != self.protected_hashes():
                     raise MaintenanceError('CLI identity or frozen config changed')

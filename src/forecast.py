@@ -22,7 +22,7 @@ import threading
 from dataclasses import dataclass, field, replace
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Callable, Iterator
+from typing import Any, Callable
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
@@ -53,7 +53,7 @@ LOCK_PATH = DATA / "forecast.lock"
 PROMPTS = PROJECT_ROOT / "prompts"
 PROMPT_VERSION = "forecast_v2"
 REPAIR_PROMPT_VERSION = "repair_v1"
-PIPELINE_VERSION = "forecast_pipeline_v8"
+PIPELINE_VERSION = "forecast_pipeline_v11"
 QUOTA_BACKOFF_S = 1800  # V5 reset-time formats are not yet measured; use the §7.5 fixed fallback.
 RERUN_ERRORS = ("quota_exhausted", "timeout", "tool_denied", "cli_error", "interrupted", "model_mismatch")
 # Mismatches recorded before D121 keep their hard-stop meaning. Every later pipeline
@@ -205,8 +205,9 @@ def check_acceptance(pf: Preflight, records: list[dict[str, Any]], fingerprint: 
         pf.problems.append(f"latest acceptance {latest.get('record_id')} did not pass")
     if latest.get("judge_version") != J.JUDGE_VERSION:
         pf.problems.append(f"latest acceptance used {latest.get('judge_version')}, current judge is {J.JUDGE_VERSION}")
-    if latest.get("cli_version") != pf.cli_version:
-        pf.problems.append(f"CLI version {pf.cli_version!r} differs from the accepted {latest.get('cli_version')!r}")
+    if not (isinstance(latest.get("cli_version"), str) and latest["cli_version"].strip()
+            and isinstance(pf.cli_version, str) and pf.cli_version.strip()):
+        pf.problems.append(f"CLI version {pf.cli_version!r} or accepted {latest.get('cli_version')!r} is missing")
     ev_path = project_root / str(latest.get("evidence_path") or "")
     try:
         ok_hash = _sha_file(ev_path) == latest.get("evidence_sha256")
@@ -226,7 +227,8 @@ def check_acceptance(pf: Preflight, records: list[dict[str, Any]], fingerprint: 
                   and (production is None or (r.get("model"), r.get("effort")) == (production.get("model"), production.get("effort")))]
     current = []
     for record in production:
-        if record.get("cli_version") != pf.cli_version or record.get("judge_version") != J.JUDGE_VERSION:
+        if not (isinstance(record.get("cli_version"), str) and record["cli_version"].strip()
+                and isinstance(pf.cli_version, str) and pf.cli_version.strip()) or record.get("judge_version") != J.JUDGE_VERSION:
             continue
         try:
             path = project_root / str(record.get("evidence_path") or "")
@@ -276,6 +278,18 @@ def preflight(player: str, *, cfg: dict[str, Any] | None = None, allow_unapprove
     import autoload
     if autoload.unclosed(acceptance_log):
         pf.problems.append("autoload_unclosed: global markers may remain; maintenance recovery required")
+        return pf
+    # D133 unknown practice usage is visible before any expensive CLI checks.
+    # Recovery is explicit, metadata-only, and cannot retry the practice question.
+    from flab.external_usage import practice_usage
+    try:
+        with transaction(acceptance_log.parent):
+            practice_admitted, practice_finished = practice_usage(acceptance_log.parent)
+        if any(r["player"] == player and aid not in practice_finished for aid, r in practice_admitted.items()):
+            pf.problems.append("practice_attempt_unknown: run practice.py recover for the registered batch; no rerun")
+            return pf
+    except ValueError:
+        pf.problems.append("practice_accounting_invalid: preserve ledger and reconcile before forecasting")
         return pf
     if tier == 2 and cfg["players"][player]["tier2"].get("subagents_enabled") is not False:
         pf.problems.append("tier-2 subagents are not enabled by this pipeline")
@@ -333,14 +347,41 @@ def line_stopped(log: Path, player: str, forecasts_log: Path | None = None, *, n
     now = now or utc_now()
     state = None
     resumed_at = None
+    pending_stops = []
+    covered_attempts = {}
     for r in read_records(log) if log.exists() else []:
-        if r.get("player") == player and r.get("type") in ("line_stop", "line_resume"):
-            state = r if r["type"] == "line_stop" else None
-            if r["type"] == "line_resume":
+        if r.get("player") != player:
+            continue
+        if r.get("type") == "line_stop":
+            pending_stops.append(r)
+        elif r.get("type") == "line_resume":
+            if r.get("by") == "line_recovery_v1":
+                # D140 covers one proven technical episode, never a time range.
+                lifts = r.get("lifts")
+                proof = r.get("proof") or {}
+                if r.get("authorization") == "PLAN D140" and isinstance(lifts, dict) and \
+                        proof.get("diagnosis") == "unexecuted_page_tool_typo" and proof.get("attempt_id"):
+                    pending_stops = [s for s in pending_stops if s != lifts]
+                    covered_attempts[proof["attempt_id"]] = proof.get("metadata_sha256")
+            else:
+                # Existing manual resumes retain their historical semantics.
+                pending_stops = []
+                covered_attempts = {}
                 resumed_at = parse_iso(r["at"])
+    state = pending_stops[-1] if pending_stops else None
     if state:
         return state
     records = read_records(forecasts_log) if forecasts_log and forecasts_log.exists() else []
+    # Human bodies stay private. Only safety/quota metadata enters this shared guard.
+    from flab.external_usage import guards
+    with transaction(log.parent):
+        advisory = guards(log.parent)
+    records = [*records, *({**r, "type": "forecast_attempt"} for r in advisory)]
+    for r in advisory:
+        if r["player"] == player and r.get("error_type") == "quota_exhausted" and \
+                now < parse_iso(r["quota_retry_at_utc"]):
+            return {"type": "line_stop", "player": player, "at": r["finished_at_utc"],
+                    "until": r["quota_retry_at_utc"], "reason": "advisory_quota_backoff"}
     completed = {r.get("attempt_id") for r in records if r.get("player") == player}
     journal = starts_log(forecasts_log) if forecasts_log else None
     for started in read_records(journal) if journal and journal.exists() else []:
@@ -348,9 +389,12 @@ def line_stopped(log: Path, player: str, forecasts_log: Path | None = None, *, n
                 and (resumed_at is None or parse_iso(started["started_at_utc"]) > resumed_at):
             return {"type": "line_stop", "player": player, "at": started["started_at_utc"],
                     "reason": f"unresolved CLI start {started['attempt_id']}: result and safety checks unknown"}
+    # External ledgers append independently; replay exposure windows in event order.
+    ordered = sorted((r for r in records if r.get("type") == "forecast_attempt"
+                      and r.get("player") == player), key=lambda r: parse_iso(r["finished_at_utc"]))
     # Recover the stop if the process died between appending the forecast and its line_stop.
     leaks: list[datetime] = []
-    for r in records:
+    for r in ordered:
         if r.get("type") != "forecast_attempt" or r.get("player") != player:
             continue
         at = parse_iso(r["finished_at_utc"])
@@ -362,7 +406,11 @@ def line_stopped(log: Path, player: str, forecasts_log: Path | None = None, *, n
         elif _legacy_mismatch(r):
             reason = "model_mismatch"
         elif r.get("tool_violations") or r.get("error_type") == "tool_scope_violation":
-            reason = "tool_scope_violation"
+            from line_recovery import projection
+            from flab.ids import hash_obj
+            # Only the exact diagnosed metadata is covered, including on replay.
+            if covered_attempts.get(r.get("attempt_id")) != hash_obj(projection(r)):
+                reason = "tool_scope_violation"
         if "leak_confirmed" in (r.get("own_audit_flags", r.get("audit_flags")) or []):
             leaks.append(at)
             if sum(t >= at - timedelta(days=LEAK_WINDOW_DAYS) for t in leaks) >= LEAK_STOP_COUNT:
@@ -398,7 +446,8 @@ def line_stopped(log: Path, player: str, forecasts_log: Path | None = None, *, n
 
 
 def latest_resume(log: Path, player: str) -> datetime | None:
-    rows = [r for r in read_records(log) if r.get("player") == player and r.get("type") == "line_resume"] if log.exists() else []
+    rows = [r for r in read_records(log) if r.get("player") == player and r.get("type") == "line_resume"
+            and r.get("by") != "line_recovery_v1"] if log.exists() else []
     return parse_iso(rows[-1]["at"]) if rows else None
 
 
@@ -438,6 +487,7 @@ class Context:
     recheck_inputs: Callable[[], None] | None = None
     admission_outcome: Callable[[str, bool], None] | None = None
     continuous: bool = False
+    closed_practice: dict[str, Any] | None = None
 
 
 def _structured_fields(obj: Any) -> dict[str, Any]:
@@ -704,10 +754,6 @@ def decision_deadline(snap: dict[str, Any], cfg: dict[str, Any]) -> datetime | N
 QUOTA_QUERY_S = 30   # upper bound for one /usage + /credits query
 
 
-def _fraction(v: Any) -> float | None:
-    return float(v) if isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v) and 0 <= v <= 1 else None
-
-
 def argon_estimate(quota_log: Path, policy: dict[str, Any], forecasts_log: Path, *, tier: int = 1,
                    current=None, period: str = "weekly") -> tuple[float, int]:
     """Window-level estimate in the requested bucket's own units (D97); never above the fallback."""
@@ -777,7 +823,9 @@ def run_attempt(ctx: Context, snap: dict[str, Any], *, kind: str, prompt: str, s
     Raises LineStop before running when admission fails, or after recording when
     safety requires stopping or a mismatch requires yielding this round.
     """
-    if snap["question_type"] in N.TYPES and (reason := eligible(snap, ctx.cfg, ctx.now())):
+    from flab.practice_contract import execution_cutoff
+    practice_cutoff = execution_cutoff(ctx, snap, kind, prev)
+    if practice_cutoff is None and snap["question_type"] in N.TYPES and (reason := eligible(snap, ctx.cfg, ctx.now())):
         raise QuestionDone(reason)
     if ctx.recheck_inputs is not None:
         ctx.recheck_inputs()
@@ -790,7 +838,7 @@ def run_attempt(ctx: Context, snap: dict[str, Any], *, kind: str, prompt: str, s
     model_cfg = ctx.cfg["players"][player][f"tier{ctx.tier}"]
     limit = int(ctx.cfg["timeouts_s"]["repair" if repair else f"tier{ctx.tier}"])
     deadline = V.submit_deadline(snap, ctx.cfg["deadlines"])
-    decide_by = decision_deadline(snap, ctx.cfg)
+    decide_by = practice_cutoff or decision_deadline(snap, ctx.cfg)
     gemini = player == "gemini"
     post_quota_s = QUOTA_QUERY_S if gemini else 0
 
@@ -891,6 +939,14 @@ def run_attempt(ctx: Context, snap: dict[str, Any], *, kind: str, prompt: str, s
             "started_at_utc": to_iso(started), "pipeline_version": PIPELINE_VERSION,
             **orphan.metadata(workdir, raw_dir, timeout, started)}
         with transaction(ctx.forecasts_log.parent):
+            if kind == "rerun" and prev and prev.get("error_type") == "tool_scope_violation":
+                from line_recovery import retry_grant
+                prior = history(ctx.forecasts_log, player, qid, tier=ctx.tier)
+                prior = [r for r in prior if not ctx.continuous or r.get("question_snapshot_id") == snap.get("snapshot_id")]
+                grant = retry_grant(ctx.forecasts_log.parent, prior, prev, now=ctx.now())
+                if not grant:
+                    raise QuestionDone("recovery grant no longer available")
+                start_record["recovery_grant_id"] = grant["recovery_id"]
             append_record(starts_log(ctx.forecasts_log), start_record)
         start_written = True
         try:
@@ -966,6 +1022,8 @@ def run_attempt(ctx: Context, snap: dict[str, Any], *, kind: str, prompt: str, s
     rec = {
         "type": "forecast_attempt", "record_id": new_id("fc"), "run_id": ctx.run_id, "mode": "local",
         "pipeline_version": PIPELINE_VERSION,
+        **({"purpose": "closed_practice", "practice_contract": ctx.closed_practice,
+             "official_submission_eligible": False} if practice_cutoff else {}),
         "attempt_id": attempt_id, "prev_attempt_id": (prev or {}).get("attempt_id"), "tier": ctx.tier, "attempt_kind": kind,
         "tournament_id": snap.get("tournament_id"), "post_id": snap.get("post_id"), "question_id": qid,
         "question_type": snap["question_type"], "question_snapshot_id": snap.get("snapshot_id"),
@@ -1078,10 +1136,14 @@ def history(log: Path, player: str, question_id: int, tier: int = 1) -> list[dic
             and r.get("question_id") == question_id and r.get("tier") == tier]
 
 
-def _may_rerun(chain: list[dict[str, Any]], base: dict[str, Any]) -> bool:
+def _may_rerun(chain: list[dict[str, Any]], base: dict[str, Any], *, recovery_root=None, now=None) -> bool:
     """One rerun for eligible failures; leaks, tool violations and legacy mismatches remain excluded."""
     if base.get("question_type") in N.TYPES and any(r.get("validation_status") == V.SEMANTIC_FAILED for r in chain):
         return False
+    if recovery_root is not None:
+        from line_recovery import retry_grant
+        if retry_grant(recovery_root, chain, base, now=now):
+            return True
     return ((base["error_type"] in RERUN_ERRORS or
              any(r.get("attempt_kind") == "format_repair" and r.get("error_type") == "interrupted" for r in chain))
             and not any("leak_confirmed" in (r.get("audit_flags") or ()) for r in chain)
@@ -1118,7 +1180,7 @@ def forecast_question(ctx: Context, snap: dict[str, Any]) -> dict[str, Any]:
                       and isinstance(past[-1].get("repair_raw_text"), str) else None)
     if pending_repair is None and any(r["attempt_kind"] == "rerun" for r in bases):
         return {"question_id": qid, "attempts": [], "selected_attempt_id": None, "outcome": "attempts_exhausted"}
-    if pending_repair is None and bases and not _may_rerun(past, bases[0]):
+    if pending_repair is None and bases and not _may_rerun(past, bases[0], recovery_root=ctx.forecasts_log.parent, now=ctx.now()):
         return {"question_id": qid, "attempts": [], "selected_attempt_id": None,
                 "outcome": "attempts_exhausted", "reason": f"initial failed with {bases[0]['error_type'] or bases[0]['validation_status']}"}
     kinds = ["rerun"] if bases else ["initial", "rerun"]
@@ -1135,7 +1197,7 @@ def forecast_question(ctx: Context, snap: dict[str, Any]) -> dict[str, Any]:
                                basis=pending_repair["repair_basis"],
                                prompt=repair_prompt(snap, raw, pending_repair["repair_basis"], tier=ctx.tier))
             chain.append(last)
-            if adoptable(last) or pending_repair["attempt_kind"] == "rerun" or not _may_rerun(past + chain, bases[0]):
+            if adoptable(last) or pending_repair["attempt_kind"] == "rerun" or not _may_rerun(past + chain, bases[0], recovery_root=ctx.forecasts_log.parent, now=ctx.now()):
                 kinds = []
             prev = last
         for kind in kinds:
@@ -1145,7 +1207,7 @@ def forecast_question(ctx: Context, snap: dict[str, Any]) -> dict[str, Any]:
                 last = run_attempt(ctx, snap, kind="format_repair", sch=sch, prev=base, basis=base["_basis"],
                                    prompt=repair_prompt(snap, base["_raw_text"], base["_basis"], tier=ctx.tier))
                 chain.append(last)
-            if adoptable(last) or kind == "rerun" or not _may_rerun(past + chain, bases[0] if bases else base):
+            if adoptable(last) or kind == "rerun" or not _may_rerun(past + chain, bases[0] if bases else base, recovery_root=ctx.forecasts_log.parent, now=ctx.now()):
                 break
             prev = last
     except QuestionDone as exc:
@@ -1249,9 +1311,10 @@ def run(player: str, question_ids: list[int], *, allow_unapproved_baseline: bool
                                                   "reason": str(exc), "quota_retry_at_utc": exc.quota_retry_at_utc})
                     summary["line_stopped"] = str(exc)
                     if exc.notify:
-                        append_record(ctx.line_status_log, {"type": "line_stop", "player": player, "run_id": run_id,
-                                                            "question_id": qid, "reason": str(exc),
-                                                            "at": to_iso(utc_now())})
+                        with transaction(ctx.line_status_log.parent):
+                            append_record(ctx.line_status_log, {"type": "line_stop", "player": player, "run_id": run_id,
+                                                                "question_id": qid, "reason": str(exc),
+                                                                "at": to_iso(utc_now())})
                         summary["notify_louis"] = True
                     break
         summary["finished_at"] = to_iso(utc_now())
@@ -1273,12 +1336,13 @@ def main(argv: list[str] | None = None) -> int:
     res.add_argument("--reason", required=True, help="why the stop is lifted, e.g. the re-acceptance record ID")
     args = ap.parse_args(argv)
     if args.cmd == "resume":
-        stop = line_stopped(LINE_STATUS_LOG, args.player, FORECASTS_LOG)
-        if stop is None:
-            print(f"{args.player} is not stopped", file=sys.stderr)
-            return 1
-        append_record(LINE_STATUS_LOG, {"type": "line_resume", "player": args.player, "by": args.by,
-                                        "reason": args.reason, "lifts": stop, "at": to_iso(utc_now())})
+        with Lock(LINE_STATUS_LOG.parent / f"forecast.{args.player}.lock"), transaction(LINE_STATUS_LOG.parent):
+            stop = line_stopped(LINE_STATUS_LOG, args.player, FORECASTS_LOG)
+            if stop is None:
+                print(f"{args.player} is not stopped", file=sys.stderr)
+                return 1
+            append_record(LINE_STATUS_LOG, {"type": "line_resume", "player": args.player, "by": args.by,
+                                            "reason": args.reason, "lifts": stop, "at": to_iso(utc_now())})
         return 0
     try:
         summary = run(args.player, [int(x) for x in args.questions.split(",") if x.strip()],

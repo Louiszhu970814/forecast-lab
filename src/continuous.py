@@ -1,7 +1,9 @@
-"""Append-only snapshot queue and bounded campaign registration for continuous_v9."""
+"""Append-only snapshot queue and bounded campaign registration for continuous_v11."""
 from __future__ import annotations
 
 import copy
+import discovery as D
+import market_policy as MP
 import threading
 from collections import Counter
 from datetime import timedelta
@@ -11,7 +13,7 @@ import budget as B
 import budget_handoff as H
 import forecast as F
 from flab.config import PLAYERS, load_quota_policy, load_run_config, load_tournaments, load_submit_mode
-from flab.ids import hash_obj, new_id
+from flab.ids import hash_obj
 from flab.jsonl import append_record
 from flab.ledger import read_complete, transaction
 from flab.timeutil import parse_iso, to_iso, utc_now
@@ -22,7 +24,7 @@ from project_policy import MEMBERSHIP_UNKNOWN, trial_membership_error
 from submit import probe_reservations
 from submit_contract import own_forecast_records
 
-VERSION = "continuous_v9"
+VERSION = "continuous_v11"
 MAIN_SITE_VERSION = "main_site_trial_v1"
 # Competition questions are open three hours; a new main-site pick must leave at least
 # that window minus the run_config submit margins (20 + 5 minutes) before its deadline.
@@ -31,7 +33,7 @@ ROLLOVER_VERSION = "weekly_rollover_v1"
 import numeric as N
 from question_types import is_supported, supported_types
 
-STRUCTURAL = ("question_type", "options", "scheduled_close_time", "post_id", "tournament_id")
+STRUCTURAL = ("question_type", "options", "scheduled_close_time", "post_id", "tournament_id", "group_id")
 
 
 def validate_main_site_policy(policy):
@@ -40,7 +42,7 @@ def validate_main_site_policy(policy):
             raise ValueError("main_site_trial requires main_site_questions")
         return
     setting = policy.get("main_site_trial")
-    if policy.get("version") not in ("continuous_v8", VERSION) or not isinstance(setting, dict) or \
+    if policy.get("version") not in ("continuous_v8", "continuous_v9", "continuous_v10", VERSION) or not isinstance(setting, dict) or \
             set(setting) != {"version", "max_questions", "max_pages"} or \
             setting["version"] != MAIN_SITE_VERSION or \
             type(setting["max_questions"]) is not int or not 1 <= setting["max_questions"] <= 6 or \
@@ -50,8 +52,8 @@ def validate_main_site_policy(policy):
 
 def register(root: Path, policy: dict, *, now=utc_now):
     """Freeze an explicit budget window and venue selection before polling any outputs."""
-    if policy.get("version") not in ("continuous_v2", "continuous_v3", "continuous_v4", "continuous_v5", "continuous_v6", "continuous_v7", "continuous_v8", VERSION) or not isinstance(policy.get("campaign_id"), str) or not policy["campaign_id"]:
-        raise ValueError("continuous_v2 through continuous_v9 campaign identity required")
+    if policy.get("version") not in ("continuous_v2", "continuous_v3", "continuous_v4", "continuous_v5", "continuous_v6", "continuous_v7", "continuous_v8", "continuous_v9", "continuous_v10", VERSION) or not isinstance(policy.get("campaign_id"), str) or not policy["campaign_id"]:
+        raise ValueError("continuous_v2 through continuous_v11 campaign identity required")
     if "rollover" in policy:
         raise ValueError("resolve the rollover template before registering a window")
     start, end = parse_iso(policy["budget_window_start"]), parse_iso(policy["budget_window_end"])
@@ -69,9 +71,11 @@ def register(root: Path, policy: dict, *, now=utc_now):
             raise ValueError(f"explicit nonnegative {key} required")
     venues = policy.get("venues")
     if not isinstance(venues, list) or not venues or len(set(venues)) != len(venues) \
-            or any(v not in ("main", "minibench", "bot_testing_area", "metaculus_cup", "main_site_questions") for v in venues):
+            or any(v not in ("main", "minibench", "bot_testing_area", "metaculus_cup", "main_site_questions", "market_pulse") for v in venues):
         raise ValueError("explicit known venues required")
     validate_main_site_policy(policy)
+    D.validate(policy)
+    MP.validate(policy)
     if policy.get("run_config_sha256") != hash_obj(load_run_config()) or policy.get("quota_policy_sha256") != hash_obj(load_quota_policy()):
         raise ValueError("continuous policy must pin current configuration")
     with transaction(root):
@@ -79,6 +83,7 @@ def register(root: Path, policy: dict, *, now=utc_now):
         if H.superseded(policy["campaign_id"], rows):
             raise ValueError("campaign has been superseded")
         source = H.source(policy, rows) if "budget_handoff" in policy else None
+        allowed_overlap = H.overlap_ids(policy, rows) if source is not None else set()
         prior = [r for r in rows if r["campaign"]["campaign_id"] == policy["campaign_id"]]
         if prior:
             if any(r["sha256"] != hash_obj(policy) for r in prior):
@@ -89,7 +94,7 @@ def register(root: Path, policy: dict, *, now=utc_now):
         # A differently named overlapping window must not reset an exhausted numerical cap.
         if any(start < parse_iso(r["campaign"]["budget_window_end"]) and
                end > parse_iso(r["campaign"]["budget_window_start"]) and
-               (source is None or r["campaign"]["campaign_id"] != source["campaign_id"])
+               r["campaign"]["campaign_id"] not in allowed_overlap
                for r in rows):
             raise ValueError("continuous budget windows must not overlap")
         append_record(root / "continuous_campaigns.jsonl", {"type": "continuous_campaign_registered",
@@ -110,7 +115,7 @@ def active_campaign(root: Path, template: dict, *, now=utc_now) -> dict:
     if "budget_handoff" in template:
         raise ValueError("budget handoff cannot roll over")
     setting = template["rollover"]
-    if template.get("version") not in ("continuous_v7", "continuous_v8", VERSION) or not isinstance(setting, dict) or \
+    if template.get("version") not in ("continuous_v7", "continuous_v8", "continuous_v9", "continuous_v10", VERSION) or not isinstance(setting, dict) or \
             set(setting) != {"version", "windows"} or setting["version"] != ROLLOVER_VERSION or \
             type(setting["windows"]) is not int or setting["windows"] < 1:
         raise ValueError("explicit finite weekly rollover required")
@@ -170,6 +175,8 @@ def current_tournaments(client, *, configured, now=utc_now):
             or sum(isinstance(r, dict) and r.get("slug") == "minibench" for r in mini) != 1:
         raise F.PreflightError("MiniBench index unavailable or inconsistent")
     exclusions = {cfg["tournaments"][role]["id"] for role in ("main", "minibench")}
+    if cfg['tournaments'].get('market_pulse',{}).get('id') is not None:
+        exclusions.add(cfg['tournaments']['market_pulse']['id'])
     seen, ongoing = set(), set()
     observed_at = now()
     for r in mini:
@@ -192,16 +199,79 @@ def current_tournaments(client, *, configured, now=utc_now):
 class Poller:
     """Use the existing poller, with current tournament metadata and trial copy exclusions."""
     def __init__(self, client, root: Path, policy: dict, *, now=utc_now):
-        self.client, self.root, self.policy, self.now = client, root, policy, now
+        self.client, self.root, self.policy, self.now = client, root, copy.deepcopy({k:v for k,v in policy.items() if k != 'questions'}), now
         self.records = []
 
     def __call__(self):
+        D.validate(self.policy)
+        if 'discovery' not in self.policy:
+            return self._poll_all()
+        prior = D.latest(self.root, self.policy)
+        if D.due(prior, self.now()):
+            at = self.now()
+            self.discovery_records = []
+            previously_known = set(latest_snapshots(self.root/'questions.jsonl'))
+            result = self._poll_all()
+            D.record(self.root, self.policy, self.discovery_records, now=at, prior=prior, previously_known=previously_known)
+            return result
+        return self._refresh_known(prior)
+
+    def _refresh_known(self, state):
+        from poll_questions import snapshots_from_post
+        cfg = load_tournaments()
+        if load_submit_mode()['mode'] != 'live':
+            raise F.PreflightError('cadenced discovery requires live authorization')
+        MP.validate(self.policy)
+        if 'market_pulse' in self.policy['venues'] and any(cfg['tournaments'].get('market_pulse',{}).get(k)!=v
+                for k,v in {'id':MP.PROJECT_ID,'slug':MP.SETTING['slug']}.items()):
+            raise F.PreflightError('Market Pulse identity differs from approved policy')
+        selected, posts, accepted = {}, {}, []
+        seen = set()
+        committed = committed_questions(self.root)
+        for entry in state['known']:
+            role, project, qid = entry['ground'], entry['tournament_id'], entry['question_id']
+            if qid in committed or qid in seen:
+                continue
+            seen.add(qid)
+            if role not in self.policy['venues'] or not cfg['tournaments'].get(role, {}).get('submit_whitelisted'):
+                raise F.PreflightError('known venue is no longer approved')
+            if entry.get('status') != 'open':
+                continue
+            close = entry.get('scheduled_close_time')
+            if close and self.now() >= parse_iso(close):
+                continue
+            post_id = entry['post_id']
+            if post_id not in posts:
+                posts[post_id] = self.client.get_post(post_id)
+            snaps = snapshots_from_post(posts[post_id], project, allow_groups=role == 'market_pulse')
+            matches = [s for s in snaps if s['question_id'] == qid]
+            if len(matches) != 1:
+                raise F.PreflightError('known question mapping changed')
+            snap = matches[0]
+            if project not in snap['project_ids'] or snap['post_id'] != post_id:
+                raise F.PreflightError('known project membership changed')
+            snap['tournament_id'] = project
+            accepted.append((snap, role))
+        record_snapshots([s for s, _ in accepted], log=self.root/'questions.jsonl', now=to_iso(self.now()))
+        stored = latest_snapshots(self.root/'questions.jsonl')
+        for snap, role in accepted:
+            if snap['status'] == 'open':
+                qid = snap['question_id']
+                selected[qid] = {**stored[qid], 'status': 'open', 'ground': role,
+                                 'priority': role if role in ('minibench', 'market_pulse') else 'main'}
+        return selected
+
+    def _poll_all(self):
         validate_main_site_policy(self.policy)
+        MP.validate(self.policy)
         cfg = load_tournaments()
         mode = load_submit_mode()["mode"]
         if mode != "live" or "minibench" in self.policy["venues"]:
             cfg = current_tournaments(self.client, configured=cfg, now=self.now)
         entries = cfg["tournaments"]
+        if 'market_pulse' in self.policy['venues'] and any(entries.get('market_pulse',{}).get(k)!=v
+                for k,v in {'id':MP.PROJECT_ID,'slug':MP.SETTING['slug']}.items()):
+            raise F.PreflightError('Market Pulse identity differs from approved policy')
         venues = self.policy["venues"]
         for v in venues:
             if mode == "live":
@@ -219,7 +289,8 @@ class Poller:
                        for v in sorted(set(exclusions))]
             index = TournamentIndex.from_polls(records)
         current = {}
-        targets = [(v, pid) for v in sorted(venues, key=lambda v: (v == "minibench", v))
+        accepted_ids = set()
+        targets = [(v, pid) for v in sorted(venues, key=lambda v: ({"main": 0, "minibench": 1, "market_pulse": 2}.get(v, 0), v))
                    for pid in (cfg["ongoing_minibench_ids"] if mode == "live" and v == "minibench"
                                else [entries[v]["id"]])]
         for venue, project in targets:
@@ -233,13 +304,18 @@ class Poller:
                 current.update(selected)
                 continue
             rec = poll(self.client, project, questions_log=self.root / "questions.jsonl",
-                       poll_log=self.root / "poll_log.jsonl", exclude=index, seen_question_ids=set(current),
-                       trial_bot_project_id=entries["bot_testing_area"]["id"] if mode != "live" else None)
+                       poll_log=self.root / "poll_log.jsonl", exclude=index, seen_question_ids=accepted_ids,
+                       trial_bot_project_id=entries["bot_testing_area"]["id"] if mode != "live" else None,
+                       statuses=['open', 'upcoming'] if 'discovery' in self.policy else None,
+                       allow_groups=venue == 'market_pulse')
             records.append(rec)
+            if 'discovery' in self.policy:
+                self.discovery_records.append((venue, rec))
             if any(r["reason"] == MEMBERSHIP_UNKNOWN for r in rec["skipped"]):
                 raise F.PreflightError("polled question project membership is unverified")
             stored = latest_snapshots(self.root / "questions.jsonl")
             skipped = {r.get("question_id") for r in rec["skipped"]}
+            accepted_ids.update(t["question_id"] for t in rec["timing"] if t["question_id"] not in skipped)
             for timing in rec["timing"]:
                 qid = timing["question_id"]
                 if qid in skipped or qid not in stored:
@@ -249,7 +325,7 @@ class Poller:
                     raise F.PreflightError("polled question project membership is unverified")
                 if timing["status"] == "open":
                     current[qid] = {**snap, "status": "open", "ground": venue,
-                                    "priority": "minibench" if venue == "minibench" else "main"}
+                                    "priority": venue if venue in ("minibench", "market_pulse") else "main"}
         self.records.extend(records)
         return current
 

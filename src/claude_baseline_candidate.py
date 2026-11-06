@@ -44,13 +44,13 @@ def approve(candidate: dict, *, expected_snapshot_sha256: str, reviewed_by: str,
                 source.get('player') != 'claude' or source.get('category') != B.CONTENT:
             raise ValueError('candidate/current plugin inventory schema differs')
     if any(c['category'] != B.INFORMATIONAL and c['player'] in ('claude', 'common')
-           for c in B.compare(saved, live)['changes']):
+           for c in B.compare(saved, live, catalog_drift=False)['changes']):
         raise ValueError('protected content or CLI changed since candidate review')
     with transaction(log.parent):
         old = B.latest_approved(log)
         if old is None or old['record_id'] != candidate.get('replaces_baseline'):
             raise ValueError('approved baseline changed since candidate preparation')
-        changes = B.compare(old, saved)['changes']
+        changes = B.compare(old, saved, catalog_drift=False)['changes']
         if any(c['category'] != B.INFORMATIONAL and c['source'] != SCOPE
                and c['player'] in ('claude', 'common') for c in changes):
             raise ValueError('candidate would approve a different protected source or CLI')
@@ -94,6 +94,6 @@ def approve(candidate: dict, *, expected_snapshot_sha256: str, reviewed_by: str,
                    'reviewed_snapshot_sha256': expected_snapshot_sha256,
                    'approval_reference': approval_reference,
                    'isolation_acceptance_record': isolation_record_id})
-        if B.compare(scoped.to_record(), live)['decisions']['claude'] != 'ok':
+        if B.compare(scoped.to_record(), live, catalog_drift=False)['decisions']['claude'] != 'ok':
             raise ValueError('scoped candidate does not match current protected state')
         return B.approve(scoped, reviewed_by, old['autoload_record'], log=log, player='claude')

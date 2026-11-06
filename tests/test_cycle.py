@@ -25,7 +25,7 @@ from test_scheduler import environment, campaign
 
 
 def policy():
-    return {k: v for k, v in {**campaign(), "version": Q.VERSION,
+    return {k: v for k, v in {**campaign(), "version": "continuous_v10",
                             "venues": ["bot_testing_area"]}.items() if k != "questions"}
 
 
@@ -320,7 +320,7 @@ def test_tree_cleanup_includes_detached_children(monkeypatch):
 def test_launchd_templates():
     root = Path(__file__).resolve().parents[1] / "launchd"
     configs = {p.stem.rsplit(".", 1)[-1]: plistlib.loads(p.read_bytes()) for p in root.glob("*.plist")}
-    assert configs["cycle"]["StartInterval"] == 600
+    assert configs["cycle"]["StartInterval"] == 60
     assert configs["resolve"]["StartCalendarInterval"] == {"Hour": 21, "Minute": 0}
     assert configs["report"]["StartCalendarInterval"] == {"Hour": 21, "Minute": 0, "Weekday": 1}
     # Only forecast jobs use run.sh/caffeinate; Telegram has its own resident service.
@@ -355,7 +355,8 @@ def fake_api(tmp_path, monkeypatch):
     return client, cfg
 
 
-def test_poller_uses_metadata_exclusions_and_saves_only_trial_questions(fake_api, tmp_path):
+def test_poller_uses_metadata_exclusions_and_saves_only_trial_questions(fake_api, tmp_path, question_type_flags):
+    question_type_flags(False)  # Exercise unsupported types independently of production rollout.
     client, _ = fake_api
     poller = Q.Poller(client, tmp_path, policy(), now=lambda: NOW)
     snapshots = poller()

@@ -126,7 +126,8 @@ def test_current_acceptance_is_required(accepted, fault):
         key, value = {'failed': ('line_pass', False), 'version': ('cli_version', 'new'),
                       'judge': ('judge_version', 'different'), 'proof_hash': ('evidence_sha256', 'changed')}[fault]
         append_record(log, record | {key: value})
-    assert not check(accepted, req, result)['accepted']
+    # D143 already permits known version changes; other acceptance failures still reject.
+    assert check(accepted, req, result)['accepted'] is (fault == 'version')
 
 
 @pytest.mark.parametrize('state', ['mismatch', 'undetermined'])

@@ -85,14 +85,17 @@ def test_single_file_hash_and_frontmatter_rule(tmp_path):
 
 
 def snapshots(source):
-    home,path,src=source
+    home,_,_=source
+    path=home/".claude/CLAUDE.md"
+    path.write_text("synthetic protected instructions")
+    src=next(s for s in B.default_sources({}) if s.source_id=="claude.global_instructions")
     rec=B.inspect_source(src,home)
     current={'sources':{src.source_id:rec},'versions':dict.fromkeys(B.PLAYERS,'1'),'gemini_credits':0}
     old=copy.deepcopy(current);old['record_id']='original';old['sources'][src.source_id]['hash']='old'
     context={'identity':{'path':'/official/claude','sha256':'abc'},'production_evidence_ok':True,
              'catalog_changed':False,'runtime_fingerprint':{'runtime':'hash'},'models':{'tier1':'same','tier2':'same'},
              'judge_version':'current'}
-    return old,current,context,{src.source_id:scan(source)}
+    return old,current,context,{src.source_id:P.scan(src,rec,home=home)}
 
 
 def test_candidate_binds_all_protected_sources_and_runtime(source):
@@ -106,18 +109,18 @@ def test_candidate_binds_all_protected_sources_and_runtime(source):
     assert P.candidate('claude',old,changed,context=ctx,scans=scans)['candidate_sha256']==result['candidate_sha256']
 
 
-@pytest.mark.parametrize('reason',['common','plugin','mixed','version','evidence','identity','blocked'])
+@pytest.mark.parametrize('reason',['common','hook','mixed','version','evidence','identity','blocked'])
 def test_non_text_or_untrusted_candidates_remain_ineligible(source,reason):
     old,current,ctx,scans=snapshots(source)
-    if reason in ('common','plugin'):
-        sid='ancestor:/tmp/AGENTS.md' if reason=='common' else 'claude.plugins'
+    if reason in ('common','hook'):
+        sid='ancestor:/tmp/AGENTS.md' if reason=='common' else 'claude.hooks'
         extra={'kind':'file','player':'common' if reason=='common' else 'claude','category':B.CONTENT,'exists':True,'hash':'old'}
         old['sources'][sid]=extra;current['sources'][sid]={**extra,'hash':'new'}
     elif reason=='mixed':ctx['catalog_changed']=True
     elif reason=='version':current['versions']['claude']='new'
     elif reason=='evidence':ctx['production_evidence_ok']=False
     elif reason=='identity':ctx['identity']=None
-    else:current['sources']['claude.skills']['error']='unknown'
+    else:current['sources']['claude.global_instructions']['error']='unknown'
     assert not P.candidate('claude',old,current,context=ctx,scans=scans)['format_eligible']
 
 

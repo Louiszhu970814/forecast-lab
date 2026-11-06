@@ -5,10 +5,8 @@ This release cannot run acceptance, approve a baseline, reclassify a source or c
 from __future__ import annotations
 
 import argparse
-import hashlib
 import importlib
 import json
-import os
 from pathlib import Path
 import shutil
 import signal

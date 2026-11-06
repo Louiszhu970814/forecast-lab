@@ -1,0 +1,38 @@
+{
+  "decision": "D137",
+  "deployment_at": "2026-11-05T02:49:33.366Z",
+  "review_round": "r3",
+  "packet_sha256": "827cc778978ca6cd6b2e0a4c8d78a7f564c1b6701312516b7df08809b8af27ed",
+  "reviewed_and_applied_files": {
+    "PLAN.md": "da68a916511d00b6c22bdf1fb052dba9dddedd3dde9d1eb8b311fab0bdb192c6",
+    "README.md": "d065e1828b22523a68662dc0272ff27d43f9bbaaeb6f021e854530df3676b319",
+    "config/cycle_campaign.json": "572cb04c68d77ec69641bd73ec99ac25c843fa7a33416e7852f76523175bd9ca",
+    "config/submit_mode.json": "29e3241d0273bd4677fa1685a5517dd747864c5c7ad2dce4d64b56589ed55bd3",
+    "config/tournaments.json": "a0c5007b81ddcd26422449325494f148335ae6d2c605f520f162652af5b8e203",
+    "docs/tasks/D137-MAIN-LAUNCH.md": "8cad7618f08d6f7c95c140a7db11c189e49fc664151009846a24d439aedf55ec",
+    "docs/tasks/HANDOFF.md": "9c45f5f91876c7cb242a972acc8fce9b5cede1fb0b2f68982b34f370d2e60805",
+    "docs/tasks/INDEX.md": "62a3ed279e5b8f89dec7a74971f4dfb282714a0c67f63c8e59ea4f47bffc5d68",
+    "src/budget_handoff.py": "b318501ba1d85eee6a866aae4306efc5ad04618b1f39b8ab8ed51e98b2039582",
+    "src/continuous.py": "44024458466a7ca482b6fbe2874f4928457e655ccbe123cae3e3cb7e6014c859",
+    "tests/fixtures/d121_protected_hashes.json": "97177f3b018fe66deb744eb19bd345da997eb87722dd3b50e5994cd64c2a0a37",
+    "tests/fixtures/m5_legacy_golden.json": "6ada81291aeb58acb748a5a6a18701dbde6b0078239bde47fa5a8275bf28c7b5",
+    "tests/test_budget_handoff.py": "1dc9f6a4f0ba5516b3760a5e5db5a465f9fde3d8a63032ecd62df8754a4f1e27",
+    "tests/test_config.py": "0e392e05fdf430e6744749f42e780b5fa99ce59ebcaab8e7567b931b7c1e8325",
+    "tests/test_d121_fail_soft.py": "460c623790e7d43f6b76ea1ddd8e9853f469f0df3f00e0a43bb0de43ccccaa1f",
+    "tests/test_m3_integration.py": "2c5ad2f2bbf065a8203dfd60836b4fd2989a4f9fd288e3ae835593848eee2941",
+    "tests/test_main_launch_handoff.py": "a92de0226a78bfa8d9acc80bd0b60702655056bdc54dc2c55a8589f50e50f744",
+    "tests/test_numeric.py": "e332213dd5d690cfebed3d77f7cee6c057fb00cde8dcae8cfbec5381a894da0d"
+  },
+  "review_answers": {
+    "claude": {
+      "path": "claude-r3/answer.md",
+      "sha256": "e336dccca52954cb998a3cda21d1478b0b660e0152f860a53f09f56230a4d2e1"
+    },
+    "gemini": {
+      "path": "gemini-r3/answer.md",
+      "sha256": "2f9d471457fc4a5b8c11b4c0f83801b67f499c5f59fa56fc87db479dd5d81bcc"
+    }
+  },
+  "deployment_script_sha256": "e57402097663358c604ef3aa729f45160ea120069182465470b15b6ba3a0c2a2",
+  "initial_manifest_sha256": "9d3df165976303f0713b03bd98f5d30a4196226c76eef97b4416de0d2935d697"
+}

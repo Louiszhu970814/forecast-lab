@@ -1,10 +1,12 @@
 {
-  "version": "continuous_v9",
-  "campaign_id": "d118_minibench_20261103T0400Z",
+  "version": "continuous_v11",
+  "campaign_id": "d139_main_minibench_market_20261105",
   "venues": [
-    "minibench"
+    "main",
+    "minibench",
+    "market_pulse"
   ],
-  "budget_window_start": "2026-11-03T04:00:00.000Z",
+  "budget_window_start": "2026-11-05T05:14:00.869Z",
   "budget_window_end": "2026-11-10T04:00:00.000Z",
   "weekly_attempt_caps": {
     "claude": 130,
@@ -17,10 +19,27 @@
   "run_config_sha256": "42936cd6c04e4e547dbe3369f868f1e338da04ab00a754cbe219037b8f196572",
   "quota_policy_sha256": "3e11aeab8eca0fae1987e202779f49f60704f13737e3665a18c49e48e0a6ee23",
   "budget_handoff": {
-    "version": "budget_handoff_v1",
-    "source_campaign_id": "d105_e2e_20261102T1303Z",
-    "source_sha256": "26596bf61b4d9e5c03ca6a01da22356e6a9bbe336228ec4eafef103d384770d5",
+    "version": "budget_handoff_v3",
+    "source_campaign_id": "d137_main_minibench_20261105",
+    "source_sha256": "405f0bc02c9a112b140bc25a0704c5c19c62795e393b0a9dfcce550c2b7d2b66",
     "accounting_start": "2026-11-02T13:03:00.000Z",
-    "authorization": "PLAN D118"
+    "authorization": "PLAN D139"
+  },
+  "discovery": {
+    "version": "discovery_v1",
+    "interval_s": 1800,
+    "short_window_interval_s": 300,
+    "short_window_s": 3600,
+    "heartbeat_s": 60
+  },
+  "market_pulse": {
+    "version": "market_pulse_v1",
+    "project_id": 33131,
+    "slug": "market-pulse-26q4",
+    "first_forecast": "first_eligible_spare_capacity",
+    "updates": 0,
+    "comment": "private_per_child",
+    "priority": "after_main_and_minibench",
+    "reserve_both_tiers_for_expected_arrivals": true
   }
 }

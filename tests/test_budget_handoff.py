@@ -22,10 +22,10 @@ def campaigns(root, *, cap=40):
            "budget_window_end": to_iso(NOW + timedelta(hours=12)),
            "weekly_attempt_caps": dict.fromkeys(("claude", "gemini", "gpt"), cap)}
     Q.register(root, old, now=lambda: NOW - timedelta(hours=1))
-    new = {**copy.deepcopy(old), "version": Q.VERSION, "campaign_id": "early-mini",
+    new = {**copy.deepcopy(old), "version": "continuous_v9", "campaign_id": "early-mini",
            "venues": ["minibench"], "budget_window_start": to_iso(NOW),
            "budget_window_end": to_iso(NOW + timedelta(days=7)),
-           "budget_handoff": {"version": H.VERSION, "source_campaign_id": old["campaign_id"],
+           "budget_handoff": {"version": H.LEGACY_VERSION, "source_campaign_id": old["campaign_id"],
                               "source_sha256": hash_obj(old),
                               "accounting_start": old["budget_window_start"],
                               "authorization": "PLAN D118"}}

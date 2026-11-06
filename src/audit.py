@@ -4,7 +4,7 @@ Flags, most severe first:
 - ``leak_confirmed``: the model's ``sources`` contain metaculus.com, a metaculus.com URL was
   opened, or the adapter confirmed an open (codex);
 - ``suspected_leak``: metaculus.com or "community prediction" appears in the raw output or tool
-  events outside the prompt's own text and outside blocked requests, a metaculus.com URL has an
+  events outside recognized non-exposure contexts, a metaculus.com URL has an
   ``attempted`` or ``unknown`` state, or the adapter suspects one;
 - ``blocked_attempt``: every metaculus.com request was blocked by the CLI and nothing else points
   to exposure.
@@ -25,6 +25,7 @@ from flab.workdir import PROJECT_ROOT
 import validate as V
 
 AUDITS_LOG = PROJECT_ROOT / "data" / "audits.jsonl"
+VERSION = "audit_v2"
 SEVERITY = ("leak_confirmed", "suspected_leak", "blocked_attempt")
 KEYWORDS = re.compile(r"metaculus\.com|community prediction", re.I)
 ECHO_CONTEXT = 30     # characters on each side of a hit that must also appear in the prompt
@@ -63,6 +64,49 @@ def _strings(value: Any) -> list[str]:
     if isinstance(value, list):
         return [x for v in value for x in _strings(v)]
     return []
+
+
+def _located_strings(value: Any, location: tuple = ()):
+    if isinstance(value, str):
+        yield location, value
+    elif isinstance(value, dict):
+        for k, v in value.items():
+            yield from _located_strings(v, location + (k,))
+    elif isinstance(value, list):
+        for i, v in enumerate(value):
+            yield from _located_strings(v, location + (i,))
+
+
+def _non_exposure_kind(player, path, event, location, chunk, match):
+    """Only the exact host token in a provider setting or structured query is exempt.
+
+    Never exempts a whole line/event, search results, response prose or source URLs.
+    Unknown formats fail conservative. The agy log is host-captured CLI diagnostics.
+    """
+    if match.group().lower() != 'metaculus.com':
+        return None
+    if player == 'gemini' and path.name == 'agy_cli.log' and isinstance(event, str):
+        prefix = re.match(r'^I\d{4} \d{2}:\d{2}:\d{2}\.\d{6}\s+\d+ cli_setting_manager\.go:\d+\] CLI settings initialized: permissions=&\{Allow:\[[^\]\r\n]*\] Deny:\[', chunk)
+        if prefix:
+            end = chunk.find('] Ask:', prefix.end())
+            if prefix.end() <= match.start() < end and chunk[match.start()-9:match.end()+1] == 'read_url(metaculus.com)' \
+                    and (match.start()-9 == prefix.end() or chunk[match.start()-10].isspace()):
+                return 'cli_deny_setting'
+    if player != 'gpt' or not isinstance(event, dict) or event.get('type') not in ('item.started', 'item.completed'):
+        return None
+    item = event.get('item')
+    if not isinstance(item, dict) or item.get('type') != 'web_search':
+        return None
+    action = item.get('action')
+    if not isinstance(action, dict) or action.get('type') != 'search':
+        return None
+    query_field = location in (('item', 'query'), ('item', 'action', 'query')) or (
+        len(location) == 4 and location[:3] == ('item', 'action', 'queries') and isinstance(location[3], int))
+    if query_field:
+        for exclusion in re.finditer(r'(?<!\S)-site:(metaculus\.com)(?=\s|$)', chunk, re.I):
+            if exclusion.span(1) == match.span():
+                return 'search_exclusion'
+    return None
 
 
 def _requested_urls(events: list[Any]) -> dict[str, str]:
@@ -117,12 +161,14 @@ def _units(event: Any, blocked: set[str], requested: dict[str, str]) -> list[tup
     return [(False, event)]
 
 
-def keyword_hits(files: Iterable[Path], prompt: str, blocked_urls: set[str]) -> list[dict[str, Any]]:
+def keyword_hits(files: Iterable[Path], prompt: str, blocked_urls: set[str], *, player: str | None = None) -> list[dict[str, Any]]:
     """Every keyword hit, classified per attributable part of each event:
 
     - ``prompt_echo``: the hit with its surrounding text appears verbatim in the prompt;
     - ``blocked_request``: a metaculus.com mention inside a request for a blocked URL, or inside the
       CLI's denial of that same request;
+    - ``cli_deny_setting`` / ``search_exclusion``: exact host tokens attributed to CLI deny
+      diagnostics or a structured negative-site query; never response content;
     - ``exposure``: everything else, including other results in the same message and search results
       that list the same URL.
     """
@@ -142,12 +188,15 @@ def keyword_hits(files: Iterable[Path], prompt: str, blocked_urls: set[str]) -> 
         requested = _requested_urls(events)
         for n, event in enumerate(events):
             for exempt, part in _units(event, blocked_urls, requested):
-                for chunk in _strings(part):
+                for location, chunk in _located_strings(part):
                     for m in KEYWORDS.finditer(chunk):
+                        contextual = _non_exposure_kind(player, path, event, location, chunk, m) if part is event else None
                         if _echo(chunk, m.start(), m.end(), prompt):
                             kind = "prompt_echo"
                         elif exempt and m.group(0).lower() == "metaculus.com":
                             kind = "blocked_request"
+                        elif contextual:
+                            kind = contextual
                         else:
                             kind = "exposure"
                         lo, hi = max(0, m.start() - CONTEXT), min(len(chunk), m.end() + CONTEXT)
@@ -185,11 +234,11 @@ def audit_attempt(*, attempt_id: str, player: str, question_id: int, result: Ada
         if f in ("leak_confirmed", "suspected_leak"):
             flags.add(f)
             reasons.append(f"adapter flag {f}")
-    hits = keyword_hits(raw_files, prompt, {u for u in blocked_urls if u})
+    hits = keyword_hits(raw_files, prompt, {u for u in blocked_urls if u}, player=player)
     exposure = [h for h in hits if h["kind"] == "exposure"]
     if exposure:
         flags.add("suspected_leak")
-        reasons.append(f"{len(exposure)} keyword hit(s) outside the prompt and blocked requests")
+        reasons.append(f"{len(exposure)} keyword hit(s) outside recognized non-exposure contexts")
     # Only when every metaculus.com request was blocked and nothing else points to exposure.
     if blocked_urls and not other_states and not exposure and not flags & {"leak_confirmed", "suspected_leak"}:
         flags.add("blocked_attempt")
@@ -199,7 +248,7 @@ def audit_attempt(*, attempt_id: str, player: str, question_id: int, result: Ada
             flags.add(f)
             reasons.append(f"inherited {f} from {prev_attempt_id}")
     ordered = [f for f in SEVERITY if f in flags]
-    return {"type": "audit", "audit_event_id": new_id("aud"), "attempt_id": attempt_id, "prev_attempt_id": prev_attempt_id,
+    return {"type": "audit", "audit_version": VERSION, "audit_event_id": new_id("aud"), "attempt_id": attempt_id, "prev_attempt_id": prev_attempt_id,
             "player": player, "question_id": question_id, "audit_flags": ordered, "own_audit_flags": own,
             "status": status_of(ordered),
             "audit_reasons": reasons, "keyword_hits": hits, "audited_at": to_iso(utc_now())}

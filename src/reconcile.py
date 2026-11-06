@@ -24,7 +24,7 @@ import validate as V
 import numeric as N
 from flab.config import PLAYERS, load_submit_mode
 from flab.ids import hash_obj, new_id
-from flab.jsonl import append_record, read_records
+from flab.jsonl import append_record
 from flab.ledger import transaction, read_complete
 from flab.timeutil import parse_iso, to_iso
 
@@ -304,8 +304,9 @@ def run(ctx: F.Context, snapshot: dict[str, Any], *,
             summary.update(outcome=exc.outcome,
                            reason=str(exc), notify_louis=exc.notify, quota_retry_at_utc=exc.quota_retry_at_utc)
             if exc.notify:
-                append_record(ctx.line_status_log, {"type": "line_stop", "player": ctx.player,
-                    "run_id": ctx.run_id, "at": to_iso(ctx.now()), "reason": str(exc)})
+                with transaction(ctx.line_status_log.parent):
+                    append_record(ctx.line_status_log, {"type": "line_stop", "player": ctx.player,
+                        "run_id": ctx.run_id, "at": to_iso(ctx.now()), "reason": str(exc)})
         except ValueError as exc:
             summary.update(outcome="integrity_error", reason=str(exc), finished_at_utc=to_iso(ctx.now()))
             append_record(runs_log, summary)

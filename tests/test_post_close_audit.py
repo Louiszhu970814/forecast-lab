@@ -804,7 +804,7 @@ def test_full_disclosure_markdown_rendering(sc: Scenario):
     assert md.endswith("\n")
 
 
-def test_diagnostics_high_dispersion_and_missing_tier2(sc: Scenario):
+def test_diagnostics_high_dispersion_without_inventing_tier2_request(sc: Scenario):
     sc.write("forecasts.jsonl", [
         _fc("alpha", 1, 0.9, "a1", base_rate=0.5),
         _fc("beta", 1, 0.2, "b1", market_refs=["m"]),
@@ -819,11 +819,8 @@ def test_diagnostics_high_dispersion_and_missing_tier2(sc: Scenario):
     assert d["tier1_spread"] == pytest.approx(0.7)
     assert d["tier2_spread"] is None
     assert d["players"]["alpha"]["tier2"] is None
-    assert d["health_warnings"] == sorted([
-        "high_dispersion:0.700",
-        "missing_player:alpha",
-        "missing_player:beta",
-    ])
+    assert d["health_warnings"] == ["high_dispersion:0.700"]
+    assert d["line_coverage"]["alpha"]["2"]["state"] == "not_requested_or_unobserved"
 
 
 def test_diagnostics_warn_unsubmitted_final_aggregate(sc: Scenario):
@@ -1033,3 +1030,40 @@ def test_main_live_api_requires_token(sc: Scenario, monkeypatch, capsys):
     monkeypatch.delenv("METACULUS_TOKEN", raising=False)
     assert pca.main(["--data-dir", str(sc.data_dir), "--live-api"]) == 2
     assert "METACULUS_TOKEN" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("name", ["cycles.jsonl", "audits.jsonl", "scheduler_jobs.jsonl"])
+def test_d135_corrupt_optional_evidence_masks_all_diagnostics(sc, name):
+    sc.append_raw(name, '{"broken":')
+    rec=sc.review()
+    assert not rec['review_eligible'] and rec['diagnostics'] is None
+    _assert_no_secrets(_dump(rec))
+
+
+def test_d135_first_valid_and_frozen_selection(sc):
+    sc.append('forecasts.jsonl',_fc('alpha',1,.123,'later',reasoning_summary='later answer'))
+    assert sc.review()['diagnostics']['players']['alpha']['tier1']['attempt_id']=='a1'
+    aggs=default_aggregates();aggs[0]['input_attempt_ids']=['later']
+    sc.write('aggregates.jsonl',aggs)
+    assert sc.review()['diagnostics']['players']['alpha']['tier1']['attempt_id']=='later'
+
+
+def test_d135_cycle_evidence_binds_only_explicit_question(sc):
+    sc.write('cycles.jsonl',[
+       {'cycle_id':'unrelated','new_question_ids':[999], 'players':{'delta':{'status':'preflight_blocked','preflight':{'ok':False,'tier':1,'problems':['UNRELATED_PRIVATE']}}}},
+       {'cycle_id':'related','new_question_ids':[QID], 'players':{'delta':{'status':'preflight_blocked','preflight':{'ok':False,'tier':1,'problems':['baseline stop']}}}}])
+    d=sc.review()['diagnostics'];obs=d['line_coverage']['delta']['1']
+    assert obs['state']=='no_attempt_with_cycle_block'
+    assert [o['cycle_id'] for o in obs['cycle_observations']]==['related']
+    assert 'UNRELATED_PRIVATE' not in _dump(d)
+    assert 'baseline stop' in pca.render_markdown(sc.report())
+    sc.post['status']='open';sc.post['question']['status']='open'
+    rec=sc.review();assert not rec['review_eligible'] and rec['diagnostics'] is None
+    assert 'baseline stop' not in _dump(rec)
+
+
+@pytest.mark.parametrize('ids',[[str(QID)],str(QID)])
+def test_d135_cycle_ids_are_typed_and_normalized(sc,ids):
+    sc.write('cycles.jsonl',[{'cycle_id':'c','new_question_ids':ids,'players':{'delta':{'status':'ready'}}}])
+    d=sc.review()['diagnostics']
+    assert ('delta' in d['line_coverage']) == isinstance(ids,list)

@@ -126,10 +126,10 @@ def scan(source: B.Source, saved: dict, *, home: Path) -> dict:
 
 
 def candidate(player: str, old: dict, current: dict, *, context: dict, scans: dict) -> dict:
-    changes=[c for c in B.compare(old,current)['changes']
-             if c['player'] in (player,'common') and c['category']!=B.INFORMATIONAL]
-    sources=sorted({c['source'] for c in changes})
-    versions=[s for s in sources if s.startswith('cli_version:')]
+    all_changes=[c for c in B.compare(old,current)['changes'] if c['player'] in (player,'common')]
+    changes=[c for c in all_changes if c['category']!=B.INFORMATIONAL]
+    versions=sorted({c['source'] for c in all_changes if c['source'].startswith('cli_version:')})
+    sources=sorted({c['source'] for c in changes} | set(versions))
     catalog=context.get('catalog_changed') is True
     kind='text' if sources and not versions else 'cli_version' if versions else 'catalog' if catalog else 'none'
     reasons=[]

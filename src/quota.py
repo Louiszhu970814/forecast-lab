@@ -15,7 +15,6 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Callable, Mapping
 
-from adapters.base import MODEL_CHECKS
 from flab import runner as flab_runner
 from flab.ids import new_id
 from flab.timeutil import parse_iso, to_iso, utc_now

@@ -20,8 +20,10 @@ from flab.ids import new_id
 from flab.jsonl import append_record
 from flab.ledger import transaction, read_complete
 from flab.timeutil import parse_iso, to_iso, utc_now
+from flab.external_usage import usage as advisory_usage
 
-VERSION = "budget_v7"
+VERSION = "budget_v10"
+TOKEN_POLICY_VERSIONS = frozenset({"budget_v7", "budget_v8", "budget_v9", VERSION})
 LIFT_AUTHORIZATION = "PLAN D121"
 LIFT_PLAYERS = ("claude", "gpt", "gemini")
 LIFT_REASONS = frozenset({"weekly_tier2_token_breaker", "weekly_tier2_argon_breaker", "tier2_token_breaker"})
@@ -101,10 +103,6 @@ def duration_estimate(records: list[dict], player: str, tier: int, cfg: dict) ->
     return (quantile(values[-50:]) or cfg["timeouts_s"][f"tier{tier}"]) + 60 + (60 if player == "gemini" else 0)
 
 
-def _positive(value: Any) -> bool:
-    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value) and value > 0
-
-
 @dataclass
 class Budget:
     root: Path
@@ -141,6 +139,8 @@ class Budget:
         with transaction(self.root):
             _, starts, _, events = self._data()
             started = {r["attempt_id"] for r in starts}
+            advisory_admitted, _ = advisory_usage(self.root)
+            started.update(advisory_admitted)
             finished = {r["attempt_id"] for r in events if r["type"] == "budget_outcome"}
             for r in events:
                 if r["type"] == "budget_reserved" and r["run_id"] != self.run_id \
@@ -149,10 +149,11 @@ class Budget:
                         "decision_id": r["decision_id"], "status": "released", "reason": "prior scheduler ended before CLI start",
                         "at": to_iso(self.now()), "version": VERSION})
 
-    def reserve(self, request: dict, *, pending_tier1: int, expected_new: int, repair_reserve: int) -> dict:
+    def reserve(self, request: dict, *, pending_tier1: int, expected_new: int, repair_reserve: int, advisory_protected: int = 0, low_priority_protected: int = 0) -> dict:
         with transaction(self.root):
             start, end = self._window()
             forecasts, starts, snapshots, events = self._data()
+            advisory_admitted, advisory_finished = advisory_usage(self.root)
             if not any(r["type"] == "budget_policy_activated" and r.get("version") == VERSION for r in events):
                 activation = {"type": "budget_policy_activated", "version": VERSION, "policy_version": FS.VERSION,
                               "at": to_iso(self.now()), "scope": "new reservations only",
@@ -160,20 +161,31 @@ class Budget:
                 append_record(self.log, activation)
                 events.append(activation)
             player, tier, qid, aid = (request[k] for k in ("player", "tier", "question_id", "attempt_id"))
-            if tier not in (1, 2) or any(type(v) is not int or v < 0 for v in (pending_tier1, expected_new, repair_reserve)):
+            if tier not in (1, 2) or any(type(v) is not int or v < 0 for v in (pending_tier1, expected_new, repair_reserve, advisory_protected, low_priority_protected)) or (advisory_protected and tier != 1):
                 raise ValueError("invalid tier or protected capacity")
             reservations = {r["attempt_id"]: r for r in events if r["type"] == "budget_reserved"}
             outcomes = {r["attempt_id"]: r for r in events if r["type"] == "budget_outcome"}
-            if aid in reservations:
+            if aid in reservations or aid in advisory_admitted:
                 raise ValueError("attempt already has a budget reservation")
+            for xid, adm in advisory_admitted.items():
+                res, out, fin = reservations.get(xid), outcomes.get(xid), advisory_finished.get(xid)
+                if res is not None and res.get("player") != adm["player"]:
+                    raise ValueError("advisory reservation identity mismatch")
+                if fin is not None and res is not None and (out is None or
+                        out.get("status") != ("started" if fin["started"] else "released")):
+                    raise ValueError("advisory completion contradicts budget outcome")
             player_starts = [r for r in starts if r.get("player") == player]
             window_starts = [r for r in player_starts if start <= parse_iso(r["started_at_utc"]) < end]
             done = {r["attempt_id"]: r for r in forecasts}
             active = [r for r in reservations.values() if r["player"] == player
                       and r["attempt_id"] not in done
+                      and r["attempt_id"] not in advisory_finished
                       and outcomes.get(r["attempt_id"], {}).get("status") != "released"]
             reason = None
             if active or any(r["attempt_id"] not in done for r in player_starts):
+                reason = "unresolved_or_running_attempt"
+            if any(r["player"] == player and aid not in advisory_finished
+                   for aid, r in advisory_admitted.items()):
                 reason = "unresolved_or_running_attempt"
             acceptance = read_complete(self.acceptance_log) if self.acceptance_log else []
             calls = [r for r in acceptance if r.get("type") == "acceptance_call_started" and r.get("player") == player]
@@ -186,8 +198,12 @@ class Budget:
             used_ids = {r["attempt_id"] for r in window_starts}
             used_ids.update(r["attempt_id"] for r in forecasts if r.get("player") == player
                 and start <= parse_iso(r.get("started_at_utc") or r["finished_at_utc"]) < end)
+            used_ids.update(aid for aid, r in advisory_admitted.items() if r["player"] == player
+                and start <= parse_iso(r["at"]) < end
+                and advisory_finished.get(aid, {}).get("started") is not False)
             used = len(used_ids) + acceptance_count
-            protected = pending_tier1 + expected_new + repair_reserve if tier == 2 else 0
+            protected = max(pending_tier1 + expected_new + repair_reserve if tier == 2 else advisory_protected,
+                            low_priority_protected)
             if type(cap) is not int or cap <= 0:
                 reason = "weekly_attempt_cap_unset"
             elif used + protected + 1 > cap:
@@ -219,7 +235,7 @@ class Budget:
                 assessed = {r["attempt_id"] for r in events if r["type"] == "tier2_token_assessed"}
                 for r in scoped:
                     reservation = reservations.get(r["attempt_id"], {})
-                    if reservation.get("version") != VERSION or r["attempt_id"] in assessed:
+                    if reservation.get("version") not in TOKEN_POLICY_VERSIONS or r["attempt_id"] in assessed:
                         continue
                     limit = reservation.get("token_limit")
                     countable = [x for x in scoped if x["question_id"] == r["question_id"]

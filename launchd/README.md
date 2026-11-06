@@ -1,3 +1,5 @@
+D139 現行已啟用：cycle timer 為60秒本地heartbeat，新題搜尋由discovery_v1控制為1800秒；已知工作不等慢搜尋。實際啟用及限制見 [D139](../docs/tasks/D139-EXPANSION.md)。以下保留原部署背景，600秒數值屬舊排程。
+
 # Forecast Lab launchd 範本
 
 最新部署：[D118](../docs/tasks/MINIBENCH-EARLY-D118.md)已於UTC11/3 04:12:32提前啟動，固定截止11/10 04:00；舊D105用量由`continuous_v9`／`budget_handoff_v1`保留計入`budget_v6`，來源封存不可重用，沒有額度清零或自動續期。D117原21:03候選已取代；既有600秒LaunchAgent直接kickstart，未重裝。
@@ -50,3 +52,7 @@ N=1 時依上述順序優先 binary。已選滿只刷新已選題；作廢仍占
 M3-W1 整合邊界：cycle 在共用 `scheduler.lock` 下整理佇列並發布 `submission_eligible=true` 的新整合紀錄，呼叫 `submit.py run` 前釋放該鎖，仍持有 `cycle.lock`。一題有 `status="intent"` 且其 `intent_id` 沒有 `abandoned` 紀錄時才凍結，由送出端對帳；某意圖被放棄，不會解除同題其他未放棄的意圖。所有意圖都已放棄後可依最新快照重排，包含輪詢曾記為 `already_submitted` 的題目。
 
 依 M3-W1 第 1 輪契約，送出端須拒絕 `question_snapshot_id` 出現在 `question_queue.jsonl` 的 `snapshot_invalidated.old_snapshot_id` 中的整合結果與意圖。cycle 不再為作廢快照發布結果，已發布的過期 ID 僅列於 publish 步驟的 `stale_aggregate_ids`，新快照與其他題仍可發布並呼叫 submit。文字修訂回退不作廢舊整合，維持原快照與 `revision_fallback` 標記。送出端已整合；離線拒絕案例與真實端到端證據分開記錄，M3 狀態以 PLAN 與監督文件為準。
+
+## D140 停線恢復
+
+`org.forecast-lab.line-recovery.plist` 獨立每300秒呼叫 `run.sh line-recovery`，單次最長120秒，只持待恢復線鎖，不堵cycle／submit。原新題1800秒與heartbeat60秒不變。只做已審查精確技術分類／現行隔離證據核對，不啟動模型、不接受基準變更；補做由原scheduler依deadline／budget執行。部署狀態與限制見 `docs/tasks/D140-AUTO-RECOVERY.md`。

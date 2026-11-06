@@ -37,6 +37,7 @@ def snapshot(home, *, legacy=False):
                            versions=dict.fromkeys(B.PLAYERS, "synthetic")).to_record()
 
 
+# Inventory tests retain strict candidate/evidence semantics; runtime drift has separate D144 tests.
 def test_sync_tokens_and_refresh_times_do_not_authorize_changed_content(tmp_path):
     root, marker, index, value, skill = files(tmp_path)
     before = snapshot(tmp_path)
@@ -53,7 +54,7 @@ def test_sync_tokens_and_refresh_times_do_not_authorize_changed_content(tmp_path
     assert a["raw_file_hashes"] != b["raw_file_hashes"]
     assert a["entries"] == b["entries"] == 3
     skill.write_text("changed instructions")
-    assert B.compare(before, snapshot(tmp_path))["decisions"]["claude"] == "stop"
+    assert B.compare(before, snapshot(tmp_path), catalog_drift=False)["decisions"]["claude"] == "stop"
 
 
 @pytest.mark.parametrize("field", ["name", "id", "scope", "source", "parserVersion", "unknown", "listedFor"])
@@ -64,7 +65,7 @@ def test_routing_versions_unknown_fields_and_listed_for_remain_protected(tmp_pat
     elif field == "parserVersion": value[field] = 1003
     else: value["rows"][0][field] = {"source": "other"} if field == "source" else "changed"
     index.write_text(json.dumps(value))
-    assert B.compare(before, snapshot(tmp_path))["decisions"]["claude"] == "stop"
+    assert B.compare(before, snapshot(tmp_path), catalog_drift=False)["decisions"]["claude"] == "stop"
 
 
 @pytest.mark.parametrize("change", ["remove", "rename", "bad-token", "extra-token", "bad-json", "duplicate", "symlink"])
@@ -80,7 +81,7 @@ def test_metadata_missing_malformed_or_linked_stops(tmp_path, change):
     else:
         marker.unlink()
         marker.symlink_to(skill)
-    assert B.compare(before, snapshot(tmp_path))["decisions"]["claude"] == "stop"
+    assert B.compare(before, snapshot(tmp_path), catalog_drift=False)["decisions"]["claude"] == "stop"
 
 
 def test_old_aggregate_baseline_is_never_silently_migrated(tmp_path):
@@ -97,7 +98,7 @@ def test_same_filename_in_a_plugin_is_still_ordinary_content(tmp_path):
     nested.write_text(TOKEN + " ")
     before = snapshot(tmp_path)
     nested.write_text(NEXT + " ")
-    assert B.compare(before, snapshot(tmp_path))["decisions"]["claude"] == "stop"
+    assert B.compare(before, snapshot(tmp_path), catalog_drift=False)["decisions"]["claude"] == "stop"
 
 
 def test_pin_wrapper_fails_closed_and_preserves_arguments(tmp_path):

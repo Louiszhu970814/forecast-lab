@@ -1,5 +1,7 @@
 # D99：多選題讀回不依賴完整選項歷史（M3）
 
+> **SUPERSEDED／歷史文件（D136 標記）**：本頁保留當時提案與驗證經過，不是現行授權或待決清單。現行規格見 [PLATFORM-REPLY-D115.md](PLATFORM-REPLY-D115.md) 與 [PLAN](../../PLAN.md) 的後續決策。
+
 規格：Claude（主持）。實作：GPT（Codex 開發沙箱）。審查：Claude，之後 Gemini 獨立審查。依 Louis「研究回來之後有一定答案了就直接開始繼續 M3，中間的 coding 還有審查你們三個可以輪流做」。
 
 ## 背景（已核對的事實）

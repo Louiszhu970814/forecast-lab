@@ -1,0 +1,425 @@
+{
+  "status": "active",
+  "deployment_at": "2026-11-05T02:49:33.366Z",
+  "full_passed": 3393,
+  "retained_test_nodes": 3368,
+  "new_test_nodes": 25,
+  "deployment_fault_passed": 27,
+  "stage_smoke_passed": 569,
+  "root_smoke": {
+    "pre": "373 passed in 3.59s",
+    "post": "569 passed in 5.05s"
+  },
+  "preflight_before": [
+    {
+      "player": "claude",
+      "tier": 1,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793802906153_9ce65180",
+      "production_record_id": "acc_1793529463945_ced0ca65",
+      "cli_version": "2.1.316",
+      "line_guard": null
+    },
+    {
+      "player": "claude",
+      "tier": 2,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793802906153_9ce65180",
+      "production_record_id": "acc_1793529642642_fba87085",
+      "cli_version": "2.1.316",
+      "line_guard": null
+    },
+    {
+      "player": "gemini",
+      "tier": 1,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793802323516_b0387ed0",
+      "production_record_id": "acc_1793537753400_66af4ff6",
+      "cli_version": "1.4.12",
+      "line_guard": null
+    },
+    {
+      "player": "gemini",
+      "tier": 2,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793802323516_b0387ed0",
+      "production_record_id": "acc_1793537992394_7d15d846",
+      "cli_version": "1.4.12",
+      "line_guard": null
+    },
+    {
+      "player": "gpt",
+      "tier": 1,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793803102170_aa565e83",
+      "production_record_id": "acc_1793529560992_5eb64938",
+      "cli_version": "0.166.0",
+      "line_guard": null
+    },
+    {
+      "player": "gpt",
+      "tier": 2,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793803102170_aa565e83",
+      "production_record_id": "acc_1793529742498_10cd7eab",
+      "cli_version": "0.166.0",
+      "line_guard": null
+    }
+  ],
+  "preflight_after": [
+    {
+      "player": "claude",
+      "tier": 1,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793802906153_9ce65180",
+      "production_record_id": "acc_1793529463945_ced0ca65",
+      "cli_version": "2.1.316",
+      "line_guard": null
+    },
+    {
+      "player": "claude",
+      "tier": 2,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793802906153_9ce65180",
+      "production_record_id": "acc_1793529642642_fba87085",
+      "cli_version": "2.1.316",
+      "line_guard": null
+    },
+    {
+      "player": "gemini",
+      "tier": 1,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793802323516_b0387ed0",
+      "production_record_id": "acc_1793537753400_66af4ff6",
+      "cli_version": "1.4.12",
+      "line_guard": null
+    },
+    {
+      "player": "gemini",
+      "tier": 2,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793802323516_b0387ed0",
+      "production_record_id": "acc_1793537992394_7d15d846",
+      "cli_version": "1.4.12",
+      "line_guard": null
+    },
+    {
+      "player": "gpt",
+      "tier": 1,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793803102170_aa565e83",
+      "production_record_id": "acc_1793529560992_5eb64938",
+      "cli_version": "0.166.0",
+      "line_guard": null
+    },
+    {
+      "player": "gpt",
+      "tier": 2,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793803102170_aa565e83",
+      "production_record_id": "acc_1793529742498_10cd7eab",
+      "cli_version": "0.166.0",
+      "line_guard": null
+    }
+  ],
+  "live_observation": {
+    "at": "2026-11-05T02:53:20.257Z",
+    "mode": "live",
+    "campaign_id": "d137_main_minibench_20261105",
+    "venues": [
+      "main",
+      "minibench"
+    ],
+    "window_end": "2026-11-10T04:00:00.000Z",
+    "stop_submit": false,
+    "launchctl_returncode": 0,
+    "service": {
+      "state": "running",
+      "runs": "1",
+      "pid": "76554",
+      "last exit code": "(never exited)",
+      "run interval": "600 seconds"
+    },
+    "live_schedule": [
+      {
+        "type": "live_schedule",
+        "version": "cycle_v8",
+        "at": "2026-11-05T02:50:17.457Z",
+        "status": "active",
+        "campaign_id": "d137_main_minibench_20261105",
+        "start": "2026-11-05T01:49:59.950Z",
+        "end": "2026-11-10T04:00:00.000Z"
+      }
+    ],
+    "cycles": [
+      {
+        "cycle_id": "cycle_1793847017460_6ec449b3",
+        "started_at": "2026-11-05T02:50:17.457Z",
+        "status": "complete",
+        "campaign_id": "d137_main_minibench_20261105",
+        "mode": "live",
+        "steps": {
+          "lock": {
+            "status": "ok"
+          },
+          "switches": {
+            "status": "ok"
+          },
+          "policy": {
+            "status": "ok"
+          },
+          "poll": {
+            "status": "ok",
+            "questions": 0
+          },
+          "queue": {
+            "status": "ok"
+          },
+          "preflight": {
+            "status": "ok"
+          },
+          "scheduler": {},
+          "publish": {
+            "status": "ok"
+          },
+          "submit": {
+            "status": "ok"
+          },
+          "on_finalized": {
+            "status": "ok"
+          }
+        }
+      }
+    ],
+    "latest_progress": [
+      {
+        "at": "2026-11-05T02:52:40.777Z",
+        "active_step": "submit",
+        "cycle_id": "cycle_1793847017460_6ec449b3",
+        "started_at": "2026-11-05T02:50:17.457Z",
+        "status": null,
+        "campaign_id": "d137_main_minibench_20261105",
+        "mode": "live",
+        "steps": {
+          "lock": {
+            "status": "ok"
+          },
+          "switches": {
+            "status": "ok"
+          },
+          "policy": {
+            "status": "ok"
+          },
+          "poll": {
+            "status": "ok",
+            "questions": 0
+          },
+          "queue": {
+            "status": "ok"
+          },
+          "preflight": {
+            "status": "ok"
+          },
+          "scheduler": {},
+          "publish": {
+            "status": "ok"
+          },
+          "submit": {
+            "status": "pending"
+          },
+          "on_finalized": {
+            "status": "ok"
+          }
+        }
+      }
+    ],
+    "model_starts": {},
+    "finished_attempts": 0,
+    "submission_statuses": {}
+  },
+  "budget_replay": {
+    "at": "2026-11-05T02:16:20.580Z",
+    "source": "metadata projections; no prediction text/values",
+    "same_allowance_and_admission": true,
+    "results": [
+      {
+        "player": "claude",
+        "tier": 1,
+        "before": {
+          "allowed": true,
+          "reason": null,
+          "weekly_attempts_used": 26,
+          "weekly_attempt_cap": 130,
+          "protected_attempts": 0,
+          "accounting_start": "2026-11-02T13:03:00.000Z"
+        },
+        "after": {
+          "allowed": true,
+          "reason": null,
+          "weekly_attempts_used": 26,
+          "weekly_attempt_cap": 130,
+          "protected_attempts": 0,
+          "accounting_start": "2026-11-02T13:03:00.000Z"
+        }
+      },
+      {
+        "player": "claude",
+        "tier": 2,
+        "before": {
+          "allowed": true,
+          "reason": null,
+          "weekly_attempts_used": 26,
+          "weekly_attempt_cap": 130,
+          "protected_attempts": 12,
+          "accounting_start": "2026-11-02T13:03:00.000Z"
+        },
+        "after": {
+          "allowed": true,
+          "reason": null,
+          "weekly_attempts_used": 26,
+          "weekly_attempt_cap": 130,
+          "protected_attempts": 12,
+          "accounting_start": "2026-11-02T13:03:00.000Z"
+        }
+      },
+      {
+        "player": "gemini",
+        "tier": 1,
+        "before": {
+          "allowed": true,
+          "reason": null,
+          "weekly_attempts_used": 25,
+          "weekly_attempt_cap": 200,
+          "protected_attempts": 0,
+          "accounting_start": "2026-11-02T13:03:00.000Z"
+        },
+        "after": {
+          "allowed": true,
+          "reason": null,
+          "weekly_attempts_used": 25,
+          "weekly_attempt_cap": 200,
+          "protected_attempts": 0,
+          "accounting_start": "2026-11-02T13:03:00.000Z"
+        }
+      },
+      {
+        "player": "gemini",
+        "tier": 2,
+        "before": {
+          "allowed": true,
+          "reason": null,
+          "weekly_attempts_used": 25,
+          "weekly_attempt_cap": 200,
+          "protected_attempts": 12,
+          "accounting_start": "2026-11-02T13:03:00.000Z"
+        },
+        "after": {
+          "allowed": true,
+          "reason": null,
+          "weekly_attempts_used": 25,
+          "weekly_attempt_cap": 200,
+          "protected_attempts": 12,
+          "accounting_start": "2026-11-02T13:03:00.000Z"
+        }
+      },
+      {
+        "player": "gpt",
+        "tier": 1,
+        "before": {
+          "allowed": true,
+          "reason": null,
+          "weekly_attempts_used": 24,
+          "weekly_attempt_cap": 130,
+          "protected_attempts": 0,
+          "accounting_start": "2026-11-02T13:03:00.000Z"
+        },
+        "after": {
+          "allowed": true,
+          "reason": null,
+          "weekly_attempts_used": 24,
+          "weekly_attempt_cap": 130,
+          "protected_attempts": 0,
+          "accounting_start": "2026-11-02T13:03:00.000Z"
+        }
+      },
+      {
+        "player": "gpt",
+        "tier": 2,
+        "before": {
+          "allowed": true,
+          "reason": null,
+          "weekly_attempts_used": 24,
+          "weekly_attempt_cap": 130,
+          "protected_attempts": 12,
+          "accounting_start": "2026-11-02T13:03:00.000Z"
+        },
+        "after": {
+          "allowed": true,
+          "reason": null,
+          "weekly_attempts_used": 24,
+          "weekly_attempt_cap": 130,
+          "protected_attempts": 12,
+          "accounting_start": "2026-11-02T13:03:00.000Z"
+        }
+      }
+    ],
+    "real_model_predictions": 0,
+    "POST": 0
+  },
+  "real_launch_verification": {
+    "at": "2026-11-05T02:51:48.765Z",
+    "launchctl_disabled_states": [
+      null,
+      true,
+      false
+    ],
+    "old_ledger_prefix_preserved": true,
+    "new_registrations": 1,
+    "live_window_sha256": "95cd45bb9c69aa2b8aa1a3c50e25e749170854f6147c2329c3be85f7a6eaad94",
+    "accounting_start": "2026-11-02T13:03:00.000Z",
+    "weekly_attempt_caps": {
+      "claude": 130,
+      "gemini": 200,
+      "gpt": 130
+    },
+    "end": "2026-11-10T04:00:00.000Z",
+    "bot_id": 311763
+  },
+  "protected_files": 336,
+  "unexpected_original_source_changes": [],
+  "factual_document_hashes": {
+    "docs/tasks/HANDOFF.md": "800c6a7a7555ca85e92365cfcdc886f745622deba32e2237375c4a6954edbfe4",
+    "reviews/INDEX.md": "1dceb5f52439551c2ca36a73a71e4b9188b035507051c2bda5ea047142544881",
+    "docs/tasks/D137-MAIN-LAUNCH.md": "997c485e2af2b662ddc03663a98da719234d254bc33b4423f33489743c73d455",
+    "README.md": "6699c4db6ceb7d97e5f9746a890207acc247b23dbc7db96d99ea334afc9c7dec",
+    "PLAN.md": "6be3ec017849a0b1dc9548cd933ec68ef52098217a5104f027ecc89de89ce733",
+    "docs/tasks/INDEX.md": "6c00d84b174233fabe5eb38f74e162f2d3c01934073d446546fea613a5fe58b6"
+  },
+  "commit_or_push": false,
+  "M3_complete": false,
+  "M4_complete": false
+}

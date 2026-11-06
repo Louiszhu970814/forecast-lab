@@ -10,7 +10,7 @@ import pytest
 
 from flab.config import (
     DEFAULT_CONFIG_DIR,
-     VALID_SUBMIT_MODES,
+    VALID_SUBMIT_MODES,
     ConfigError,
     load_agg_config,
     load_all_configs,
@@ -72,9 +72,9 @@ def test_all_actual_config_files_validate() -> None:
     assert quota_cfg["max_concurrency_per_player"] == 1
 
     tournaments_cfg = load_tournaments()
-    # D117/D118 authorizes MiniBench; the isolated runner still forces local mode.
+    # D137 authorizes main + MiniBench; the isolated runner still forces local mode.
     assert {name for name, info in tournaments_cfg["tournaments"].items()
-            if info["submit_whitelisted"]} <= {"minibench"}
+            if info["submit_whitelisted"]} <= {"main", "minibench", "market_pulse"}
 
     submit_cfg = load_submit_mode()
     assert submit_cfg["mode"] in VALID_SUBMIT_MODES
@@ -90,11 +90,11 @@ def test_all_actual_config_files_validate() -> None:
     assert enabled_cfg == {"claude": True, "gemini": True, "gpt": True}
 
 
-def test_synthetic_host_forces_local_submit_mode(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_synthetic_host_forces_local_submit_mode(tmp_path: Path, tmp_path_factory, monkeypatch: pytest.MonkeyPatch) -> None:
     from offline_workcopy import SyntheticHost
 
     host_plugin = SyntheticHost()
-    host_plugin.host.__wrapped__(host_plugin, tmp_path, monkeypatch)
+    host_plugin.configure(tmp_path, tmp_path_factory.mktemp("manual-host"), monkeypatch)
     assert load_submit_mode() == {"mode": "local"}
 
 

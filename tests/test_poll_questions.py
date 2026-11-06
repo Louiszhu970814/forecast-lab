@@ -82,7 +82,8 @@ def test_client_retries_then_raises_without_token_in_message() -> None:
     assert TOKEN not in str(exc.value)
 
 
-def test_snapshot_whitelists_fields_and_drops_aggregates() -> None:
+def test_snapshot_whitelists_fields_and_drops_aggregates(question_type_flags) -> None:
+    question_type_flags(False)
     snap = pq.snapshot_from_post(POSTS[1], "bot-testing-area")
     assert snap is not None
     text = json.dumps(snap)
@@ -90,7 +91,7 @@ def test_snapshot_whitelists_fields_and_drops_aggregates() -> None:
     assert "nr_forecasters" not in text
     assert snap["post_id"] == 2 and snap["question_id"] == 12
     assert snap["options"] == ["A", "B", "C"] and snap["supported"] is True
-    assert pq.snapshot_from_post(POSTS[2], "v")["supported"] is False  # numeric waits for M5
+    assert pq.snapshot_from_post(POSTS[2], "v")["supported"] is False  # This case explicitly disables numeric rollout.
     assert pq.snapshot_from_post(POSTS[3], "v") is None
 
 
@@ -224,3 +225,11 @@ def test_shared_main_feed_rejects_unsafe_pagination(url):
     with pytest.raises(MetaculusError, match="outside the API host"):
         list(pq.main_site_pages(client, max_pages=2))
     assert len(seen) == 1
+
+
+@pytest.mark.parametrize("enabled", [False, True])
+@pytest.mark.parametrize("kind", ["numeric", "discrete"])
+def test_snapshot_support_follows_explicit_rollout(question_type_flags, enabled, kind):
+    question_type_flags(enabled)
+    snapshot = pq.snapshot_from_post(_post(10, 20, kind, "Synthetic rollout"), "v")
+    assert snapshot["supported"] is enabled

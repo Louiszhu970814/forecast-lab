@@ -87,7 +87,7 @@ def test_prechecks_stop_before_any_global_mutation(session,monkeypatch,reason):
         c=session.campaign|{'budget_window_end':to_iso(session.now+timedelta(minutes=60))}
         (s.project/'config/cycle_campaign.json').write_text(json.dumps(c))
     elif reason=='quota': monkeypatch.setattr(s,'snapshot',fail)
-    elif reason=='baseline': session.snap['versions']['gpt']='new'
+    elif reason=='baseline': session.snap['versions']['gpt']=''  # D143: unknown still blocks; known version drift does not.
     else: monkeypatch.setattr(s,'identities',fail)
     with pytest.raises(M.MaintenanceError): s.run(approved_by='Louis')
     assert session.calls==[] and not (s.root/'autoload_backups').exists()

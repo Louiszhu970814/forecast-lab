@@ -1,0 +1,234 @@
+{
+  "status": "completed",
+  "at_utc": "2026-11-05T04:09:12.075188+00:00",
+  "removed_paths": [
+    "data/coverage_sim_results.jsonl",
+    "data/operations/d116-parallel-readiness/coverage_sim_results.jsonl",
+    "data/operations/d130-three-line-repair-20261104/agy-1.4.12-candidate"
+  ],
+  "only_expected_originals_removed": true,
+  "logical_bytes_before": 1788553996,
+  "logical_bytes_after_snapshot": 1019756161,
+  "measured_logical_bytes_reduction": 768797835,
+  "allocated_bytes_before": 1800769536,
+  "allocated_bytes_after_snapshot": 1032953856,
+  "payload_net_reduction": 769595936,
+  "active_pins_sha256": {
+    "data/cli_pins/claude/2.1.316": "64c327e92b2c5e0f78c0a980c5a518121e1f0d140ca771ca5dd4488d1a2dcb3f",
+    "data/cli_pins/agy/1.4.12": "34423fc9b0af3841e7646aa72a2d40ffeab8218b22d1cb99eac7355f9eba31e3"
+  },
+  "actual_archive_guards": [
+    {
+      "root": "data",
+      "blocked_before_registration_read": true
+    },
+    {
+      "root": "data/operations/d116-parallel-readiness",
+      "blocked_before_registration_read": true
+    }
+  ],
+  "restoration_drills": [
+    {
+      "entry": 0,
+      "original": "data/coverage_sim_results.jsonl",
+      "sha256": "f7b22322b1e28008fc00f1acb402b154bcd3bc2d1e0623897d27204d602e08f6",
+      "bytes": 158916955,
+      "mode": 420,
+      "mtime_ns": 1793633017503567261,
+      "matches_original": true
+    },
+    {
+      "entry": 1,
+      "original": "data/operations/d116-parallel-readiness/coverage_sim_results.jsonl",
+      "sha256": "b14679933359c8db8bfe51c894f8f83385f3866b6c66c49a01b4f30b6f904703",
+      "bytes": 454508530,
+      "mode": 420,
+      "mtime_ns": 1793668438682373947,
+      "matches_original": true
+    },
+    {
+      "entry": 2,
+      "original": "data/operations/d130-three-line-repair-20261104/agy-1.4.12-candidate",
+      "sha256": "34423fc9b0af3841e7646aa72a2d40ffeab8218b22d1cb99eac7355f9eba31e3",
+      "bytes": 197589952,
+      "mode": 384,
+      "mtime_ns": 1793801164126743388,
+      "matches_original": true
+    }
+  ],
+  "apply": {
+    "at": "2026-11-05T04:08:30.861635Z",
+    "status": "applied",
+    "core_ledgers_sha256": {
+      "acceptance": "623c83573c69d1f0f8dc3b74df8160169db3e0b8aeadac6799b166aca720c919",
+      "forecasts": "10f6d279084ee9ce2e4c0a78665f8a9f23b2d9efde497ba16f4eb4a1b180ef2e",
+      "forecast_attempt_starts": "843b3ef80bc16cc29678b0d800bddf54d1ead4b21ebb5a0fadfd5d2370a11049",
+      "forecast_runs": "368751f8989855a1967cba55f1370eb499ca93c53889073fb02c06403d7497a8",
+      "submissions": "3eaf7e0fee98bf0ab556dc6260da23dc71a7e29373976c60865399c44d4963fb",
+      "submission_readbacks": "d0f97920f806ad0cbbfd9448813fcc092a2f2a2695c853b51d8a4024dce33feb",
+      "reconciliation_inputs": "6087eaac6b3700c8f5bbe75f76e6a6b97e23a28fcdeacdc33c92dc718c29f1dc",
+      "budget_events": "d7d8e98b66d82416c5d8f0b369c6fe8009b8015f449e4fc004629928d4ec0664",
+      "continuous_campaigns": "493fb6f289edb836888b45ccbff8544397cafb2e9a4375b15ec3c04da8bd4e66",
+      "live_authorizations": "7a8faae33b32dc0434322f2e8608d42364561371b6848dbe8f733e0c3772e88a",
+      "aggregates": "d44e5971e90147121a8ff82d84363c3ab0ef8505201ceee6b91f817ca291d860",
+      "comments": "ca10ed8b6087a32b35bdc5da946a9e59536954b8c538cc5ef003a5b599436828",
+      "line_status": "2e8d386b7ee61d6d545a323472b7a1b61f23e8f315309f8488265331c26cfa80",
+      "advisory_usage": "d2f95f3bac20c3d5b468c5b17dab83d22e6c9523661cbf3acb295366a153d774",
+      "coverage_sims": "b54c1fd6a1bd2bd6acfa768ce734e3d240f94db390e2d39e205ac575ba1a3bc8"
+    },
+    "protected_files": 107,
+    "originals_removed": [
+      "data/coverage_sim_results.jsonl",
+      "data/operations/d116-parallel-readiness/coverage_sim_results.jsonl",
+      "data/operations/d130-three-line-repair-20261104/agy-1.4.12-candidate"
+    ]
+  },
+  "tests": {
+    "archive": 18,
+    "apply_wrapper_faults": 2,
+    "coverage_sim": 71
+  },
+  "preflight_before": [
+    {
+      "player": "claude",
+      "tier": 1,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793802906153_9ce65180",
+      "production_record_id": "acc_1793529463945_ced0ca65",
+      "cli_version": "2.1.316",
+      "line_guard": null
+    },
+    {
+      "player": "claude",
+      "tier": 2,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793802906153_9ce65180",
+      "production_record_id": "acc_1793529642642_fba87085",
+      "cli_version": "2.1.316",
+      "line_guard": null
+    },
+    {
+      "player": "gemini",
+      "tier": 1,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793802323516_b0387ed0",
+      "production_record_id": "acc_1793537753400_66af4ff6",
+      "cli_version": "1.4.12",
+      "line_guard": null
+    },
+    {
+      "player": "gemini",
+      "tier": 2,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793802323516_b0387ed0",
+      "production_record_id": "acc_1793537992394_7d15d846",
+      "cli_version": "1.4.12",
+      "line_guard": null
+    },
+    {
+      "player": "gpt",
+      "tier": 1,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793803102170_aa565e83",
+      "production_record_id": "acc_1793529560992_5eb64938",
+      "cli_version": "0.166.0",
+      "line_guard": null
+    },
+    {
+      "player": "gpt",
+      "tier": 2,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793803102170_aa565e83",
+      "production_record_id": "acc_1793529742498_10cd7eab",
+      "cli_version": "0.166.0",
+      "line_guard": null
+    }
+  ],
+  "preflight_after": [
+    {
+      "player": "claude",
+      "tier": 1,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793802906153_9ce65180",
+      "production_record_id": "acc_1793529463945_ced0ca65",
+      "cli_version": "2.1.316",
+      "line_guard": null
+    },
+    {
+      "player": "claude",
+      "tier": 2,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793802906153_9ce65180",
+      "production_record_id": "acc_1793529642642_fba87085",
+      "cli_version": "2.1.316",
+      "line_guard": null
+    },
+    {
+      "player": "gemini",
+      "tier": 1,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793802323516_b0387ed0",
+      "production_record_id": "acc_1793537753400_66af4ff6",
+      "cli_version": "1.4.12",
+      "line_guard": null
+    },
+    {
+      "player": "gemini",
+      "tier": 2,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793802323516_b0387ed0",
+      "production_record_id": "acc_1793537992394_7d15d846",
+      "cli_version": "1.4.12",
+      "line_guard": null
+    },
+    {
+      "player": "gpt",
+      "tier": 1,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793803102170_aa565e83",
+      "production_record_id": "acc_1793529560992_5eb64938",
+      "cli_version": "0.166.0",
+      "line_guard": null
+    },
+    {
+      "player": "gpt",
+      "tier": 2,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793803102170_aa565e83",
+      "production_record_id": "acc_1793529742498_10cd7eab",
+      "cli_version": "0.166.0",
+      "line_guard": null
+    }
+  ],
+  "review_packet_sha256": "58f200fd7620c0f0d9a523166c07e642107b92e5016554e00937e2bffe03372a",
+  "review_answers_sha256": {
+    "claude": "c73aa5dd03b8df2d9c07c45c755227a70c9f87410e12746cfa08ef400183c5c0",
+    "gemini": "eeb388cafeb65babc49688f2c0b4d6879f81657e167c4661c356b1f044cf5b6f"
+  },
+  "review_scope": "Actual official CLI static reviews of supplied packet; host executed tests/drills, no reviewer tool execution.",
+  "remaining": "Keep current pins, raw/catalog files, acceptance evidence, official tar.gz and plugin ZIPs; backup archive plus manifest and restore tool together."
+}

@@ -1,4 +1,4 @@
-"""Authenticated API transport, api_transport_v8. No write retries; V15 checks below.
+"""Authenticated API transport, api_transport_v9. No write retries; V15 checks below.
 
 Only normalized allowlisted receipts leave this boundary. Remote bodies and exception
 messages may contain credentials and are never used as diagnostics or ledger evidence.
@@ -21,13 +21,14 @@ from flab.ids import sha256_hex
 from flab.timeutil import parse_iso, utc_now
 from metaculus import API_BASE, USER_AGENT, MetaculusClient
 from poll_questions import POLL_LOG, TournamentIndex, poll
+from question_mapping import select_question
 from submit_contract import ConfirmedFailure, Readback, own_forecast_records
 import numeric as N
 
 FORECAST_PATH = "/api/questions/forecast/"
 COMMENT_PATH = "/api/comments/create/"
 
-VERSION = "api_transport_v8"
+VERSION = "api_transport_v9"
 # V15: verify every endpoint, field and query on bot testing area before live.
 ACCOUNT_PATH = "users/me/"
 ACCOUNT_ID, ACCOUNT_IS_BOT = "id", "is_bot"
@@ -332,6 +333,11 @@ class APITransport:
             payload = intent[f"{operation}_payload"]
             if operation == "forecast":
                 post = self.get_post(intent["post_id"])
+                post = select_question(post, intent['question_id'],
+                    allow_groups=intent.get('snapshot',{}).get('post_type')=='group_of_questions')
+                if intent.get('snapshot',{}).get('post_type')=='group_of_questions' and \
+                        post.get('_group_mapping',{}).get('group_id')!=intent['snapshot'].get('group_id'):
+                    return unknown
                 question = post[POST_QUESTION]
                 if type(post[REMOTE_ID]) is not int or type(question[REMOTE_ID]) is not int \
                         or post[REMOTE_ID] != intent["post_id"] or question[REMOTE_ID] != intent["question_id"]:

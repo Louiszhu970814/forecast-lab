@@ -30,6 +30,7 @@ from metaculus import API_BASE, MetaculusClient  # noqa: E402
 from project_policy import trial_membership_error, VERSION as PROJECT_POLICY_VERSION  # noqa: E402
 import numeric as N
 from question_types import is_supported, supported_types
+from question_mapping import question_ids, select_question
 
 QUESTIONS_LOG = PROJECT_ROOT / "data" / "questions.jsonl"
 POLL_LOG = PROJECT_ROOT / "data" / "poll_log.jsonl"
@@ -144,6 +145,7 @@ def snapshot_from_post(post: dict[str, Any], venue: str) -> dict[str, Any] | Non
         "venue": venue,
         "post_id": post["id"],
         "question_id": q["id"],
+        **post.get("_group_mapping", {}),
         "project_ids": sorted(_project_ids(post)),
         "status": q.get("status"),
         "supported": content["type"] in SUPPORTED_TYPES,
@@ -153,6 +155,14 @@ def snapshot_from_post(post: dict[str, Any], venue: str) -> dict[str, Any] | Non
         "content_hash": hash_obj(content),
         **({"scaling_status": "unsupported_scaling" if scaling_error else "valid"} if content["type"] in N.TYPES else {}),
     }
+
+
+def snapshots_from_post(post, venue, *, allow_groups=False):
+    if post.get('group_of_questions') is not None and allow_groups:
+        return [snapshot_from_post(select_question(post, qid, allow_groups=True), venue)
+                for qid in question_ids(post, allow_groups=True)]
+    snap = snapshot_from_post(post, venue)
+    return [snap] if snap else []
 
 
 def latest_snapshots(log: Path = QUESTIONS_LOG) -> dict[int, dict[str, Any]]:
@@ -219,7 +229,7 @@ def record_snapshots(snaps: Iterable[dict[str, Any]], *, log: Path = QUESTIONS_L
             rec = {**snap, "snapshot_id": new_id("qs"), "seen_at": now, "t0": now, "revision_of": None}
             outcome["new"].append(snap["question_id"])
         elif prev["content_hash"] != snap["content_hash"] or prev.get("scheduled_close_time") != snap.get("scheduled_close_time") \
-                or any(prev.get(k) != snap.get(k) for k in ("post_id", "tournament_id")):
+                or any(prev.get(k) != snap.get(k) for k in ("post_id", "tournament_id", "group_id")):
             # Type, options or close-time changes block a fallback submission; text-only edits do not (D53).
             rec = {**snap, "snapshot_id": new_id("qs"), "seen_at": now, "t0": prev["t0"],
                    "revision_of": prev["snapshot_id"],
@@ -227,7 +237,7 @@ def record_snapshots(snaps: Iterable[dict[str, Any]], *, log: Path = QUESTIONS_L
                                 "close_time_changed": prev.get("scheduled_close_time") != snap.get("scheduled_close_time"),
                                 "type_changed": prev.get("question_type") != snap.get("question_type"),
                                 "options_changed": prev.get("options") != snap.get("options"),
-                                "mapping_changed": any(prev.get(k) != snap.get(k) for k in ("post_id", "tournament_id"))}}
+                                "mapping_changed": any(prev.get(k) != snap.get(k) for k in ("post_id", "tournament_id", "group_id"))}}
             outcome["revised"].append(snap["question_id"])
             if snap.get("question_type") in N.TYPES or prev.get("question_type") in N.TYPES:
                 rec["revision"]["scaling_changed"] = N.scaling_changed(prev, snap)
@@ -290,14 +300,15 @@ def exclusion_metadata(post: dict) -> list[dict]:
 def poll(client: MetaculusClient, venue: str, *, metadata_only: bool = False,
          questions_log: Path = QUESTIONS_LOG, poll_log: Path = POLL_LOG,
          exclude: TournamentIndex | None = None, tournaments: dict[str, Any] | None = None,
-         seen_question_ids: set[int] | None = None, trial_bot_project_id: int | None = None) -> dict[str, Any]:
+         seen_question_ids: set[int] | None = None, trial_bot_project_id: int | None = None,
+         statuses: list[str] | None = None, allow_groups: bool = False) -> dict[str, Any]:
     tournament_id = resolve_venue(venue, tournaments)
     polled_at = to_iso(utc_now())
     # Tournament metadata also covers upcoming questions so trial venues can exclude their copies (D53).
-    statuses = ["open", "upcoming"] if metadata_only else ["open"]
+    statuses = statuses or (["open", "upcoming"] if metadata_only else ["open"])
     snaps, skipped, timing = [], [], []
     listing = {"statuses": statuses}
-    if metadata_only:
+    if metadata_only or allow_groups:
         listing["forecast_type"] = None  # Omit the parameter; include every post structure.
     for post in client.list_posts(tournament_id, **listing):
         if not isinstance(post, dict):
@@ -315,21 +326,22 @@ def poll(client: MetaculusClient, venue: str, *, metadata_only: bool = False,
                             "question_id": safe_remote_id(question.get("id")) if isinstance(question, dict) else None,
                             "reason": membership_error, "retryable": True})
             continue
-        snap = snapshot_from_post(post, venue)
-        if snap is None:
+        candidates = snapshots_from_post(post, venue, allow_groups=allow_groups)
+        if not candidates:
             skipped.append({"post_id": safe_remote_id(post.get("id")), "reason": "not a single-question post"})
             continue
-        snap["tournament_id"] = tournament_id
-        timing.append({"question_id": snap["question_id"], "post_id": snap["post_id"],
-                       "question_type": snap["question_type"], "status": snap["status"],
-                       "title_key": title_key(snap.get("title")), **{k: snap.get(k) for k in TIME_FIELDS}})
-        reason = is_synced_copy(snap, exclude) if exclude else None
-        if seen_question_ids is not None and snap["question_id"] in seen_question_ids:
-            reason = reason or "already polled through another allowed venue"
-        if reason:
-            skipped.append({"post_id": snap["post_id"], "question_id": snap["question_id"], "reason": reason})
-            continue
-        snaps.append(snap)
+        for snap in candidates:
+            snap["tournament_id"] = tournament_id
+            timing.append({"question_id": snap["question_id"], "post_id": snap["post_id"],
+                           "question_type": snap["question_type"], "status": snap["status"],
+                           "title_key": title_key(snap.get("title")), **{k: snap.get(k) for k in TIME_FIELDS}})
+            reason = is_synced_copy(snap, exclude) if exclude else None
+            if seen_question_ids is not None and snap["question_id"] in seen_question_ids:
+                reason = reason or "already polled through another allowed venue"
+            if reason:
+                skipped.append({"post_id": snap["post_id"], "question_id": snap["question_id"], "reason": reason})
+                continue
+            snaps.append(snap)
     outcome = {"new": [], "revised": [], "unchanged": []} if metadata_only else record_snapshots(snaps, log=questions_log, now=polled_at)
     rec = {"type": "poll", "record_id": new_id("poll"), "polled_at": polled_at, "venue": venue,
            "tournament_id": tournament_id, "metadata_only": metadata_only, "statuses": statuses,

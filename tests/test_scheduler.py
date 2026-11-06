@@ -337,3 +337,16 @@ def test_passive_v5_keeps_runtime_quota_errors_as_observed_evidence(tmp_path):
     report=m2_report.build(tmp_path,{"campaign_id":"v5-synthetic","questions":[{"question_id":100}]},gates={})
     assert report["quota_exhaustion_evidence"]["observed_players"]==["gemini"]
     assert report["lines"]["gemini"]["errors"]=={"quota_exhausted":1}
+
+
+def test_busy_recovery_line_does_not_block_other_lines_or_deadline_finalization(environment):
+    obj, snaps, tracker, _ = environment(count=1, continuous=True)
+    with F.Lock(obj.root / 'forecast.gemini.lock'):
+        result = obj.run()
+        assert result['paused_players'] == ['gemini']
+        assert {p for p, _, _ in tracker['calls']} == {'claude', 'gpt'}
+        obj.finalize(snaps, force=(100,))
+    finals = [r for r in read_records(obj.root / 'aggregates.jsonl') if r.get('completion_status') == 'complete_local']
+    assert len(finals) == 1
+    assert len(read_records(obj.root / 'comments.jsonl')) == 1
+    assert any(r.get('outcome') == 'line_error' for r in read_records(obj.jobs_log))

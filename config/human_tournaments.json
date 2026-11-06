@@ -1,0 +1,7 @@
+{
+  "version": "human_tournaments_v1",
+  "tournaments": [{"id": 33108, "slug": "metaculus-cup-fall-2026", "name": "Metaculus Cup Fall 2026"}],
+  "max_questions_per_request": 3,
+  "default_top": 3,
+  "automatic_submission": false
+}

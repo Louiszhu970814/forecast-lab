@@ -1,0 +1,64 @@
+{
+  "initial_files": 343,
+  "reviewed_targets": 40,
+  "unchanged_outside_targets": 307,
+  "full_offline": {
+    "passed": 3368,
+    "failed": 0,
+    "duration_s": 147.3,
+    "file": "full-tests-r3.txt"
+  },
+  "original_nodeids": 3351,
+  "added_nodeids": 17,
+  "removed_nodeids": 0,
+  "direct_pytest_related_passed": 430,
+  "legacy_flag_passed": 20,
+  "deployment_fault_cases_passed": 12,
+  "runtime_ast_equal_after_allowed_removals": {
+    "src/auto_reaccept.py": true,
+    "src/budget.py": true,
+    "src/comment.py": true,
+    "src/continuous.py": true,
+    "src/flab/team_chat.py": true,
+    "src/forecast.py": true,
+    "src/m2_supplement.py": true,
+    "src/quota.py": true,
+    "src/reconcile.py": true,
+    "src/resolve.py": true,
+    "src/scheduler.py": true
+  },
+  "nonprotected_import_bindings_removed": 11,
+  "helper_defs_removed": 2,
+  "kept_used_module_alias": "metadata_observer.MetaculusError",
+  "placeholder_deletions": [
+    "prompts/.gitkeep",
+    "launchd/.gitkeep"
+  ],
+  "golden_exceptions": [
+    "AGENTS.md D79 wording hash",
+    "M5 deleted empty prompts/.gitkeep entry"
+  ],
+  "initial_r1_packet_sha256": "54bf26651abaa28c39841533b6ad0c32c0de88248ac7d513cb4ee7aaaa9673f7",
+  "status": "complete",
+  "at": "2026-11-05T01:53:05.925Z",
+  "direct_full_passed": 3368,
+  "root_smoke_passed": 976,
+  "preflight_before_passed": 6,
+  "preflight_after_passed": 6,
+  "protected_during_apply": 307,
+  "unexpected_original_file_changes": [],
+  "consumer_scan_sha256": "20c04751b62b0cc3d07f5230ea7f96fb13bdbd9969407326b0d9081d2994008e",
+  "consumer_scanned_files": 251,
+  "post_deployment_factual_doc_hashes": {
+    "PLAN.md": "8f4ef2e94603671bc6c4b1355f9d6062cb22835a138ad9a09a3439dae49e133a",
+    "docs/tasks/CLEANUP-AUDIT-2026-11-05.md": "cb7d1b15e90b447f0a3d162b143d51019e7accca27efb6f73e6c9f8aaa05c76c",
+    "docs/tasks/D136-CLEANUP-BATCH1.md": "3eca50d52c9da35fcb8edf38191a5379bb7ceb34d9bb9347345e15b5cfb18957",
+    "docs/tasks/HANDOFF.md": "6530cdd95359d5f1f53389bd7f4443a329e74108b06885c29554c4838163ca75",
+    "docs/tasks/INDEX.md": "6da0a8ad2eaeead0b84f8dd794e1dae05b7f84cdb1a4aaee506e50314572f49f",
+    "reviews/INDEX.md": "6a4e78b74070220d37695604cf81246acbb3fb06b26f7d7c811ab4d1b379c639"
+  },
+  "review_packet_sha256": "10d5b45a96a54bc00db970664cd1580916700e3e81ecd0d933e579ad501e77fe",
+  "commit_or_push": false,
+  "final_relative_file_links_broken": 0,
+  "actual_development_review_calls": 4
+}

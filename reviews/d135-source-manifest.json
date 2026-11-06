@@ -1,0 +1,220 @@
+{
+  "decision": "D135",
+  "review_packet_sha256": "51c1c944283e3edb00e1d87523335c56b0a6ec7302cb39fa919e9dc0ae7d2eb8",
+  "reviewed_and_deployed_files": {
+    "src/audit.py": "c7c9e5e1cf77af1590377f31558394c8a4e6dc0cfc3593ad0abdac546586ed50",
+    "src/post_close_audit.py": "3471d79b89727225dd2037bd68f45163b4ac8292cfd6ddfd80e297d912b9328c",
+    "src/flab/health_diagnostics.py": "00f97ca0a9cf6202bb3e134f045d79418a8e5adf641f2ddf21e0ff41b9311a7d",
+    "tests/test_audit.py": "cef517d87f3be52b77cfb515163bcf2e546f6d9aa8fdb953af30554fe2a67135",
+    "tests/test_post_close_audit.py": "2d3348002498c8fd30917eb59dbbe3fbb7a8a44b956a1b39b2245e435cfa4176",
+    "tests/test_health_diagnostics.py": "3522cd28154a82fe293602e0f9a91a741687f1f4fb803ae99565ed81b3b34c00",
+    "PLAN.md": "47784414aa683dafe136f434f2c0e28fa6fdbc0ead23e825e061553c92f7e6c7",
+    "docs/tasks/D135-QUALITY-REPAIR.md": "9d2d115f01e92ca8bddce631eabe7528a0a2cbb92e5e8810ba00996fe945a863",
+    "docs/experiments/d135-research-prompts/reconcile_numeric_v1.md": "07dfe61c763365101449923b632ac0a8550080f3c96aff5ef4977b1aa4dbc245",
+    "docs/experiments/d135-research-prompts/reconcile_v1.md": "92cff6de2a7d32084376dfffd2361269e73e1d70a7d1889f2cc336eb080b062c",
+    "docs/experiments/d135-research-prompts/forecast_v2.md": "a4bcc5627eec97450608aebdda4e283c01e61baba6720b90ee7149f5512b7e70",
+    "docs/experiments/d135-research-prompts/README.md": "2e44a730a13c58f37565f63019eefe7015ad048fec27c9241f00075fb9cf342a",
+    "docs/experiments/d135-research-prompts/forecast_numeric_v1.md": "8b9baf1c47f511779e28d47c46a46444ac6c139d61efd8faa871025614b5eb9b"
+  },
+  "reviews": {
+    "claude": {
+      "path": "reviews/claude-d135-r2.md",
+      "sha256": "1a84343b8c3a974dc72e89e6933800c771a0ddd573976ff6a5305da4817a160c"
+    },
+    "gemini": {
+      "path": "reviews/gemini-d135-r2.md",
+      "sha256": "974df45c507aeaad9085778486088ae7a85166da3d4faad631afc5a370d6ad72"
+    },
+    "gemini_integration_supplement": {
+      "path": "reviews/gemini-d135-r2-supplement.md",
+      "sha256": "e445d800fe2f8b64be630f29991e56f0a1dc7612e4ff3e4b3ef08acb8fad22bc"
+    }
+  },
+  "deployment": {
+    "type": "apply_complete",
+    "at": "2026-11-05T00:48:30.708Z",
+    "deployed_sha256": {
+      "src/audit.py": "c7c9e5e1cf77af1590377f31558394c8a4e6dc0cfc3593ad0abdac546586ed50",
+      "src/post_close_audit.py": "3471d79b89727225dd2037bd68f45163b4ac8292cfd6ddfd80e297d912b9328c",
+      "src/flab/health_diagnostics.py": "00f97ca0a9cf6202bb3e134f045d79418a8e5adf641f2ddf21e0ff41b9311a7d",
+      "tests/test_audit.py": "cef517d87f3be52b77cfb515163bcf2e546f6d9aa8fdb953af30554fe2a67135",
+      "tests/test_post_close_audit.py": "2d3348002498c8fd30917eb59dbbe3fbb7a8a44b956a1b39b2245e435cfa4176",
+      "tests/test_health_diagnostics.py": "3522cd28154a82fe293602e0f9a91a741687f1f4fb803ae99565ed81b3b34c00",
+      "PLAN.md": "47784414aa683dafe136f434f2c0e28fa6fdbc0ead23e825e061553c92f7e6c7",
+      "docs/tasks/D135-QUALITY-REPAIR.md": "9d2d115f01e92ca8bddce631eabe7528a0a2cbb92e5e8810ba00996fe945a863",
+      "docs/experiments/d135-research-prompts/reconcile_numeric_v1.md": "07dfe61c763365101449923b632ac0a8550080f3c96aff5ef4977b1aa4dbc245",
+      "docs/experiments/d135-research-prompts/reconcile_v1.md": "92cff6de2a7d32084376dfffd2361269e73e1d70a7d1889f2cc336eb080b062c",
+      "docs/experiments/d135-research-prompts/forecast_v2.md": "a4bcc5627eec97450608aebdda4e283c01e61baba6720b90ee7149f5512b7e70",
+      "docs/experiments/d135-research-prompts/README.md": "2e44a730a13c58f37565f63019eefe7015ad048fec27c9241f00075fb9cf342a",
+      "docs/experiments/d135-research-prompts/forecast_numeric_v1.md": "8b9baf1c47f511779e28d47c46a46444ac6c139d61efd8faa871025614b5eb9b"
+    },
+    "reviews": {
+      "claude": {
+        "path": "/Users/ucchengg/forecast-lab/data/operations/d135-quality-repair-20261105/claude-r2/answer.md",
+        "sha256": "1a84343b8c3a974dc72e89e6933800c771a0ddd573976ff6a5305da4817a160c"
+      },
+      "gemini": {
+        "path": "/Users/ucchengg/forecast-lab/data/operations/d135-quality-repair-20261105/gemini-r2/answer.md",
+        "sha256": "974df45c507aeaad9085778486088ae7a85166da3d4faad631afc5a370d6ad72"
+      }
+    },
+    "deployment_script_sha256": "fd891a6d54e5a248a84f8bf0a7ebbe58dc92dea14cee69eb763123830e6b8289",
+    "backup": "/Users/ucchengg/forecast-lab/data/operations/d135-quality-repair-20261105/deployment-backup-004752",
+    "protected_files": 106,
+    "preflight_before": [
+      {
+        "player": "claude",
+        "tier": 1,
+        "ok": true,
+        "problems": [],
+        "waivers": [],
+        "acceptance_record_id": "acc_1793802906153_9ce65180",
+        "production_record_id": "acc_1793529463945_ced0ca65",
+        "cli_version": "2.1.316",
+        "line_guard": null
+      },
+      {
+        "player": "claude",
+        "tier": 2,
+        "ok": true,
+        "problems": [],
+        "waivers": [],
+        "acceptance_record_id": "acc_1793802906153_9ce65180",
+        "production_record_id": "acc_1793529642642_fba87085",
+        "cli_version": "2.1.316",
+        "line_guard": null
+      },
+      {
+        "player": "gemini",
+        "tier": 1,
+        "ok": true,
+        "problems": [],
+        "waivers": [],
+        "acceptance_record_id": "acc_1793802323516_b0387ed0",
+        "production_record_id": "acc_1793537753400_66af4ff6",
+        "cli_version": "1.4.12",
+        "line_guard": null
+      },
+      {
+        "player": "gemini",
+        "tier": 2,
+        "ok": true,
+        "problems": [],
+        "waivers": [],
+        "acceptance_record_id": "acc_1793802323516_b0387ed0",
+        "production_record_id": "acc_1793537992394_7d15d846",
+        "cli_version": "1.4.12",
+        "line_guard": null
+      },
+      {
+        "player": "gpt",
+        "tier": 1,
+        "ok": true,
+        "problems": [],
+        "waivers": [],
+        "acceptance_record_id": "acc_1793803102170_aa565e83",
+        "production_record_id": "acc_1793529560992_5eb64938",
+        "cli_version": "0.166.0",
+        "line_guard": null
+      },
+      {
+        "player": "gpt",
+        "tier": 2,
+        "ok": true,
+        "problems": [],
+        "waivers": [],
+        "acceptance_record_id": "acc_1793803102170_aa565e83",
+        "production_record_id": "acc_1793529742498_10cd7eab",
+        "cli_version": "0.166.0",
+        "line_guard": null
+      }
+    ],
+    "preflight_after": [
+      {
+        "player": "claude",
+        "tier": 1,
+        "ok": true,
+        "problems": [],
+        "waivers": [],
+        "acceptance_record_id": "acc_1793802906153_9ce65180",
+        "production_record_id": "acc_1793529463945_ced0ca65",
+        "cli_version": "2.1.316",
+        "line_guard": null
+      },
+      {
+        "player": "claude",
+        "tier": 2,
+        "ok": true,
+        "problems": [],
+        "waivers": [],
+        "acceptance_record_id": "acc_1793802906153_9ce65180",
+        "production_record_id": "acc_1793529642642_fba87085",
+        "cli_version": "2.1.316",
+        "line_guard": null
+      },
+      {
+        "player": "gemini",
+        "tier": 1,
+        "ok": true,
+        "problems": [],
+        "waivers": [],
+        "acceptance_record_id": "acc_1793802323516_b0387ed0",
+        "production_record_id": "acc_1793537753400_66af4ff6",
+        "cli_version": "1.4.12",
+        "line_guard": null
+      },
+      {
+        "player": "gemini",
+        "tier": 2,
+        "ok": true,
+        "problems": [],
+        "waivers": [],
+        "acceptance_record_id": "acc_1793802323516_b0387ed0",
+        "production_record_id": "acc_1793537992394_7d15d846",
+        "cli_version": "1.4.12",
+        "line_guard": null
+      },
+      {
+        "player": "gpt",
+        "tier": 1,
+        "ok": true,
+        "problems": [],
+        "waivers": [],
+        "acceptance_record_id": "acc_1793803102170_aa565e83",
+        "production_record_id": "acc_1793529560992_5eb64938",
+        "cli_version": "0.166.0",
+        "line_guard": null
+      },
+      {
+        "player": "gpt",
+        "tier": 2,
+        "ok": true,
+        "problems": [],
+        "waivers": [],
+        "acceptance_record_id": "acc_1793803102170_aa565e83",
+        "production_record_id": "acc_1793529742498_10cd7eab",
+        "cli_version": "0.166.0",
+        "line_guard": null
+      }
+    ],
+    "preflight_note": "Acceptance orphan recovery intentionally skipped while parent holds line locks.",
+    "lock_elapsed_s": 38.100377
+  },
+  "test_comparison": {
+    "same_failure_nodes": true,
+    "same_failure_summaries": true,
+    "baseline_failures": 100,
+    "current_failures": 100,
+    "baseline_summary": "100 failed, 3213 passed in 23.36s",
+    "current_summary": "100 failed, 3251 passed in 23.37s"
+  },
+  "closed_report_sha256": "bf1d6ce99e8f2e0d6f8194d2c25813feaa6722096f21727fc9db43c2369fe984",
+  "note": "PLAN/task completion appendices below are factual post-deployment bookkeeping; runtime/candidate files remain exact reviewed bytes.",
+  "final_bookkeeping_sha256": {
+    "PLAN.md": "9fe81f708a52141449bfca3d936d572371ddd3aa1ef4bf92bde0586530bbd9d3",
+    "docs/tasks/D135-QUALITY-REPAIR.md": "76f24a7f446216a443c64ac5cc72c8b96a3206fcbda8becef90c0da740210a88",
+    "docs/tasks/HANDOFF.md": "5a6c3d94372196026355d83f8f659a7228a60cb9ce473cf6bba7ee8c7d89979a",
+    "docs/tasks/INDEX.md": "5523a6b638545455ad0707f6f2373418b5240219a0e147ba45a658c67444fbdd",
+    "reviews/INDEX.md": "1ef54adc0a80f5102a60916c7d0210c771c261222b0ef3e7e4f41fd703a7e825"
+  }
+}

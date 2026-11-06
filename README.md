@@ -1,16 +1,23 @@
+D139：30分鐘新題搜尋、人類賽手動入口、Market Pulse bot已啟用；原用量與台北11/10 12:00截止保留。實際參賽狀態與限制見 [D139交付](docs/tasks/D139-EXPANSION.md)。
+
 # Forecast Lab
 
 多模型協作的預測專案：Claude、Gemini、GPT 三個模型先各自獨立研究 Metaculus 比賽的題目，再由程式整合成一個預測，以機器人帳號參加 Metaculus 的 FutureEval 機器人預測賽，目標是在三家訂閱額度內最大化比賽分數（`PLAN.md` D31）。機器人賽用剩的額度，可以為人類賽提供參考預測。本專案不下注、不交易。
 
-## 目前狀態（截至 2026-11-03 UTC，計畫書 v1.78）
+## 現行入口與營運邊界（2026-11-05）
 
-- **D118 MiniBench 正式參賽進行中**：送出模式為 `live`（機器人帳號 `311763`，窗口 `d118_minibench_20261103T0400Z` 至 `2026-11-10T04:00:00Z`）。
-- **支援題型**：是非題（binary）、多選題（multiple_choice），以及已於 v1.74 上線的 M5 數值題（numeric）與離散題（discrete）（見 `config/question_types.json`）。
-- **防線與維護狀態**：
-  - D121 第一批 fail-soft 放寬與 D123 `claude.skills_synced` 資訊性分類已生效。
-  - D124 `autoload_maintenance_v1`、`forecast_pipeline_v8` 與 `auto_reaccept_v1`（目前僅啟用 **observe**，尚未啟用 R2-C enforce）已上線。
-  - D125 `autoload_v3` Codex 載入量測相容性已修正。
-- **接手與當日進度**：請先閱讀 [交接紀錄](docs/tasks/HANDOFF.md) 並執行 `.venv/bin/python src/project_control.py status`。
+- D118 MiniBench 已核准的 live 窗口固定至 `2026-11-10T04:00:00Z`；沒有自動續期。D137 已經雙審與驗證，FutureEval 主賽＋MiniBench 已啟用並共用原預算；實際首輪狀態及尚缺驗收見交接與 D137 任務單。
+- M5 是非、多選、數值、離散題已支援；M4 結算／計分、人類賽參考、閉題練習與閉題健檢有手動入口。人類賽仍由本人判斷與送出；閉題練習的新題存取限制尚在。
+- 三線正式 CLI 與驗收、D124 observe、D135 研究候選及後續清理的最新進度，見 [交接紀錄](docs/tasks/HANDOFF.md) 與 `.venv/bin/python src/project_control.py status`。
+- 規格、核准範圍與決策以 [PLAN](PLAN.md) 為準。首次正式已送出批次的預定結算日期見 D132；舊文件的 11/06 開發安排不代表該批結算日。
+
+## 離線驗證
+
+```sh
+.venv/bin/python tests/run_offline.py -q
+```
+
+`tests/conftest.py` 為所有測試提供獨立主機、local 送出模式與固定題型 fixture；不修改 `config/`。離線入口在 pytest 主程序執行期間另外阻擋直接開啟專案資料／憑證檔及直接呼叫真實模型 CLI，並使用專案外的暫存目錄；它是誤用防線，不是安全沙盒，詳見 [D136 防護界線](docs/tasks/D136-CLEANUP-BATCH1.md)。舊 `--synthetic-host` 參數保留為相容別名，不再安裝第二份 fixture。直接 `python -m pytest` 共用相同 fixtures，但沒有離線入口的 audit guards；優先使用上述入口。
 
 ## AI 協作者必讀順序
 
@@ -25,7 +32,7 @@
 |---|---|
 | `PLAN.md` | 完整計畫書（Single Source of Truth） |
 | `AGENTS.md` / `CLAUDE.md` | 三方 AI 協作守則與硬性規則 |
-| `docs/tasks/HANDOFF.md` | 最新交接紀錄与操作邊界 |
+| `docs/tasks/HANDOFF.md` | 最新交接紀錄與操作邊界 |
 | `docs/tournament_checks/` | 比賽規則核對紀錄（摘要） |
 | `config/` | 執行期設定、場地白名單、題型開關與 `cycle_campaign.json` |
 | `src/` | 預測排程、三線 CLI adapters、整合、送出、基準檢查與 Telegram 服務 |

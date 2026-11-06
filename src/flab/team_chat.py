@@ -6,7 +6,6 @@ commands or action paths. Every state transition is append-only and transactiona
 from __future__ import annotations
 
 import hashlib
-import json
 import re
 import threading
 import uuid

@@ -746,6 +746,8 @@ def simulate(record):
 
 def run_registered(root: Path, sim_id: str, *, now=utc_now):
     with transaction(root / ".coverage_sim"):
+        if (root / "coverage_sim_results.jsonl.archived.json").exists():
+            raise ValueError("historical results are archived; restore them before appending (D138)")
         records = [r for r in read_complete(root / "coverage_sims.jsonl") if r.get("sim_id") == sim_id]
         if not records:
             raise ValueError("simulation ID is not registered")
@@ -755,6 +757,8 @@ def run_registered(root: Path, sim_id: str, *, now=utc_now):
             raise ValueError("conflicting registered simulation hashes")
     result = simulate(records[0])
     with transaction(root / ".coverage_sim"):
+        if (root / "coverage_sim_results.jsonl.archived.json").exists():
+            raise ValueError("historical results were archived during simulation; restore before appending (D138)")
         append_record(root / "coverage_sim_results.jsonl", {**result, "recorded_at": to_iso(now())})
     return result
 

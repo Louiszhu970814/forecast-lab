@@ -113,3 +113,55 @@ def test_new_text_next_to_an_echo_or_a_blocked_url_is_still_exposure(tmp_path: P
 def test_audit_survives_malformed_output(tmp_path: Path) -> None:
     for structured in ({"sources": 1}, {"sources": [1, None, {"url": 5}]}, {"sources": "x"}):
         assert _audit(tmp_path, structured=structured)["status"] == "clean"
+
+
+def _search_event(query, **extra):
+    return {'type':'item.completed','item':{'type':'web_search','action':{'type':'search','queries':[query]},**extra}}
+
+
+def test_negative_search_operator_is_not_exposure_but_results_are(tmp_path):
+    text=json.dumps(_search_event('topic -site:metaculus.com'))
+    rec=_audit(tmp_path,text,player='gpt')
+    assert rec['status']=='clean' and rec['keyword_hits'][0]['kind']=='search_exclusion'
+    text=json.dumps(_search_event('topic -site:metaculus.com',results=[{'snippet':'-site:metaculus.com community prediction 70%'}]))
+    rec=_audit(tmp_path,text,player='gpt')
+    assert [h['kind'] for h in rec['keyword_hits']]==['search_exclusion','exposure','exposure']
+    assert rec['status']=='suspected_leak'
+
+
+def test_exclusion_only_exact_token_in_structured_query(tmp_path):
+    for query in ['site:metaculus.com','-site:metaculus.com.evil','-site:metaculus.com/path','x-site:metaculus.com','-site:metaculus.com community prediction']:
+        assert _audit(tmp_path,json.dumps(_search_event(query)),player='gpt')['status']=='suspected_leak'
+    assert _audit(tmp_path,json.dumps({'text':'-site:metaculus.com'}),player='gpt')['status']=='suspected_leak'
+    assert _audit(tmp_path,json.dumps(_search_event('-site:metaculus.com')),player='claude')['status']=='suspected_leak'
+
+
+SETTING='I1103 12:14:01.993307       1 cli_setting_manager.go:96] CLI settings initialized: permissions=&{Allow:[read_url(*)] Deny:[command(*) read_url(metaculus.com) read_file(/tmp)] Ask:[]}, toolPermission=request-review'
+
+
+def test_cli_deny_setting_is_narrowly_attributed(tmp_path):
+    path=tmp_path/'agy_cli.log';path.write_text(SETTING)
+    rec=_audit(tmp_path,player='gemini',raw_files=[path])
+    assert rec['status']=='clean' and rec['keyword_hits'][0]['kind']=='cli_deny_setting'
+    path.write_text(SETTING+' community prediction 70%')
+    rec=_audit(tmp_path,player='gemini',raw_files=[path])
+    assert rec['status']=='suspected_leak' and rec['keyword_hits'][-1]['kind']=='exposure'
+    path.write_text(SETTING.replace('read_file(/tmp)','read_file(/metaculus.com)'))
+    assert _audit(tmp_path,player='gemini',raw_files=[path])['status']=='suspected_leak'
+    assert _audit(tmp_path,SETTING,player='gemini')['status']=='suspected_leak' # wrong file provenance
+    path.write_text(json.dumps({'snippet':SETTING}))
+    assert _audit(tmp_path,player='gemini',raw_files=[path])['status']=='suspected_leak'
+
+
+def test_new_contexts_never_override_sources_opens_or_inherited_flags(tmp_path):
+    text=json.dumps(_search_event('-site:metaculus.com'))
+    assert _audit(tmp_path,text,player='gpt',inherited=['suspected_leak'])['status']=='suspected_leak'
+    assert _audit(tmp_path,text,player='gpt',structured={'sources':[{'url':'https://metaculus.com/'}]})['status']=='leak_confirmed'
+    result=_result(url_events=[UrlEvent('https://metaculus.com/','metaculus.com','opened','tool')])
+    assert _audit(tmp_path,text,player='gpt',result=result)['status']=='leak_confirmed'
+
+
+
+def test_cli_setting_requires_permission_token_boundary(tmp_path):
+    path=tmp_path/'agy_cli.log';path.write_text(SETTING.replace('read_url(metaculus.com)','xread_url(metaculus.com)'))
+    assert _audit(tmp_path,player='gemini',raw_files=[path])['status']=='suspected_leak'

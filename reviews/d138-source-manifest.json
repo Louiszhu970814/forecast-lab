@@ -1,0 +1,34 @@
+{
+  "reviewed_inputs_at_apply": {
+    "PLAN.md": "ea01423f0cf8830a3e6742448be9a2911dec26802c5fee20b669b626e42f8c2c",
+    "data/operations/d138-data-cleanup-20261105/apply_reviewed.py": "c7b829f577e92a61f850fc4b5ee5a08759a4cf2e727d9ec0c4a1ac4ccafffe4a",
+    "data/operations/d138-data-cleanup-20261105/archive-tests.txt": "47b80c025f64673b362500c0a6fc9ff327f23873bd5582176a20d2e778fb4507",
+    "data/operations/d138-data-cleanup-20261105/archive_data.py": "d0da7d805d36aa4cb728e9ecc31e6a68c106098691fc21a16e55a988dc044869",
+    "data/operations/d138-data-cleanup-20261105/coverage-tests.txt": "ce1aad03eae1a3f79f12cf7da8da3d4d3edc9fb901e1d44ed85abc63fc5bcf66",
+    "data/operations/d138-data-cleanup-20261105/manifest.json": "d875ea53073cb7812d9ded8365703d54dac032b2e30fb1487e8fa7fd6f3702ed",
+    "data/operations/d138-data-cleanup-20261105/preflight-pre-review.json": "a6d72563986c9b7e60302d87e433647cc27a2e855913486f62e1cddf5c12c4e7",
+    "data/operations/d138-data-cleanup-20261105/preflight.py": "55e35af6dc7818f09d648f96e0e33f7bb39138fb99a7011a4b98ea499fc3a640",
+    "data/operations/d138-data-cleanup-20261105/protected-files.json": "967668f7dc673a86fd4aaebce569033309a813aab7d5bc9c45ca35dd83648e1d",
+    "data/operations/d138-data-cleanup-20261105/restore-drill.json": "399232d81da9f0bbc236ec4d2a1c80091cc6c46347fd0b7c94378032678b281a",
+    "data/operations/d138-data-cleanup-20261105/test_archive.py": "03e3808ff6a4040669ba70cd65f671e507a45e870dbf01db4e6e90107d07deda",
+    "docs/coverage_sim.md": "682f4cbf44bfe2436d9fb18daa649d3e317793331c0a8b3fc3f948fa00f6867a",
+    "docs/tasks/D130-THREE-LINE-REPAIR.md": "192bd866d91e571e402006591951bbce6ce17a0ca23b9d8dce363591055c9fe3",
+    "docs/tasks/D138-DATA-CLEANUP.md": "e2da7b6cc05037d40cb310eb9a25fc668617bf9432940dcc9088e2925e580bef",
+    "docs/tasks/HANDOFF.md": "1f2332d71b8b13bc78908dd08de3a403334d577dbbd8d5fd1d6a5788dac042f0",
+    "docs/tasks/INDEX.md": "342719a1123a4ec6fa1999d088affac32dd71c5cd62e31a680fce3f142f79c10",
+    "docs/tasks/M3-PARALLEL-D116.md": "23096eb76a0b4df5c501d973782f87a8cb604c06c46629cd40cdd7fe7c0e3b59",
+    "src/coverage_sim.py": "368651e2b5d4d4bbb951ab51d9721721433be0af9af3d50d1455329b3631246d",
+    "tests/test_coverage_sim.py": "c020b25dceae52e65026c27e42c6e6e32bbecbcba2753d9fe582432789b2589c"
+  },
+  "final_documentation_and_evidence": {
+    "PLAN.md": "bf82fc657716900ffec3eaa833dcf3380d3b6753bd7b160a2d6f3f722d77628a",
+    "docs/tasks/D138-DATA-CLEANUP.md": "983fd70a4ab648d9eb0ae0ff82666d1da00a9f8eceb85af53220b01a8aa20c02",
+    "docs/tasks/HANDOFF.md": "1808b22527262728a6b58be13c8906647509280bab8914cb15f6d81358f289ca",
+    "docs/tasks/INDEX.md": "bd99ef7d793d4ac6efef1a96c9e35c614f360869c510adaa3f1092f53f358bc2",
+    "reviews/INDEX.md": "082c4ea4d297db43b8540e1f6faa1b79b8c86c1bb11a88f5f7a0ec60442ce6df",
+    "reviews/d138-verification.json": "158e5630d28e05a2e53b8abdaa51bbe516cb81e0e997f0abf51d43be008f73d2",
+    "reviews/claude-d138-r1.md": "c73aa5dd03b8df2d9c07c45c755227a70c9f87410e12746cfa08ef400183c5c0",
+    "reviews/gemini-d138-r1.md": "eeb388cafeb65babc49688f2c0b4d6879f81657e167c4661c356b1f044cf5b6f"
+  },
+  "note": "After successful apply, only factual completion documentation/indexes and verification artifacts were added/updated; final outcome prose was not separately model-reviewed. Existing unrelated dirty work retained."
+}

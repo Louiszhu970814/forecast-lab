@@ -1,0 +1,6 @@
+{
+  "version": "line_recovery_v1",
+  "enabled": true,
+  "authorization": "PLAN D140",
+  "interval_s": 300
+}

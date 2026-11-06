@@ -11,6 +11,7 @@ mkdir -p data/logs
 job=${1:-cycle}
 case "$job" in
     cycle) target=src/cycle.py ;;
+    line-recovery) target=src/line_recovery.py ;;
     resolve) target=src/resolve.py ;; # Pending later M3 work; confirm its CLI before installing.
     report) target=src/report.py ;;   # Pending later M3 work; confirm its CLI before installing.
     *) exit 64 ;;
@@ -21,13 +22,15 @@ if [ ! -f "$target" ]; then
     exit 69
 fi
 if [ "$job" = cycle ]; then
-    if .venv/bin/python "$target" --campaign config/cycle_campaign.json; then
+    if .venv/bin/python "$target" --campaign config/cycle_campaign.json --heartbeat; then
         # The cycle worker has exited and released its locks. Observation is bounded
         # and cannot invoke models or approve a baseline (D124).
         .venv/bin/python src/auto_reaccept.py tick || true
         exit 0
     else
-        exit "$?"
+        code=$?
+        if [ "$code" -eq 3 ]; then exit 0; fi
+        exit "$code"
     fi
 fi
 exec .venv/bin/python "$target"

@@ -1,5 +1,7 @@
 # V15 真實讀取格式核對與修正草案
 
+> **SUPERSEDED／歷史文件（D136 標記）**：本頁保留當時提案與驗證經過，不是現行授權或待決清單。現行規格見 [PLATFORM-REPLY-D115.md](PLATFORM-REPLY-D115.md) 與 [PLAN](../../PLAN.md) 的後續決策。
+
 GPT 於 UTC 2026-11-01T16:20:52Z 以核准的機器人帳號 311763 做唯讀核對。模式仍為 `local`，POST 次數為零。帳冊 `data/transport_probes.jsonl` 只記 ID、欄位名稱、容器型別及筆數，沒有題文、機率、留言內容或憑證。
 
 ## 發現

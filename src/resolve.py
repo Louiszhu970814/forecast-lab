@@ -34,7 +34,7 @@ import sys
 import time
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterable, List, Mapping, Optional, Tuple
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
 _SRC_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _SRC_DIR.parent
@@ -52,7 +52,7 @@ from flab.submission_identity import submission_identity, is_snapshotless_probe,
 from metaculus import MetaculusClient, _default_opener  # noqa: E402
 import numeric as N  # noqa: E402
 
-VERSION = "resolve_v2"
+VERSION = "resolve_v3"
 DEFAULT_DATA_DIR = _REPO_ROOT / "data"
 SUBMITTED_STATUSES = {"forecast_ok", "comment_ok"}
 AMBIGUOUS_TOKENS = {"ambiguous", "ambiguity"}
@@ -558,6 +558,15 @@ def poll_resolutions(
                 errors.append({"question_id": qid, "post_id": post_id, "error_type": "InvalidPostPayload"})
                 continue
 
+            if snap.get('post_type') == 'group_of_questions':
+                from question_mapping import select_question
+                try:
+                    post = select_question(post, qid, allow_groups=True)
+                    if post['_group_mapping']['group_id'] != snap.get('group_id'):
+                        raise ValueError('group identity changed')
+                except (ValueError, KeyError):
+                    errors.append({'question_id':qid,'post_id':post_id,'error_type':'GroupQuestionMismatch'})
+                    continue
             q_obj = post.get("question")
             if (
                 (post.get("id") is not None and post.get("id") != post_id)

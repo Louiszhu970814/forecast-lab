@@ -1,5 +1,7 @@
 # Telegram 開發模式交接
 
+> **SUPERSEDED／歷史文件（D136 標記）**：本頁保留當時提案與驗證經過，不是現行授權或待決清單。現行規格見 [TELEGRAM-TEAM.md](TELEGRAM-TEAM.md) 與 [PLAN](../../PLAN.md) 的後續決策。
+
 實作者：GPT；版本 `telegram_ops_v2`、`telegram_dev_v1`。本文件供 Claude 獨立審查，以下自動化測試與實機驗證不替代獨立審查。
 
 ## 使用者要求與完成範圍

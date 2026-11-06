@@ -94,4 +94,5 @@ def test_scoped_approval_never_approves_common_or_other_line_content(tmp_path):
     rec = baseline.approve(changed_gpt, "Louis", "auto_1", log=log, player="claude")
     assert rec["sources"]["codex.skills"]["hash"] == "gpt-old"
     after = changed_gpt.to_record() | {"gemini_credits": 0, "versions": rec["versions"]}
-    assert baseline.compare(baseline.latest_approved(log), after)["decisions"]["gpt"] == "stop"
+    assert baseline.compare(baseline.latest_approved(log), after, catalog_drift=False)["decisions"]["gpt"] == "stop"
+    assert baseline.compare(baseline.latest_approved(log), after)["decisions"]["gpt"] == "ok"

@@ -1,0 +1,198 @@
+{
+  "authorization": "PLAN D140",
+  "runtime_approval": "R3 two modules, both official models PASS",
+  "test_fixture_supplement": "R4 both official models PASS, runtime unchanged",
+  "records": [
+    {
+      "review": "reviews/claude-d140-r1.md",
+      "sha256": "ccc3c172a2a59f2aaf9240389a938cefac985d2b8d0668ebfe64c9bf8cbff119"
+    },
+    {
+      "review": "reviews/claude-d140-r2a.md",
+      "sha256": "e647ef94b7a5f45ce86a6e2a9a82c3e0eaa76829e5bdd4db17a39287fe105c02"
+    },
+    {
+      "review": "reviews/claude-d140-r2b.md",
+      "sha256": "88ccc3fd9b374981b204262f6bdcbfa9183ceb6bcc25c9b595eac62d76db8a80"
+    },
+    {
+      "review": "reviews/claude-d140-r3a.md",
+      "sha256": "8521ef897759960474064f5871d743942ed80dd7f427a0e5b9baecc7b4000fd6"
+    },
+    {
+      "review": "reviews/claude-d140-r3b.md",
+      "sha256": "d366fd8c49e9a67f4425aed150b7f71038a757afb91a5be1309f86748f79c12c"
+    },
+    {
+      "review": "reviews/claude-d140-r4.md",
+      "sha256": "20aae8e169a8d2a7d25782d4a04ece24c0a0a8489967416787fe371951edc2a7"
+    },
+    {
+      "review": "reviews/gemini-d140-r1.md",
+      "sha256": "9281186848b829779036f34ac0563352dcdadb9cbd0ec6c945771ad6ac924ff7"
+    },
+    {
+      "review": "reviews/gemini-d140-r2a.md",
+      "sha256": "76f1779d6c029e426f931ac13875e738bab7ecc20e0b126bcfd5b8b453a68531"
+    },
+    {
+      "review": "reviews/gemini-d140-r2b.md",
+      "sha256": "5137ca4c39efc57a0faa5b5d42629de28b1629835d1af3e30fb8b4c567415f73"
+    },
+    {
+      "review": "reviews/gemini-d140-r3a.md",
+      "sha256": "666f9a0d03b50736d945a784ad1149c84ec59264ccb2de86cf41c1fe988e1aa2"
+    },
+    {
+      "review": "reviews/gemini-d140-r3b.md",
+      "sha256": "c8c5b6feaea60b7d49ae7f47956610fb6339aac76c712acdfd23d2d91a8cf56a"
+    },
+    {
+      "review": "reviews/gemini-d140-r4.md",
+      "sha256": "fd79739484f997aedce6394fee838be347f4d64766250187ed58aab999dae219"
+    }
+  ],
+  "source_manifests": {
+    "r3": {
+      "version": "d140_actual_review_chain_v1",
+      "at": "2026-11-05T12:55:46.937Z",
+      "modules": [
+        "r3a",
+        "r3b"
+      ],
+      "source_sha256": "3512f92ae1d975715d6b91055b0fd4467aea226ccc22a223b00a151678ebf1c0",
+      "source_manifest_sha256": "c5748f030fb2c6b85c42e820f21ed90019f53dad7033c594deeae3cbe0bd87e2",
+      "review_modules_sha256": "046fc10b3c44aece60d3829e8d4afdb0d0c20d584bfa0db2c42846d9b7763543",
+      "deployment_sha256": "f10a26fea22364ee6d0967805a39d1d0172297029af09e541f3cd6d3d262a65a",
+      "reviews_ledger_sha256": "e62d4a0880498b085a11d26c8f35a96faf2a579a6c40d16036ffe5af1280bc10",
+      "usage_ledger_sha256": "de338235671505ab98f2cf6fd8e7b65e18c43e2c3ba47e069c98c83484da0f52",
+      "reviews": {
+        "claude": {
+          "r3a": {
+            "path": "/Users/ucchengg/forecast-lab/data/operations/d140-auto-recovery-20261105/claude-r3a/answer.md",
+            "sha256": "8521ef897759960474064f5871d743942ed80dd7f427a0e5b9baecc7b4000fd6",
+            "verdict": "PASS",
+            "end_marker": "END-D140-CODE-R3A",
+            "end_marker_verified": true,
+            "packet_sha256": "3e909b29fc0dc98503ddd56bac69a518b6ad336eef758bf1a3719abbacfd0b74",
+            "stdout_sha256": "ba0e0cf7433b7dbc1547ca64aab2e15232c77621a2863f817bb5da3a0c52f86a",
+            "actual_model": "claude-opus-5-5",
+            "effort": "high",
+            "observed_tool_names": [
+              "StructuredOutput"
+            ],
+            "started_at": "2026-11-05T12:45:51.308Z",
+            "finished_at": "2026-11-05T12:51:23.736Z",
+            "usage_record_verified": true
+          },
+          "r3b": {
+            "path": "/Users/ucchengg/forecast-lab/data/operations/d140-auto-recovery-20261105/claude-r3b/answer.md",
+            "sha256": "d366fd8c49e9a67f4425aed150b7f71038a757afb91a5be1309f86748f79c12c",
+            "verdict": "PASS",
+            "end_marker": "END-D140-CODE-R3B",
+            "end_marker_verified": true,
+            "packet_sha256": "d637b31dd3471b04ee4931da33b0457f433e0981f04bb88740466134a8a66044",
+            "stdout_sha256": "1f25e7ddc1fdcfcca32108f7fb26d71d884d20a2581d9d5f1868b9ca1b2ccfa0",
+            "actual_model": "claude-opus-5-5",
+            "effort": "high",
+            "observed_tool_names": [
+              "StructuredOutput"
+            ],
+            "started_at": "2026-11-05T12:51:23.899Z",
+            "finished_at": "2026-11-05T12:55:33.413Z",
+            "usage_record_verified": true
+          }
+        },
+        "gemini": {
+          "r3a": {
+            "path": "/Users/ucchengg/forecast-lab/data/operations/d140-auto-recovery-20261105/gemini-r3a/answer.md",
+            "sha256": "666f9a0d03b50736d945a784ad1149c84ec59264ccb2de86cf41c1fe988e1aa2",
+            "verdict": "PASS",
+            "end_marker": "END-D140-CODE-R3A",
+            "end_marker_verified": true,
+            "packet_sha256": "3e909b29fc0dc98503ddd56bac69a518b6ad336eef758bf1a3719abbacfd0b74",
+            "stdout_sha256": "39487b53f7727257169a0ee37eece55ef5eb1d548f96b9a644ec80d7f46a7538",
+            "actual_model": "gemini-4-argon-high",
+            "effort": "high",
+            "observed_tool_names": [],
+            "started_at": "2026-11-05T12:45:51.308Z",
+            "finished_at": "2026-11-05T12:48:22.881Z",
+            "usage_record_verified": true
+          },
+          "r3b": {
+            "path": "/Users/ucchengg/forecast-lab/data/operations/d140-auto-recovery-20261105/gemini-r3b/answer.md",
+            "sha256": "c8c5b6feaea60b7d49ae7f47956610fb6339aac76c712acdfd23d2d91a8cf56a",
+            "verdict": "PASS",
+            "end_marker": "END-D140-CODE-R3B",
+            "end_marker_verified": true,
+            "packet_sha256": "d637b31dd3471b04ee4931da33b0457f433e0981f04bb88740466134a8a66044",
+            "stdout_sha256": "a120ddf43ea8a4d59e6b15823f575f08b719a4949afae5c148f1c3309ca27fe6",
+            "actual_model": "gemini-4-argon-high",
+            "effort": "high",
+            "observed_tool_names": [],
+            "started_at": "2026-11-05T12:51:23.899Z",
+            "finished_at": "2026-11-05T12:53:12.390Z",
+            "usage_record_verified": true
+          }
+        }
+      },
+      "all_reviews_complete": true,
+      "all_pass": true,
+      "prediction_calls_by_verifier": 0
+    },
+    "r4": {
+      "version": "d140_actual_review_chain_v1",
+      "at": "2026-11-05T13:10:52.923Z",
+      "modules": [
+        "r4"
+      ],
+      "source_sha256": "834cab01ec74feb48570381a2ac04235cc41d476f7eb68bacff1eb35ac3049f6",
+      "source_manifest_sha256": "847a3efe2561ae44808864fa903e348bf905e5504a4b17a4956b913c9aeb3992",
+      "review_modules_sha256": "d85564a2050890e0e4a775fd26bb434afd36232f5ea86772fd493c16e1d06341",
+      "deployment_sha256": "f0bf9e31ff0eb13393cd36d86a943390ac3951d9469e3208776625614faeda70",
+      "reviews_ledger_sha256": "2d2cca2cb09c68c1fd52288a712f2d54f0fba0a4ae20419fbf47e375e1759925",
+      "usage_ledger_sha256": "f8966dd1fa1e89d2ae847aa7eb63ed4771114e8fc9acf88168d61256addaf9af",
+      "reviews": {
+        "claude": {
+          "r4": {
+            "path": "/Users/ucchengg/forecast-lab/data/operations/d140-auto-recovery-20261105/claude-r4/answer.md",
+            "sha256": "20aae8e169a8d2a7d25782d4a04ece24c0a0a8489967416787fe371951edc2a7",
+            "verdict": "PASS",
+            "end_marker": "END-D140-CODE-R4",
+            "end_marker_verified": true,
+            "packet_sha256": "fb950cfffc769c513916117c1ddf0043bff199ff419578a7c10c841f6728a406",
+            "stdout_sha256": "c04c254c22862519d2bc928a1783e004e53c7d61f6931fbf5b85b81e551691f8",
+            "actual_model": "claude-opus-5-5",
+            "effort": "high",
+            "observed_tool_names": [
+              "StructuredOutput"
+            ],
+            "started_at": "2026-11-05T13:08:13.427Z",
+            "finished_at": "2026-11-05T13:10:29.528Z",
+            "usage_record_verified": true
+          }
+        },
+        "gemini": {
+          "r4": {
+            "path": "/Users/ucchengg/forecast-lab/data/operations/d140-auto-recovery-20261105/gemini-r4/answer.md",
+            "sha256": "fd79739484f997aedce6394fee838be347f4d64766250187ed58aab999dae219",
+            "verdict": "PASS",
+            "end_marker": "END-D140-CODE-R4",
+            "end_marker_verified": true,
+            "packet_sha256": "fb950cfffc769c513916117c1ddf0043bff199ff419578a7c10c841f6728a406",
+            "stdout_sha256": "0b517b215f676cc01b71ce1f3afd6217713eb451437327e41a05885e334fc5b0",
+            "actual_model": "gemini-4-argon-high",
+            "effort": "high",
+            "observed_tool_names": [],
+            "started_at": "2026-11-05T13:08:13.426Z",
+            "finished_at": "2026-11-05T13:10:09.078Z",
+            "usage_record_verified": true
+          }
+        }
+      },
+      "all_reviews_complete": true,
+      "all_pass": true,
+      "prediction_calls_by_verifier": 0
+    }
+  }
+}

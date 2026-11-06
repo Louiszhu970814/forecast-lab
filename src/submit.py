@@ -27,9 +27,10 @@ from flab.workdir import PROJECT_ROOT
 from poll_questions import TournamentIndex, is_synced_copy, snapshot_from_post
 from validate import submit_deadline
 from project_policy import trial_membership_error
+from question_mapping import select_question
 from submit_contract import ConfirmedFailure, Readback
 
-VERSION = "submit_v11"
+VERSION = "submit_v12"
 BUSY_EXIT_CODE = 75
 FORECAST_PATH = "/api/questions/forecast/"
 COMMENT_PATH = "/api/comments/create/"
@@ -266,6 +267,14 @@ class Submitter:
         if type(intent["tournament_id"]) is not int or len(entries) != 1:
             raise PrecheckError("venue ID is not uniquely configured")
         name, entry = entries[0]
+        if mode['mode']=='live' and name=='market_pulse':
+            import market_policy as MP
+            try:
+                MP.validate(campaign)
+                if entry.get('id')!=MP.PROJECT_ID or entry.get('slug')!=MP.SETTING['slug']:
+                    raise ValueError('Market Pulse identity changed')
+            except ValueError as exc:
+                raise PrecheckError('Market Pulse contract unavailable') from exc
         if mode["mode"] == "live" and name not in campaign.get("venues", []):
             raise PrecheckError("venue outside approved live campaign")
         if mode["mode"] == "trial":
@@ -376,6 +385,13 @@ class Submitter:
         if intent["mode"] == "trial":
             if reason := trial_membership_error(post, cfg["tournaments"]["bot_testing_area"]["id"]):
                 raise PrecheckError(reason)
+        if intent['snapshot'].get('post_type') == 'group_of_questions':
+            if intent['mode'] != 'live' or intent['tournament_id'] != 33131:
+                raise PermanentPrecheckError('group submissions are enabled only for Market Pulse')
+            try:
+                post = select_question(post, intent['question_id'], allow_groups=True)
+            except ValueError as exc:
+                raise PermanentPrecheckError('group child mapping changed') from exc
         current = snapshot_from_post(post, intent["snapshot"].get("venue", ""))
         if current is None:
             raise PrecheckError("unrecognized current post")
@@ -388,7 +404,7 @@ class Submitter:
                 N.validate_cdf(intent["forecast_payload"][0]["continuous_cdf"], current)
             except (ValueError, KeyError) as exc:
                 raise PermanentPrecheckError("invalid current numeric scaling or CDF") from exc
-        for key in ("post_id", "question_id", "question_type", "options", "scheduled_close_time"):
+        for key in ("post_id", "question_id", "question_type", "options", "scheduled_close_time", "group_id", "post_type"):
             if current.get(key) != snap.get(key):
                 raise PermanentPrecheckError(f"current {key} differs from snapshot")
         if intent["tournament_id"] not in current["project_ids"]:

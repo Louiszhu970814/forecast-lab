@@ -33,7 +33,7 @@ from flab.workdir import PROJECT_ROOT, default_base_dir  # noqa: E402
 
 ACCEPTANCE_LOG = PROJECT_ROOT / "data" / "acceptance.jsonl"
 PLAYERS = ("claude", "gemini", "gpt")
-VERSION = "baseline_v2"
+VERSION = "baseline_v3"
 
 # Never open files or descend into directories with these names (credentials, sessions, outputs).
 # Items inside an inventoried directory that are never read: folders that hold conversation data and
@@ -49,6 +49,20 @@ CREDENTIAL_FILE = re.compile(
 CONTENT = "content"              # instructions, memories, skills, hooks, plugins, MCP, agents: stop and review
 GENERAL = "general"              # ordinary settings: automatic re-acceptance
 INFORMATIONAL = "informational"  # recorded only: ignored at runtime, or state the CLI rewrites on every run
+
+# D144: development catalogs change independently of the restricted forecasting
+# sessions. Keep inventory and read/type errors, but a readable content change in
+# these exact sources is no longer a reason to stop/re-accept a forecasting line.
+# This is not proof that their text cannot enter context (notably Codex skill
+# metadata). Tool permissions remain enforced by adapters and acceptance evidence.
+# Global instructions, memories, standalone hooks/MCP, settings, managed policy
+# and ancestor sources deliberately retain their existing classifications.
+DEVELOPMENT_CATALOGS = frozenset({
+    "claude.skills", "claude.skills_synced", "claude.plugins",
+    "claude.marketplace_index", "claude.plugin_state", "claude.agents", "claude.commands",
+    "codex.skills", "codex.plugins", "codex.agents",
+    "agy.skills", "agy.plugins", "agy.agents",
+})
 
 CLAUDE_SETTINGS_CONTENT_KEYS = (
     "hooks", "mcpServers", "enabledPlugins", "extraKnownMarketplaces", "statusLine",
@@ -91,8 +105,8 @@ def default_sources(env: dict[str, str] | None = None) -> list[Source]:
                content_keys=CLAUDE_SETTINGS_CONTENT_KEYS),
         Source("claude.settings_local", "claude", "~/.claude/settings.local.json", "json_mixed",
                content_keys=CLAUDE_SETTINGS_CONTENT_KEYS),
-        # Personal skills stay content. The claude.ai account bucket that the interactive Claude Code
-        # syncs (observed 2026-11-03: docx 06:14Z, pdf 08:28Z, manifest 09:01Z) is informational:
+        # D123 first exempted the synced bucket; D144 extends the catalog policy
+        # below to personal skills and the other explicitly listed catalogs:
         # headless runs pass --disable-slash-commands and --tools, the claude 2.1.316 init event
         # declared skills=[] and slash_commands=[] with this bucket present (D120 acceptance), and
         # forecast.tool_violations stops the line if any run ever declares a skill (PLAN D123).
@@ -135,12 +149,13 @@ def default_sources(env: dict[str, str] | None = None) -> list[Source]:
         Source("agy.agents", "gemini", "~/.gemini/config/agents", "dir"),
         Source("agy.hooks", "gemini", "~/.gemini/config/hooks.json", "file"),
         Source("agy.mcp", "gemini", "~/.gemini/config/mcp_config.json", "file"),
-        Source("agy.project_grants", "gemini", "~/.gemini/config/projects", "dir"),
+        Source("agy.project_grants", "gemini", "~/.gemini/config/projects", "dir", category=INFORMATIONAL),
         # agy automations ("sidecars") can start agent sessions on a schedule (agy 1.4.12 automation skill).
         Source("agy.sidecars", "gemini", "~/.gemini/config/sidecars", "dir"),
-        Source("agy.shared_config", "gemini", "~/.gemini/config/config.json", "json_mixed", category=GENERAL),
+        Source("agy.shared_config", "gemini", "~/.gemini/config/config.json", "json_mixed",
+               category=INFORMATIONAL, general_category=INFORMATIONAL),
         Source("agy.cli_settings", "gemini", "~/.gemini/antigravity-cli/settings.json", "json_mixed",
-               content_keys=AGY_SETTINGS_CONTENT_KEYS),
+               content_keys=AGY_SETTINGS_CONTENT_KEYS, general_category=INFORMATIONAL),
     ]
 
 
@@ -442,7 +457,8 @@ def blockers(snapshot: dict[str, Any], player: str | None = None) -> list[dict[s
         if rec.get("error"):
             out.append({"source": sid, "player": rec["player"], "category": CONTENT, "what": rec["error"]})
     for line in PLAYERS:
-        if not snapshot["versions"].get(line):
+        ver = snapshot["versions"].get(line)
+        if not (isinstance(ver, str) and ver.strip()):
             out.append({"source": f"cli_version:{line}", "player": line, "category": CONTENT,
                         "what": "CLI version unknown"})
     credits = snapshot.get("gemini_credits")
@@ -465,8 +481,12 @@ def _same_protected(before: dict[str, Any] | None, after: dict[str, Any] | None)
     return content_ok and general_ok
 
 
-def compare(approved: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]:
-    """Classify changes per player: 'stop' (content or unknown state), 'reaccept' (version or general), 'ok'."""
+def compare(approved: dict[str, Any], current: dict[str, Any], *, catalog_drift: bool = True) -> dict[str, Any]:
+    """Classify runtime drift; use catalog_drift=False to bind frozen evidence.
+
+    Readable D144 catalogs and known CLI version drift are informational. Unknown
+    state/protected content still stop; other general settings require reacceptance.
+    """
     changes: list[dict[str, Any]] = []
     a_src, c_src = approved["sources"], current["sources"]
     for sid in sorted(set(a_src) | set(c_src)):
@@ -475,9 +495,15 @@ def compare(approved: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]
             changes.append({"source": sid, "player": (before or after)["player"], "category": CONTENT,
                             "what": "source added or removed from inventory"})
             continue
+        if sid in DEVELOPMENT_CATALOGS and any(before.get(k) != after.get(k) for k in ("player", "kind", "path")):
+            changes.append({"source": sid, "player": after["player"], "category": CONTENT,
+                            "what": "source definition changed"})
+            continue
         b_content, b_general = _fingerprint(before)
         a_content, a_general = _fingerprint(after)
-        category = after["category"]
+        # Preserve raw inventory categories for exact candidate/evidence binding
+        # (_same_protected). D144 changes runtime drift handling, not those proofs.
+        category = INFORMATIONAL if catalog_drift and sid in DEVELOPMENT_CATALOGS else after["category"]
         if b_content != a_content:
             changes.append({"source": sid, "player": after["player"],
                             "category": category if category in (INFORMATIONAL, GENERAL) else CONTENT,
@@ -488,7 +514,7 @@ def compare(approved: dict[str, Any], current: dict[str, Any]) -> dict[str, Any]
                             "what": "general settings changed"})
     for player in PLAYERS:
         if approved["versions"].get(player) != current["versions"].get(player):
-            changes.append({"source": f"cli_version:{player}", "player": player, "category": GENERAL,
+            changes.append({"source": f"cli_version:{player}", "player": player, "category": INFORMATIONAL,
                             "what": f"{approved['versions'].get(player)} -> {current['versions'].get(player)}"})
     changes += blockers(current)
 
@@ -561,7 +587,8 @@ def check(snapshot: Snapshot, log: Path = ACCEPTANCE_LOG) -> dict[str, Any]:
     else:
         result = compare(base, snapshot.to_record())
         result["baseline_id"] = base["record_id"]
-    rec = {"type": "baseline_check", "record_id": new_id("chk"), **result, "snapshot": snapshot.to_record()}
+    rec = {"type": "baseline_check", "version": VERSION, "record_id": new_id("chk"),
+           **result, "snapshot": snapshot.to_record()}
     append_record(log, rec)
     return rec
 

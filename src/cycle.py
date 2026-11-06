@@ -29,7 +29,7 @@ from flab.ledger import read_complete, transaction
 from flab.timeutil import parse_iso, to_iso, utc_now
 from flab.workdir import PROJECT_ROOT
 
-VERSION = "cycle_v8"
+VERSION = "cycle_v9"
 INTERVAL_S = 600
 SAFETY_S = 30
 ADMISSION_WINDOW_S = INTERVAL_S - SAFETY_S - 60
@@ -350,6 +350,7 @@ def supervise(command, *, timeout_s, popen=subprocess.Popen):
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--campaign", type=Path, required=True)
+    parser.add_argument("--heartbeat", action="store_true", help="skip idle ticks without discovery or known work")
     parser.add_argument("--worker", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--cycle-id", help=argparse.SUPPRESS)
     parser.add_argument("--deadline", help=argparse.SUPPRESS)
@@ -375,10 +376,17 @@ def main(argv=None):
                 append_record(root / "live_schedule.jsonl", event)
                 print(json.dumps(event))
                 return 1
-            append_record(root / "live_schedule.jsonl", event)
             if state != "active":
+                append_record(root / "live_schedule.jsonl", event)
                 print(json.dumps(event))
                 return 0
+        if args.heartbeat:
+            import discovery
+            policy = json.loads(args.campaign.read_text())
+            if not discovery.needs_cycle(root, policy, started):
+                return 3  # wrapper skips maintenance on this cheap no-op heartbeat
+        if live_end is not None:
+            append_record(root / "live_schedule.jsonl", event)
         cycle_id = new_id("cycle")
         deadline = started + timedelta(seconds=ADMISSION_WINDOW_S)
         if live_end is not None:

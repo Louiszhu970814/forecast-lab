@@ -20,7 +20,7 @@ from flab.config import load_quota_policy, load_run_config, load_submit_mode, lo
 from flab.envfile import get_secret
 from flab.ids import hash_obj, new_id
 from flab.jsonl import append_record
-from flab.ledger import read_complete, transaction
+from flab.ledger import read_complete
 from flab.timeutil import parse_iso, to_iso, utc_now
 from m2_campaign import SafeSnapshots
 from metaculus import MetaculusClient

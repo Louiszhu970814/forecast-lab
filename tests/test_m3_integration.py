@@ -172,7 +172,7 @@ def test_local_published_dry_runs_and_local_final_rejections_are_once_only(integ
     assert Q.committed_questions(e.root) == set()
 
 
-@pytest.mark.parametrize("policy_version", ["continuous_v2", Q.VERSION])
+@pytest.mark.parametrize("policy_version", ["continuous_v2", "continuous_v9", "continuous_v10"])
 def test_trial_publishes_submits_and_freezes_next_cycle(integrated, policy_version):
     e = integrated
     e.campaign["version"] = policy_version

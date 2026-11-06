@@ -1,0 +1,32 @@
+{
+  "at": "2026-11-05T01:10:29.285877Z",
+  "source_snapshot_files": 335,
+  "original_files_unchanged": 332,
+  "intentional_existing_changes": [
+    "PLAN.md",
+    "docs/tasks/INDEX.md",
+    "reviews/INDEX.md"
+  ],
+  "plan_change_only_gpt_section14": true,
+  "all_original_src_tests_config_prompts_launchd_unchanged": true,
+  "new_report_broken_relative_links": [],
+  "review_calls_completed": 4,
+  "full_test_cases": 3351,
+  "test_results": {
+    "previous_d135": "3251 passed /100 failed (historical)",
+    "plain_offline": "3241 passed /110 failed",
+    "synthetic_host": "3317 passed /34 failed",
+    "telegram_targeted": "77 passed"
+  },
+  "reviews": {
+    "claude-r1": "bae337fd1f144779b789b104758e5b3b18f660e45dfbcf722766021de8465b73",
+    "gemini-r1": "32201de45370fe1a25c3e5d961c9a9e122a94992e90037beae27688b54059766",
+    "claude-r2": "4f0c006a66b3dc0aa06efab64260c96c633b5efcf3bc61d2fb1e378660341f11",
+    "gemini-r2": "c527bb962307ad8172cf77fc9b69c0a8063d9f05dc1ad8bcb8821efb3a4c7ae5"
+  },
+  "limitations": [
+    "Gemini r1 reported truncated input; r2 confirmed complete short packet only",
+    "Reviewer conclusions are inventory recommendations, not implementation PASS",
+    "No production cleanup, configuration changes, forecasts, Metaculus POST, commit or push"
+  ]
+}

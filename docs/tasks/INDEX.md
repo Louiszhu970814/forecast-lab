@@ -1,5 +1,9 @@
 # `docs/tasks/` 任務與規格文件索引
 
+- [正式營運後的輪詢與參賽擴張](NEXT-STEPS-2026-11-05.md)：**D139 已交付啟用**；三步已獲直接啟用授權，實際交付見 [D139](D139-EXPANSION.md)；候選賽與官方 CLI 諮詢證據。
+
+- [2026-11-05 三方清理盤點](CLEANUP-AUDIT-2026-11-05.md)：**REVIEW ONLY**，現在可清／條件滿足後清／保留清單；該輪僅盤點；A 類實作進度見 D136，含測試環境漂移與兩家補審限制。
+
 > 本索引供 AI 協作者快速判別各任務文件的生效狀態（`ACTIVE` / `SUPERSEDED` / `CLOSED`），避免審查或開發時誤讀已取代的過渡規格。
 > 唯一真實規格來源仍為 [`PLAN.md`](../../PLAN.md)。
 
@@ -7,11 +11,20 @@
 
 | 檔案 | 對應決策 | 說明 |
 |---|---|---|
+| [`D144-DEVELOPMENT-CATALOGS.md`](D144-DEVELOPMENT-CATALOGS.md) | D144 | 日常開發目錄內容變更不再停線、當日漏交／缺線盤點與部署證據 |
+| [`D140-AUTO-RECOVERY.md`](D140-AUTO-RECOVERY.md) | D140 | **COMPLETE（已部署／啟用）**：Gemini自動恢復，3道待補Market題皆forecast_ok／comment_ok；正式累計25題 |
+| [`D139-EXPANSION.md`](D139-EXPANSION.md) | D139 | **ACTIVE（已啟用）**：30分鐘搜尋、人類手動入口、Market Pulse；實際交付與提交狀態見任務單 |
+| [`D138-DATA-CLEANUP.md`](D138-DATA-CLEANUP.md) | D138 | **ACTIVE（本批已交付）**：data 約 1.79 GB → 1.02 GB；雙審、無損封存與還原入口 |
+| [`D137-MAIN-LAUNCH.md`](D137-MAIN-LAUNCH.md) | D137 | **ACTIVE（主賽已啟用）**：有限主賽、保留用量接續與實際啟動證據 |
+| [`D136-CLEANUP-BATCH1.md`](D136-CLEANUP-BATCH1.md) | D136 | **ACTIVE（本批已交付）**：文件／測試隔離與小範圍 dead code 清理；交付驗證見任務單，B 類仍延後 |
+| [`D135-QUALITY-REPAIR.md`](D135-QUALITY-REPAIR.md) | D135 | 已部署；研究提示詞候選未啟用 |
+| [`D133-CLOSED-PRACTICE.md`](D133-CLOSED-PRACTICE.md) | D133 | **ACTIVE（手動入口生效；工程／雙審已完成，新題受權限限制）**：79專項／205相關／6部署故障測試，108遮蔽候選／0新呼叫；既有10題健檢；該輪主賽未啟用，後續已依D137啟用 |
+| [`D132-CUP-ADVISORY.md`](D132-CUP-ADVISORY.md) | D132／D134 | **兩題已完成**：人類賽參考入口、共用預算與安全記帳、雙審及操作證據；已新增英文報告與 Gemini 最後留言，不自動重跑 |
 | [`D130-THREE-LINE-REPAIR.md`](D130-THREE-LINE-REPAIR.md) | D130／D131 | **ACTIVE** 三線已恢復；固定CLI版本、三天更新節奏及外掛接受／驗收證據 |
-| [`M4-RESOLVE-SCORE.md`](M4-RESOLVE-SCORE.md) | D126 階段 B／D127／D129 | **ACTIVE（手動入口已上線）**：r1～r6 修補與雙審紀錄、操作指令、P1～P4 已由D129完成；首題實戰結算待台北 11/06 21:00 |
+| [`M4-RESOLVE-SCORE.md`](M4-RESOLVE-SCORE.md) | D126 階段 B／D127／D129 | **ACTIVE（手動入口已上線）**：r1～r6 修補與雙審紀錄、操作指令、P1～P4 已由D129完成；正式批次最早預定結算台北 11/13 20:00（D132 校正；舊 11/06 為開發安排） |
 | [`D128-LIVE-ITT.md`](D128-LIVE-ITT.md) | D128 | **已事前登記**固定live母體，D129已實作診斷；完整捕捉限制保留 |
 | [`D129-ITT-IMPLEMENTATION.md`](D129-ITT-IMPLEMENTATION.md) | D129 | **已上線** resolve_v2／score_v2、P1～P4與live ITT診斷，雙審／驗證／後續工作 |
-| [`HANDOFF.md`](HANDOFF.md) | D118～D131 | **現行唯一交接入口**（含加速迭代窗口與階段 A～D 計畫表） |
+| [`HANDOFF.md`](HANDOFF.md) | D118～D136 | **現行唯一交接入口**（D134 英文報告與D133工程交付已完成；含加速迭代窗口；原階段 A～D 表保留為歷史，新順序見 D136） |
 | [`MINIBENCH-EARLY-D118.md`](MINIBENCH-EARLY-D118.md) | D118 | 現行 MiniBench live 窗口授權（`continuous_v9` + `budget_handoff_v1`，至 UTC 2026-11-10 04:00） |
 | [`D125-CODEX-AUTOLOAD-COMPATIBILITY.md`](D125-CODEX-AUTOLOAD-COMPATIBILITY.md) | D125 | `autoload_v3` Codex tier1 載入量測相容性規格（已部署） |
 | [`D124-BATCH2-OPERATIONS.md`](D124-BATCH2-OPERATIONS.md) | D124 | D124 維護模式（`autoload_maintenance_v1`）與 `auto_reaccept_v1` **observe** 模式操作紀錄 |

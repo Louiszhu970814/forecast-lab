@@ -1,0 +1,54 @@
+{
+  "decision": "D133",
+  "versions": {
+    "practice": "closed_practice_v1",
+    "external_usage": "external_usage_v1",
+    "budget": "budget_v9",
+    "forecast": "forecast_pipeline_v10"
+  },
+  "final_review_round": "r4",
+  "source_sha256": {
+    "src/practice.py": "6ef4f14c0251098bdcb33225c974320123494c49b571c40d5b94aa17a8cc2468",
+    "src/flab/practice_contract.py": "aece3da3f3fcb96a5de46e2690ed55a79b2323d271ad09b939657c6d1da4339f",
+    "src/flab/external_usage.py": "1d16f8e6cc8afbf11475bfad9bbac676541cf920402f9ce23ae929946e4af1cf",
+    "src/budget.py": "10af6eafe08aefaa609a19666fa159af15d4bdb56ded5639668d53c66a2b7c7e",
+    "src/forecast.py": "42c34016fc2eb03d3502f68b986fd6883372f6aa2052f207e7a8e45cd5fa436b",
+    "tests/test_practice.py": "d3c0d2e6fc94fd967e22c931a2ce92759053dff5c3092a3e48fce3fd39310924"
+  },
+  "official_review_evidence": {
+    "claude": {
+      "path": "/Users/ucchengg/forecast-lab/data/operations/d133-closed-practice-20261104/claude-r4/answer.md",
+      "sha256": "a5d704fc14570b5940d7acd8083e7a01b874e4bd6b49d167b9bd97efa5a44407"
+    },
+    "gemini": {
+      "path": "/Users/ucchengg/forecast-lab/data/operations/d133-closed-practice-20261104/gemini-r4/answer.md",
+      "sha256": "5458f4bbf2cc83488f434eef546fd9a2aba53b1387af0a1c81b73e5ae0095b64"
+    }
+  },
+  "review_packet_sha256": "0adf3c0fb4b709ffd9628c068cdef2154969211b281d27c14681d0620dd2f554",
+  "deployed_at": "2026-11-04T17:28:20.665Z",
+  "deployed_sha256": {
+    "src/practice.py": "6ef4f14c0251098bdcb33225c974320123494c49b571c40d5b94aa17a8cc2468",
+    "src/flab/practice_contract.py": "aece3da3f3fcb96a5de46e2690ed55a79b2323d271ad09b939657c6d1da4339f",
+    "src/flab/external_usage.py": "1d16f8e6cc8afbf11475bfad9bbac676541cf920402f9ce23ae929946e4af1cf",
+    "src/budget.py": "10af6eafe08aefaa609a19666fa159af15d4bdb56ded5639668d53c66a2b7c7e",
+    "src/forecast.py": "42c34016fc2eb03d3502f68b986fd6883372f6aa2052f207e7a8e45cd5fa436b",
+    "tests/test_practice.py": "d3c0d2e6fc94fd967e22c931a2ce92759053dff5c3092a3e48fce3fd39310924"
+  },
+  "protected_files_unchanged": 103,
+  "preflight_before_count": 6,
+  "preflight_after_count": 6,
+  "all_ok_no_waivers_no_line_guards": true,
+  "test_comparison": {
+    "baseline": "3134 passed / 100 failed",
+    "candidate": "3213 passed / 100 failed",
+    "same_failure_nodes": true,
+    "same_failure_summaries": true,
+    "new_practice_tests": 79,
+    "related_tests": 205,
+    "deployment_fault_tests": 6
+  },
+  "runtime_preserved_before_apply": 105,
+  "main_tournament_enabled": false,
+  "committed": false
+}

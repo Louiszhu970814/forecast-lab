@@ -487,9 +487,9 @@ def diff_scheduler(before: dict[str, Any], after: dict[str, Any]) -> list[dict[s
 
 def baseline_content_changes(before: dict[str, Any], after: dict[str, Any]) -> list[dict[str, Any]]:
     """Auto-loaded sources whose content changed between two snapshots (blockers are ignored here)."""
-    res = baseline.compare(before, after)
+    res = baseline.compare(before, after, catalog_drift=False)
     return [c for c in res["changes"] if c["category"] == baseline.CONTENT
-            and c["what"] in ("content changed", "source added or removed from inventory")]
+            and c["what"] in ("content changed", "source added or removed from inventory", "source definition changed")]
 
 
 # ---------------------------------------------------------------- codex declaration

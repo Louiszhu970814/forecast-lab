@@ -1,0 +1,483 @@
+{
+  "status": "active",
+  "at": "2026-11-05T05:57:07.361Z",
+  "validation": {
+    "full_test_count": 3454,
+    "passing_logs": {
+      "offline-tests-r2-final.txt": 3454,
+      "full-tests-r2-final.txt": 3454,
+      "deployment-fault-tests-r2-final.txt": 29,
+      "split-gate-tests-r2.txt": 18
+    }
+  },
+  "preflight_before": [
+    {
+      "player": "claude",
+      "tier": 1,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793802906153_9ce65180",
+      "production_record_id": "acc_1793529463945_ced0ca65",
+      "cli_version": "2.1.316",
+      "line_guard": null
+    },
+    {
+      "player": "claude",
+      "tier": 2,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793802906153_9ce65180",
+      "production_record_id": "acc_1793529642642_fba87085",
+      "cli_version": "2.1.316",
+      "line_guard": null
+    },
+    {
+      "player": "gemini",
+      "tier": 1,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793802323516_b0387ed0",
+      "production_record_id": "acc_1793537753400_66af4ff6",
+      "cli_version": "1.4.12",
+      "line_guard": null
+    },
+    {
+      "player": "gemini",
+      "tier": 2,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793802323516_b0387ed0",
+      "production_record_id": "acc_1793537992394_7d15d846",
+      "cli_version": "1.4.12",
+      "line_guard": null
+    },
+    {
+      "player": "gpt",
+      "tier": 1,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793803102170_aa565e83",
+      "production_record_id": "acc_1793529560992_5eb64938",
+      "cli_version": "0.166.0",
+      "line_guard": null
+    },
+    {
+      "player": "gpt",
+      "tier": 2,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793803102170_aa565e83",
+      "production_record_id": "acc_1793529742498_10cd7eab",
+      "cli_version": "0.166.0",
+      "line_guard": null
+    }
+  ],
+  "preflight_after": [
+    {
+      "player": "claude",
+      "tier": 1,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793802906153_9ce65180",
+      "production_record_id": "acc_1793529463945_ced0ca65",
+      "cli_version": "2.1.316",
+      "line_guard": null
+    },
+    {
+      "player": "claude",
+      "tier": 2,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793802906153_9ce65180",
+      "production_record_id": "acc_1793529642642_fba87085",
+      "cli_version": "2.1.316",
+      "line_guard": null
+    },
+    {
+      "player": "gemini",
+      "tier": 1,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793802323516_b0387ed0",
+      "production_record_id": "acc_1793537753400_66af4ff6",
+      "cli_version": "1.4.12",
+      "line_guard": null
+    },
+    {
+      "player": "gemini",
+      "tier": 2,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793802323516_b0387ed0",
+      "production_record_id": "acc_1793537992394_7d15d846",
+      "cli_version": "1.4.12",
+      "line_guard": null
+    },
+    {
+      "player": "gpt",
+      "tier": 1,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793803102170_aa565e83",
+      "production_record_id": "acc_1793529560992_5eb64938",
+      "cli_version": "0.166.0",
+      "line_guard": null
+    },
+    {
+      "player": "gpt",
+      "tier": 2,
+      "ok": true,
+      "problems": [],
+      "waivers": [],
+      "acceptance_record_id": "acc_1793803102170_aa565e83",
+      "production_record_id": "acc_1793529742498_10cd7eab",
+      "cli_version": "0.166.0",
+      "line_guard": null
+    }
+  ],
+  "budget_replay": {
+    "at": "2026-11-05T05:19:13.849Z",
+    "source": "metadata projections; no prediction text/values",
+    "same_allowance_and_admission": true,
+    "results": [
+      {
+        "player": "claude",
+        "tier": 1,
+        "before": {
+          "allowed": true,
+          "reason": null,
+          "weekly_attempts_used": 28,
+          "weekly_attempt_cap": 130,
+          "protected_attempts": 0,
+          "accounting_start": "2026-11-02T13:03:00.000Z"
+        },
+        "after": {
+          "allowed": true,
+          "reason": null,
+          "weekly_attempts_used": 28,
+          "weekly_attempt_cap": 130,
+          "protected_attempts": 0,
+          "accounting_start": "2026-11-02T13:03:00.000Z"
+        }
+      },
+      {
+        "player": "claude",
+        "tier": 2,
+        "before": {
+          "allowed": true,
+          "reason": null,
+          "weekly_attempts_used": 28,
+          "weekly_attempt_cap": 130,
+          "protected_attempts": 12,
+          "accounting_start": "2026-11-02T13:03:00.000Z"
+        },
+        "after": {
+          "allowed": true,
+          "reason": null,
+          "weekly_attempts_used": 28,
+          "weekly_attempt_cap": 130,
+          "protected_attempts": 12,
+          "accounting_start": "2026-11-02T13:03:00.000Z"
+        }
+      },
+      {
+        "player": "gemini",
+        "tier": 1,
+        "before": {
+          "allowed": true,
+          "reason": null,
+          "weekly_attempts_used": 27,
+          "weekly_attempt_cap": 200,
+          "protected_attempts": 0,
+          "accounting_start": "2026-11-02T13:03:00.000Z"
+        },
+        "after": {
+          "allowed": true,
+          "reason": null,
+          "weekly_attempts_used": 27,
+          "weekly_attempt_cap": 200,
+          "protected_attempts": 0,
+          "accounting_start": "2026-11-02T13:03:00.000Z"
+        }
+      },
+      {
+        "player": "gemini",
+        "tier": 2,
+        "before": {
+          "allowed": true,
+          "reason": null,
+          "weekly_attempts_used": 27,
+          "weekly_attempt_cap": 200,
+          "protected_attempts": 12,
+          "accounting_start": "2026-11-02T13:03:00.000Z"
+        },
+        "after": {
+          "allowed": true,
+          "reason": null,
+          "weekly_attempts_used": 27,
+          "weekly_attempt_cap": 200,
+          "protected_attempts": 12,
+          "accounting_start": "2026-11-02T13:03:00.000Z"
+        }
+      },
+      {
+        "player": "gpt",
+        "tier": 1,
+        "before": {
+          "allowed": true,
+          "reason": null,
+          "weekly_attempts_used": 26,
+          "weekly_attempt_cap": 130,
+          "protected_attempts": 0,
+          "accounting_start": "2026-11-02T13:03:00.000Z"
+        },
+        "after": {
+          "allowed": true,
+          "reason": null,
+          "weekly_attempts_used": 26,
+          "weekly_attempt_cap": 130,
+          "protected_attempts": 0,
+          "accounting_start": "2026-11-02T13:03:00.000Z"
+        }
+      },
+      {
+        "player": "gpt",
+        "tier": 2,
+        "before": {
+          "allowed": true,
+          "reason": null,
+          "weekly_attempts_used": 26,
+          "weekly_attempt_cap": 130,
+          "protected_attempts": 12,
+          "accounting_start": "2026-11-02T13:03:00.000Z"
+        },
+        "after": {
+          "allowed": true,
+          "reason": null,
+          "weekly_attempts_used": 26,
+          "weekly_attempt_cap": 130,
+          "protected_attempts": 12,
+          "accounting_start": "2026-11-02T13:03:00.000Z"
+        }
+      }
+    ],
+    "real_model_predictions": 0,
+    "POST": 0
+  },
+  "human_entrypoint": {
+    "type": "human_entrypoint_verified",
+    "at": "2026-11-05T05:57:23.341Z",
+    "open_posts": 30,
+    "open_child_questions": 30,
+    "model_calls": 0,
+    "submissions": 0
+  },
+  "observation": {
+    "at": "2026-11-05T06:09:04.009Z",
+    "activation_at": "2026-11-05T05:57:07.361Z",
+    "mode": "live",
+    "campaign_id": "d139_main_minibench_market_20261105",
+    "candidate_active": true,
+    "stop_submit": false,
+    "end": "2026-11-10T04:00:00.000Z",
+    "caps": {
+      "claude": 130,
+      "gemini": 200,
+      "gpt": 130
+    },
+    "latest_cycle": {
+      "cycle_id": "cycle_1793857716741_7b7de72e",
+      "started_at": "2026-11-05T05:48:36.734Z",
+      "finished_at": "2026-11-05T05:48:36.967Z",
+      "status": "overlap_skipped",
+      "active_step": null,
+      "steps": {
+        "lock": {
+          "status": "busy"
+        },
+        "switches": {
+          "status": "skipped"
+        },
+        "policy": {
+          "status": "skipped"
+        },
+        "poll": {
+          "status": "skipped"
+        },
+        "queue": {
+          "status": "skipped"
+        },
+        "preflight": {
+          "status": "skipped"
+        },
+        "scheduler": {
+          "status": "skipped"
+        },
+        "publish": {
+          "status": "skipped"
+        },
+        "submit": {
+          "status": "skipped"
+        },
+        "on_finalized": {
+          "status": "ok",
+          "count": 0
+        }
+      },
+      "errors": [],
+      "new_question_count": 0,
+      "players": {}
+    },
+    "latest_progress": {
+      "cycle_id": "cycle_1793858232054_c7d17465",
+      "started_at": "2026-11-05T05:57:12.051Z",
+      "finished_at": null,
+      "status": null,
+      "active_step": "submit",
+      "steps": {
+        "lock": {
+          "status": "ok"
+        },
+        "switches": {
+          "status": "ok"
+        },
+        "policy": {
+          "status": "ok"
+        },
+        "poll": {
+          "status": "ok"
+        },
+        "queue": {
+          "status": "ok"
+        },
+        "preflight": {
+          "status": "ok"
+        },
+        "scheduler": {},
+        "publish": {
+          "status": "ok"
+        },
+        "submit": {
+          "status": "pending"
+        },
+        "on_finalized": {
+          "status": "ok",
+          "count": 1
+        }
+      },
+      "errors": [],
+      "new_question_count": 13,
+      "players": {
+        "claude": {
+          "status": "ready",
+          "reason": null
+        },
+        "gemini": {
+          "status": "ready",
+          "reason": null
+        },
+        "gpt": {
+          "status": "stopped_waiting",
+          "reason": "cycle time limit"
+        }
+      }
+    },
+    "discovery": {
+      "at": "2026-11-05T05:57:12.263Z",
+      "interval_s": 1800,
+      "next_discovery_at": "2026-11-05T06:27:12.263Z",
+      "shortening_reasons": [],
+      "actual_discovery_gap_s": null
+    },
+    "known_counts": {
+      "main": 1,
+      "market_pulse": 13
+    },
+    "new_starts_by_player": {
+      "gpt": 2,
+      "claude": 3,
+      "gemini": 2
+    },
+    "market_starts_by_player": {
+      "gpt": 2,
+      "claude": 3,
+      "gemini": 2
+    },
+    "market_attempt_statuses": {
+      "valid:None": 7
+    },
+    "submission_statuses": {
+      "rejected_precheck": 1,
+      "intent": 1,
+      "request_started": 2,
+      "unknown": 1,
+      "forecast_ok": 1,
+      "comment_ok": 1
+    },
+    "market_submission_statuses": {
+      "rejected_precheck": 1,
+      "intent": 1,
+      "request_started": 2,
+      "unknown": 1,
+      "forecast_ok": 1,
+      "comment_ok": 1
+    },
+    "market_receipt_metadata": [
+      {
+        "at": "2026-11-05T06:06:04.681Z",
+        "intent_id": "intent_1793858747158_211c6854",
+        "question_id": 46208,
+        "post_id": 46008,
+        "status": "unknown",
+        "request_id": "request_1793858760376_a9045a39"
+      },
+      {
+        "at": "2026-11-05T06:08:41.669Z",
+        "intent_id": "intent_1793858747158_211c6854",
+        "question_id": 46208,
+        "post_id": 46008,
+        "status": "forecast_ok",
+        "request_id": "request_1793858760376_a9045a39"
+      },
+      {
+        "at": "2026-11-05T06:08:49.852Z",
+        "intent_id": "intent_1793858747158_211c6854",
+        "question_id": 46208,
+        "post_id": 46008,
+        "status": "comment_ok",
+        "request_id": "request_1793858925844_b36a9a3b"
+      }
+    ],
+    "live_schedule": [
+      {
+        "at": "2026-11-05T05:48:36.734Z",
+        "status": "active",
+        "campaign_id": "d137_main_minibench_20261105",
+        "start": "2026-11-05T01:49:59.950Z",
+        "end": "2026-11-10T04:00:00.000Z"
+      },
+      {
+        "at": "2026-11-05T05:57:12.051Z",
+        "status": "active",
+        "campaign_id": "d139_main_minibench_market_20261105",
+        "start": "2026-11-05T05:14:00.869Z",
+        "end": "2026-11-10T04:00:00.000Z"
+      }
+    ]
+  },
+  "commit_or_push": false,
+  "M3_complete": false,
+  "M4_complete": false,
+  "full_ITT_claim": false
+}

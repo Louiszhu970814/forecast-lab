@@ -37,7 +37,10 @@ def post(qid, kind="binary", minutes=180):
 
 
 @pytest.fixture
-def main_api(fake_api, monkeypatch, tmp_path):
+def main_api(fake_api, monkeypatch, tmp_path, request, question_type_flags):
+    numeric_enabled = getattr(request, "param", False)
+    question_type_flags(numeric_enabled)
+    expected_types = "binary,multiple_choice,numeric,discrete" if numeric_enabled else "binary,multiple_choice"
     client, cfg = fake_api
     cfg["trial_ground_types"].append("main_site_questions")
     cfg["tournaments"]["main_site_questions"] = {"id": SITE, "submit_whitelisted": False}
@@ -55,7 +58,7 @@ def main_api(fake_api, monkeypatch, tmp_path):
         if path != "posts/":
             return original_get(path)
         assert params == {"main_feed": "true", "statuses": "open",
-                          "forecast_type": "binary,multiple_choice", "limit": 50, "offset": 0,
+                          "forecast_type": expected_types, "limit": 50, "offset": 0,
                           "include_description": "true"}
         client.feed_calls.append(0)
         return page(0)
@@ -404,3 +407,10 @@ def test_bad_next_url_at_page_limit_is_rejected_without_fetch(main_api, tmp_path
         run(campaign(1, 1))
     assert not read_complete(tmp_path / LEDGER)
     assert not read_complete(tmp_path / "questions.jsonl")
+
+
+@pytest.mark.parametrize("main_api", [False, True], indirect=True)
+def test_main_feed_query_obeys_explicit_type_rollout(main_api):
+    client, run = main_api
+    assert run()
+    assert client.feed_calls == [0]  # Fake API asserts the exact requested type set.

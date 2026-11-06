@@ -181,7 +181,8 @@ def test_shared_official_discovery_includes_all_current_minibenches(fault):
             Q.current_tournaments(Client(), configured=static, now=lambda: NOW)
     else:
         cfg = Q.current_tournaments(Client(), configured=static, now=lambda: NOW)
-        assert cfg['excluded_project_ids'] == [33121, 33122, 33123]
+        assert cfg['excluded_project_ids'] == sorted({33121,33122,33123} |
+            ({static['tournaments']['market_pulse']['id']} if 'market_pulse' in static['tournaments'] else set()))
         assert cfg['tournaments']['metaculus_cup']['id'] == 33108
         assert cfg['tournaments']['main_site_questions']['id'] == 144
     assert static == original

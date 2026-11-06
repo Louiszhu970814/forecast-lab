@@ -18,7 +18,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple
 
-VERSION = "post_close_audit_v1"
+VERSION = "post_close_audit_v3"
 
 _SRC_DIR = Path(__file__).resolve().parent
 _REPO_ROOT = _SRC_DIR.parent
@@ -39,7 +39,8 @@ REQUIRED_LEDGERS = (
     "submissions.jsonl",
     "question_queue.jsonl",
 )
-OPTIONAL_LEDGERS = ("forecast_attempt_starts.jsonl", "submission_readbacks.jsonl")
+OPTIONAL_LEDGERS = ("forecast_attempt_starts.jsonl", "submission_readbacks.jsonl",
+                    "scheduler_jobs.jsonl", "audits.jsonl", "cycles.jsonl")
 
 CLOSED_STATUSES = {"closed", "resolved"}
 TERMINAL_INTENT_STATUSES = {"comment_ok", "dry_run", "forecast_failed", "comment_failed"}
@@ -407,12 +408,11 @@ def _tier_view(row: Optional[Dict[str, Any]]) -> Optional[Dict[str, Any]]:
         "reasoning_summary": row.get("reasoning_summary") or row.get("summary"),
         "key_factors": _as_list(row.get("key_factors")),
         "audit_flags": _as_list(row.get("audit_flags")),
+        "sources": _as_list(row.get("sources")),
+        "validation_status": row.get("validation_status"),
+        "error_type": row.get("error_type"),
     }
 
-
-def _spread(values: List[Optional[float]]) -> Optional[float]:
-    nums = [v for v in values if v is not None]
-    return round(max(nums) - min(nums), 6) if len(nums) >= 2 else None
 
 
 def _build_diagnostics(qid: Any, ledgers: Dict[str, List[Dict[str, Any]]], snapshot: Optional[Dict[str, Any]],
@@ -423,21 +423,23 @@ def _build_diagnostics(qid: Any, ledgers: Dict[str, List[Dict[str, Any]]], snaps
         r_snap = r.get("question_snapshot_id") if r.get("question_snapshot_id") is not None else r.get("snapshot_id")
         return snap_id is None or r_snap is None or _same_id(r_snap, snap_id)
 
-    forecasts = [r for r in _rows_for(ledgers["forecasts.jsonl"], qid)
-                 if r.get("validation_status") == "valid" and bound(r)]
+    all_attempts = [r for r in _rows_for(ledgers["forecasts.jsonl"], qid) if bound(r)]
+    forecasts = [r for r in all_attempts if r.get("validation_status") == "valid"]
     aggregates = [r for r in _rows_for(ledgers["aggregates.jsonl"], qid) if bound(r)]
     latest_agg = aggregates[-1] if aggregates else None
 
+    from flab import health_diagnostics as H
+    selected_ids = set((latest_agg or {}).get("input_attempt_ids") or [])
     per_player: Dict[str, Dict[int, Dict[str, Any]]] = {}
     for r in forecasts:
         p = _player(r)
         if p is not None:
-            per_player.setdefault(p, {})[_tier(r)] = r  # last row wins
+            tiers = per_player.setdefault(p, {})
+            if _tier(r) not in tiers or r.get("attempt_id") in selected_ids:
+                tiers[_tier(r)] = r  # frozen aggregate input, otherwise first valid; never last wins
 
     players: Dict[str, Any] = {}
     warnings: List[str] = []
-    t1_vals: List[Optional[float]] = []
-    t2_vals: List[Optional[float]] = []
     for p in sorted(per_player):
         t1, t2 = per_player[p].get(1), per_player[p].get(2)
         v1, v2 = _tier_view(t1), _tier_view(t2)
@@ -447,19 +449,9 @@ def _build_diagnostics(qid: Any, ledgers: Dict[str, List[Dict[str, Any]]], snaps
                 v2["changed_from_tier1"] = abs(a - b) > 1e-9
         players[p] = {"tier1": v1, "tier2": v2}
         has_any_t2 = any(per_player[op].get(2) is not None for op in per_player)
-        expect_t2 = has_any_t2 or bool(latest_agg and latest_agg.get("expected_players"))
+        expect_t2 = has_any_t2  # expected_players alone does not prove tier 2 was requested
         if t1 is None or (t2 is None and expect_t2):
             warnings.append(f"missing_player:{p}")
-        def _val(row):
-            if not row:
-                return None
-            prob = _num(row.get("probability"))
-            if prob is not None:
-                return prob
-            pct = row.get("percentiles")
-            return _num(pct.get("p50")) if isinstance(pct, dict) else None
-        t1_vals.append(_val(t1))
-        t2_vals.append(_val(t2))
         for view in (v1, v2):
             for flag in (view or {}).get("audit_flags", []):
                 warnings.append(f"audit_flag:{flag}")
@@ -475,10 +467,24 @@ def _build_diagnostics(qid: Any, ledgers: Dict[str, List[Dict[str, Any]]], snaps
             if isinstance(p, str):
                 warnings.append(f"missing_player:{p}")
 
-    tier1_spread, tier2_spread = _spread(t1_vals), _spread(t2_vals)
-    for sp in (tier2_spread if tier2_spread is not None else tier1_spread,):
-        if sp is not None and sp > HIGH_DISPERSION_THRESHOLD:
-            warnings.append(f"high_dispersion:{sp:.3f}")
+    distances = {str(t):H.dispersion(snapshot or {}, [rs[t] for rs in per_player.values() if t in rs]) for t in (1,2)}
+    # Legacy spread fields now only carry probability units; numeric gaps are explicitly typed.
+    tier1_spread, tier2_spread = (distances[str(t)]["value"] if distances[str(t)]["unit"] == "probability" else None for t in (1,2))
+    final_distance = distances["2"] if distances["2"]["n"] >= 2 else distances["1"]
+    if final_distance["high"]:
+        warnings.append(f"high_dispersion:{final_distance['value']:.3f}")
+    jobs = [r for r in _rows_for(ledgers["scheduler_jobs.jsonl"], qid) if bound(r)]
+    starts = [r for r in _rows_for(ledgers["forecast_attempt_starts.jsonl"], qid) if bound(r)]
+    expected = {p for p in [*per_player, *(_player(r) for r in all_attempts), *(_player(r) for r in jobs),
+                            *_as_list((latest_agg or {}).get("expected_players")),
+                            *_as_list((latest_agg or {}).get("missing_players"))] if isinstance(p,str)}
+    cycles = [r for r in ledgers["cycles.jsonl"] if any(_same_id(qid, x)
+              for key in ("new_question_ids", "revised_question_ids")
+              for x in (r[key] if isinstance(r.get(key), list) else []))]
+    expected.update(p for r in cycles for p in (r.get("players") or {}) if isinstance(p, str))
+    coverage = H.lifecycle(expected, all_attempts, starts, jobs, latest_agg, cycles)
+    evidence = H.exposure(all_attempts, _rows_for(ledgers["audits.jsonl"], qid))
+    quality = {p:H.research(rs.get(2) or rs.get(1), snapshot or {}) for p,rs in per_player.items()}
 
     intents = []
     submitted = False
@@ -510,6 +516,8 @@ def _build_diagnostics(qid: Any, ledgers: Dict[str, List[Dict[str, Any]]], snaps
         "players": players,
         "tier1_spread": tier1_spread,
         "tier2_spread": tier2_spread,
+        "dispersion": distances, "line_coverage": coverage, "exposure_evidence": evidence,
+        "research_quality": quality, "diagnostic_version": H.VERSION,
         "submission_summary": {"intent_count": len(intents), "submitted": submitted, "intents": intents},
         "health_warnings": sorted(set(warnings)),
     }
@@ -537,6 +545,14 @@ def _evaluate_question(qid: Any, *, data_dir: Path, fetch_post: Optional[FetchPo
     ledgers, errors = _load_ledgers(data_dir)
     snapshot = _latest_snapshot(ledgers["questions.jsonl"], qid)
 
+    if isinstance(snapshot, dict) and snapshot.get('post_type') == 'group_of_questions' and post is not None:
+        from question_mapping import select_question
+        try:
+            post = select_question(post, qid, allow_groups=True)
+            if post['_group_mapping']['group_id'] != snapshot.get('group_id'):
+                raise ValueError('group identity changed')
+        except (ValueError, KeyError):
+            post, fetch_error = None, 'group_mapping_unverified'
     g1, r1, g1_info = _gate1(post, snapshot, now_dt, min_closed_minutes, fetch_error)
     g2, r2, by_intent = _gate2(qid, ledgers, errors, changed)
     g3, r3 = _gate3(qid, ledgers, errors, snapshot)
@@ -668,6 +684,9 @@ def render_markdown(report: Dict[str, Any]) -> str:
                        f"status={_fmt(agg['status'])} p={_fmt(agg['probability'])} "
                        f"options={_fmt(agg['option_probabilities'])} inputs={_fmt(agg['input_attempt_ids'])}")
         out.append(f"- Tier1 spread: {_fmt(d['tier1_spread'])}  |  Tier2 spread: {_fmt(d['tier2_spread'])}")
+        for tier, dist in d.get("dispersion", {}).items():
+            out.append(f"- Tier {tier} typed dispersion: {_fmt(dist)}")
+        out.append("- Dispersion measures disagreement, not accuracy. Numeric medians use actual units; no probability threshold applies.")
         ss = d["submission_summary"]
         out.append(f"- Submissions: {ss['intent_count']} intent(s), submitted={ss['submitted']}")
         out += ["", "| player | T1 p | T2 p | changed | change_reason | base_rate | market_refs | flags |",
@@ -684,6 +703,19 @@ def render_markdown(report: Dict[str, Any]) -> str:
             if fin.get("reasoning_summary") or fin.get("key_factors"):
                 out.append(f"- **{_fmt(p)}**: {_fmt(fin.get('reasoning_summary'))} "
                            f"(key factors: {_fmt(fin.get('key_factors') or None)})")
+        if d.get("line_coverage"):
+            out += ["", "### Line coverage and recorded causes", "", "| player | tier | state | attempts | outcome / scheduler evidence |", "|---|---|---|---|---|"]
+            for player, tiers in d["line_coverage"].items():
+                for tier, state in tiers.items():
+                    out.append(f"| {_fmt(player)} | {tier} | {_fmt(state['state'])} | {state['attempts']} | "
+                               f"{_fmt(state['outcomes'])}; {_fmt(state['scheduler_evidence'])}; {_fmt(state['cycle_observations'])} |")
+        if d.get("exposure_evidence"):
+            out += ["", "### Exposure evidence (original flags retained)", "", _fmt(d["exposure_evidence"])]
+        if d.get("research_quality"):
+            out += ["", "### Research provenance to verify", "",
+                    "Source links and empirical-looking prose are not independent verification. Event/publication times are not inferred from platform resolution dates."]
+            for player, evidence in d["research_quality"].items():
+                out.append(f"- **{_fmt(player)}**: {_fmt(evidence)}")
         if d["health_warnings"]:
             out += ["", "**Health warnings:** " + ", ".join(f"`{w}`" for w in d["health_warnings"])]
     return "\n".join(out) + "\n"

@@ -81,27 +81,27 @@ def test_forbidden_paths_are_never_opened(tmp_path: Path, monkeypatch: pytest.Mo
     assert _decisions(snap, snap) == {"claude": "ok", "gemini": "ok", "gpt": "stop"}
 
 
-def test_no_change_is_ok_and_content_change_stops_that_line(tmp_path: Path) -> None:
+def test_skill_changes_are_recorded_without_stopping(tmp_path: Path) -> None:
     home = _make_home(tmp_path)
     (home / ".claude" / "skills" / "mine").mkdir()
     (home / ".claude" / "skills" / "mine" / "SKILL.md").write_text("skill v1")
     a = _snap(home, tmp_path)
     assert _decisions(a, _snap(home, tmp_path)) == {"claude": "ok", "gemini": "ok", "gpt": "ok"}
-    # D123: the claude.ai-synced bucket is informational; personal skills remain content.
+    # D144: both synced and personal skill changes are recorded without pausing.
     (home / ".claude" / "skills" / "synced" / "SKILL.md").write_text("skill v2")
     assert _decisions(a, _snap(home, tmp_path)) == {"claude": "ok", "gemini": "ok", "gpt": "ok"}
     (home / ".claude" / "skills" / "mine" / "SKILL.md").write_text("skill v2")
-    assert _decisions(a, _snap(home, tmp_path)) == {"claude": "stop", "gemini": "ok", "gpt": "ok"}
+    assert _decisions(a, _snap(home, tmp_path)) == {"claude": "ok", "gemini": "ok", "gpt": "ok"}
 
 
 def test_plugin_cache_is_inventoried(tmp_path: Path) -> None:
     home = _make_home(tmp_path)
     a = _snap(home, tmp_path)
     (home / ".claude" / "plugins" / "cache" / "plugin.js").write_text("plugin v2")
-    assert _decisions(a, _snap(home, tmp_path))["claude"] == "stop"
+    assert _decisions(a, _snap(home, tmp_path))["claude"] == "ok"
 
 
-def test_marketplace_refresh_is_informational_but_marketplace_content_stops(tmp_path: Path) -> None:
+def test_marketplace_refresh_and_content_are_informational(tmp_path: Path) -> None:
     # claude 2.1.316 refreshed known_marketplaces.json (lastUpdated) and the plugin directory cache
     # during a real M2 forecast run; the marketplace files themselves did not change.
     home = _make_home(tmp_path)
@@ -120,15 +120,15 @@ def test_marketplace_refresh_is_informational_but_marketplace_content_stops(tmp_
     assert res["decisions"]["claude"] == "ok"
     assert sorted((c["source"], c["category"]) for c in res["changes"]) == [
         ("claude.marketplace_index", bl.INFORMATIONAL), ("claude.plugin_directory_cache", bl.INFORMATIONAL)]
-    # A new marketplace, a changed marketplace source, or changed marketplace files still stop the line.
+    # D144: marketplace/plugin content changes are informational; malformed inventory still stops.
     other = {**entry, "source": {"source": "github", "repo": "someone/else"}}
     for data in ({"official": entry, "new": other}, {"official": other}):
         index.write_text(json.dumps(data))
-        assert _decisions(a, _snap(home, tmp_path))["claude"] == "stop"
+        assert _decisions(a, _snap(home, tmp_path))["claude"] == "ok"
     index.write_text(json.dumps({"official": entry}))
     assert _decisions(a, _snap(home, tmp_path))["claude"] == "ok"
     (plugins / "marketplaces" / "official" / "plugin.json").write_text('{"name": "p", "hooks": "x"}')
-    assert _decisions(a, _snap(home, tmp_path))["claude"] == "stop"
+    assert _decisions(a, _snap(home, tmp_path))["claude"] == "ok"
 
 
 def test_marketplace_index_edge_cases_stay_conservative(tmp_path: Path) -> None:
@@ -138,16 +138,16 @@ def test_marketplace_index_edge_cases_stay_conservative(tmp_path: Path) -> None:
     index = plugins / "known_marketplaces.json"
     index.write_text(json.dumps({"official": {"source": "github", "lastUpdated": "1"}}))
     a = _snap(home, tmp_path)
-    # Empty, unparsable or malformed indexes stop the line; they are never read as "{}".
+    # Empty/unparsable indexes stop; parseable catalog shape changes stay informational.
     for bad in ("", "{not json", "[]", '{"official": "x"}'):
         index.write_text(bad)
-        assert _decisions(a, _snap(home, tmp_path))["claude"] == "stop", bad
+        assert _decisions(a, _snap(home, tmp_path))["claude"] == ("stop" if bad in ("", "{not json") else "ok"), bad
     index.write_text(json.dumps({"official": {"source": "github", "lastUpdated": "1"}}))
     assert _decisions(a, _snap(home, tmp_path))["claude"] == "ok"
     # Only the top-level files are excluded; a same-named file deeper in the tree is plugin content.
     nested = plugins / "marketplaces" / "official" / "known_marketplaces.json"
     nested.write_text("{}")
-    assert _decisions(a, _snap(home, tmp_path))["claude"] == "stop"
+    assert _decisions(a, _snap(home, tmp_path))["claude"] == "ok"
     nested.unlink()
     # The excluded paths must not become symlinks, and nothing may point into them.
     index.unlink()
@@ -170,7 +170,7 @@ def test_interrupted_index_refresh_temporaries_are_ignored_only_at_top_level(tmp
     (plugins / "plugin-directory-cache-v2.json.tmp.7a422f2e").write_text("{}")
     (plugins / "known_marketplaces.json.tmp.abc123").write_text("{}")
     assert _decisions(a, _snap(home, tmp_path))["claude"] == "ok"
-    # Anything else stops the line: deeper copies, other names, and symlinks that look like temporaries.
+    # Other readable content is still hashed; unsafe links remain blockers.
     assert _decisions(a, _snap(home, tmp_path))["claude"] == "ok"
     (plugins / ("plugin-directory-cache-v2.json.tmp." + "a" * 32)).write_text("{}")
     assert _decisions(a, _snap(home, tmp_path))["claude"] == "ok"
@@ -179,21 +179,21 @@ def test_interrupted_index_refresh_temporaries_are_ignored_only_at_top_level(tmp
                 plugins / "plugin-directory-cache-v2.json.tmp.", plugins / ("plugin-directory-cache-v2.json.tmp." + "a" * 33),
                 plugins / "plugin-directory-cache-v2.json.tmp.a\n", plugins / "plugin-directory-cache-v2.json.tmp.é"):
         bad.write_text("{}")
-        assert _decisions(a, _snap(home, tmp_path))["claude"] == "stop", bad.name
+        assert _decisions(a, _snap(home, tmp_path))["claude"] == "ok", bad.name
         bad.unlink()
     link = plugins / "plugin-directory-cache-v2.json.tmp.ln"
     link.symlink_to(plugins / "marketplaces" / "official")
     assert _decisions(a, _snap(home, tmp_path))["claude"] == "stop"
     link.unlink()
-    link.symlink_to(plugins / "plugin-directory-cache-v2.json.tmp.7a422f2e")  # symlink to a regular file
-    assert _decisions(a, _snap(home, tmp_path))["claude"] == "stop"
+    link.symlink_to(plugins / "plugin-directory-cache-v2.json.tmp.7a422f2e")  # safe internal regular file
+    assert _decisions(a, _snap(home, tmp_path))["claude"] == "ok"
     link.unlink()
     (plugins / "plugin-directory-cache-v2.json.tmp.dir").mkdir()  # same-named directory is walked
     (plugins / "plugin-directory-cache-v2.json.tmp.dir" / "x.js").write_text("x")
-    assert _decisions(a, _snap(home, tmp_path))["claude"] == "stop"
+    assert _decisions(a, _snap(home, tmp_path))["claude"] == "ok"
 
 
-def test_plugin_state_only_observed_run_keys_are_informational(tmp_path: Path) -> None:
+def test_readable_plugin_state_changes_are_informational(tmp_path: Path) -> None:
     # claude 2.1.316 rewrites usage-rows-queued in ~/.claude/plugins/store on every run (M1 acceptance).
     home = _make_home(tmp_path)
     store = home / ".claude" / "plugins" / "store"
@@ -207,10 +207,10 @@ def test_plugin_state_only_observed_run_keys_are_informational(tmp_path: Path) -
     for change in ('{"usage-rows-queued": "2", "open": true}',
                    '{"usage-rows-queued": "2", "open": false, "instructions": "x"}'):
         (store / "builtin.json").write_text(change)
-        assert _decisions(a, _snap(home, tmp_path))["claude"] == "stop"
+        assert _decisions(a, _snap(home, tmp_path))["claude"] == "ok"
     (store / "builtin.json").write_text('{"usage-rows-queued": "1", "open": false}')
     (store / "new.json").write_text("{}")
-    assert _decisions(a, _snap(home, tmp_path))["claude"] == "stop"
+    assert _decisions(a, _snap(home, tmp_path))["claude"] == "ok"
 
 
 def test_symlink_into_a_private_folder_is_unsafe(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -234,10 +234,10 @@ def test_files_with_sensitive_sounding_names_are_hashed_by_content(tmp_path: Pat
     a = _snap(home, tmp_path)
     assert _decisions(a, a)["gpt"] == "ok"
     helper.write_text("v2")
-    assert _decisions(a, _snap(home, tmp_path))["gpt"] == "stop"
+    assert _decisions(a, _snap(home, tmp_path))["gpt"] == "ok"
     hook = home / ".claude" / "plugins" / "cache" / "hooks-handlers" / "session-start.sh"
     hook.write_text("hook v2")
-    assert _decisions(a, _snap(home, tmp_path))["claude"] == "stop"
+    assert _decisions(a, _snap(home, tmp_path))["claude"] == "ok"
 
 
 def test_only_credential_and_conversation_names_are_left_unread(tmp_path: Path) -> None:
@@ -325,13 +325,37 @@ def test_codex_config_toml_is_informational_and_codex_home_is_respected(tmp_path
     assert srcs["codex.skills"] == "/opt/codexhome/skills"
 
 
-def test_version_change_reaccepts_and_unknown_version_stops(tmp_path: Path) -> None:
+def test_version_change_is_informational_and_unknown_version_stops(tmp_path: Path) -> None:
     home = _make_home(tmp_path)
     a = _snap(home, tmp_path)
     b = _snap(home, tmp_path, versions={**VERSIONS, "gemini": "1.4.13"})
-    assert _decisions(a, b) == {"claude": "ok", "gemini": "reaccept", "gpt": "ok"}
+    res = bl.compare(a.to_record(), b.to_record())
+    assert res["decisions"] == {"claude": "ok", "gemini": "ok", "gpt": "ok"}
+    assert any(c["source"] == "cli_version:gemini" and c["category"] == bl.INFORMATIONAL for c in res["changes"])
     c = _snap(home, tmp_path, versions={**VERSIONS, "gpt": None})
     assert _decisions(a, c)["gpt"] == "stop"
+
+
+def test_agy_general_settings_project_grants_and_shared_config_are_informational_while_content_keys_stop(tmp_path: Path) -> None:
+    home = _make_home(tmp_path)
+    (home / ".gemini" / "config" / "projects").mkdir(parents=True)
+    (home / ".gemini" / "config" / "projects" / "p1.json").write_text('{"trusted": true}')
+    (home / ".gemini" / "config" / "config.json").write_text('{"theme": "dark"}')
+    a = _snap(home, tmp_path)
+    (home / ".gemini" / "antigravity-cli" / "settings.json").write_text(
+        json.dumps({"agentMode": "plan", "model": "gemini-4-argon-high", "permissions": {"allow": ["command(git)"]}}))
+    (home / ".gemini" / "config" / "projects" / "p2.json").write_text('{"trusted": true}')
+    (home / ".gemini" / "config" / "config.json").write_text('{"theme": "light"}')
+    res = bl.compare(a.to_record(), _snap(home, tmp_path).to_record())
+    assert res["decisions"]["gemini"] == "ok"
+    assert {(c["source"], c["category"]) for c in res["changes"] if c["player"] == "gemini"} == {
+        ("agy.cli_settings", bl.INFORMATIONAL),
+        ("agy.project_grants", bl.INFORMATIONAL),
+        ("agy.shared_config", bl.INFORMATIONAL),
+    }
+    (home / ".gemini" / "antigravity-cli" / "settings.json").write_text(
+        json.dumps({"agentMode": "plan", "hooks": {"pre": "x"}}))
+    assert _decisions(a, _snap(home, tmp_path))["gemini"] == "stop"
 
 
 @pytest.mark.parametrize("credits", [5, None])
@@ -355,7 +379,9 @@ def test_internal_symlink_hashes_target_and_external_symlink_stops(tmp_path: Pat
     os.symlink(skills / "real.md", skills / "link.md")
     a = _snap(home, tmp_path)
     (skills / "real.md").write_text("inside v2")
-    assert _decisions(a, _snap(home, tmp_path))["claude"] == "stop"
+    b = _snap(home, tmp_path)
+    assert a.sources["claude.skills"]["hash"] != b.sources["claude.skills"]["hash"]
+    assert _decisions(a, b)["claude"] == "ok"
     outside = tmp_path / "outside.md"
     outside.write_text("outside")
     os.symlink(outside, skills / "external.md")

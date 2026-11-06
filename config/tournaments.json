@@ -3,7 +3,7 @@
     "main": {
       "slug": "fall-futureeval-2026",
       "id": 33121,
-      "submit_whitelisted": false
+      "submit_whitelisted": true
     },
     "minibench": {
       "slug": "minibench",
@@ -14,6 +14,11 @@
       "slug": "bot-testing-area",
       "id": 32977,
       "submit_whitelisted": false
+    },
+    "market_pulse": {
+      "slug": "market-pulse-26q4",
+      "id": 33131,
+      "submit_whitelisted": true
     }
   },
   "trial_ground_types": [

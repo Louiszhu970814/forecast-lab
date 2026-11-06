@@ -10,7 +10,7 @@ def _sources(tmp_path):
     return {s.source_id: s for s in srcs}
 
 
-def test_synced_bucket_changes_are_informational_but_personal_skills_stop(tmp_path):
+def test_synced_and_personal_skills_are_informational_under_d144(tmp_path):
     srcs = _sources(tmp_path)
     personal = tmp_path / ".claude/skills/mine"
     synced = tmp_path / ".claude/skills/synced/bucket/docx"
@@ -26,7 +26,8 @@ def test_synced_bucket_changes_are_informational_but_personal_skills_stop(tmp_pa
     assert result["decisions"]["claude"] == "ok"
     assert {c["source"] for c in result["changes"]} == {"claude.skills_synced"}
     (personal / "SKILL.md").write_text("synthetic personal skill changed")
-    assert baseline.compare(approved, snap())["decisions"]["claude"] == "stop"
+    assert baseline.compare(approved, snap())["decisions"]["claude"] == "ok"
+    assert baseline.compare(approved, snap(), catalog_drift=False)["decisions"]["claude"] == "stop"
 
 
 def _result(declared):

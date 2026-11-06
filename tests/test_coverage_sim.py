@@ -364,6 +364,26 @@ def test_hash_mismatch_and_conflicting_duplicate_rejected(tmp_path):
     assert not (tmp_path / "coverage_sim_results.jsonl").exists()
 
 
+def test_archived_results_block_before_simulation(tmp_path, monkeypatch):
+    CS.register(tmp_path, settings(), [question()])
+    (tmp_path / "coverage_sim_results.jsonl.archived.json").write_text("{}")
+    monkeypatch.setattr(CS, "simulate", lambda _: pytest.fail("must not simulate archived history"))
+    with pytest.raises(ValueError, match="restore them before appending"):
+        CS.run_registered(tmp_path, "synthetic")
+    assert not (tmp_path / "coverage_sim_results.jsonl").exists()
+
+
+def test_archive_during_simulation_blocks_append(tmp_path, monkeypatch):
+    CS.register(tmp_path, settings(), [question()])
+    def simulated(_):
+        (tmp_path / "coverage_sim_results.jsonl.archived.json").write_text("{}")
+        return {}
+    monkeypatch.setattr(CS, "simulate", simulated)
+    with pytest.raises(ValueError, match="archived during simulation"):
+        CS.run_registered(tmp_path, "synthetic")
+    assert not (tmp_path / "coverage_sim_results.jsonl").exists()
+
+
 def test_same_seed_reproducible_and_repetitions_have_quantiles(tmp_path):
     cfg = settings()
     cfg["repetitions"] = 3

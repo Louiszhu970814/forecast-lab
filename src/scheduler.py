@@ -32,10 +32,9 @@ from flab.ids import hash_obj, new_id
 from flab.jsonl import append_record
 from flab.ledger import transaction, read_complete
 from flab.timeutil import parse_iso, to_iso, utc_now
-from poll_questions import latest_snapshots
 from flab import fail_soft as FS
 
-VERSION = "scheduler_v8"
+VERSION = "scheduler_v9"
 QUOTA_WAITS = {"quota_5h_wait", "quota_weekly_wait"}
 IDLE_LOOKAHEAD_S = 780  # next 600-second tick + bounded submission tail + startup allowance
 TEMPORARY_BUDGET_REASONS = {
@@ -123,7 +122,7 @@ class Job:
 
 def order_jobs(jobs: list[Job], *, now: datetime, urgent_slack_s: int) -> list[Job]:
     def key(job):
-        rank = (job.tier - 1) * 2 + (job.priority == "minibench")
+        rank = 4 + job.tier if job.priority == "market_pulse" else (job.tier - 1) * 2 + (job.priority == "minibench")
         return rank, job.deadline, job.question_id, job.player
     ordered = sorted(jobs, key=key)
     main = [j for j in jobs if j.tier == 1 and j.priority == "main"]
@@ -301,6 +300,7 @@ class Scheduler:
                   and (not self.continuous or a.get("question_snapshot_id") == self.snapshot_ids.get(a["question_id"]))}
         first, second = [], []
         unfinished_first = False
+        high_first = False
         for entry in self.campaign["questions"]:
             qid, snap = entry["question_id"], snapshots.get(entry["question_id"])
             if qid in sealed or snap is None or F.eligible(snap, self.cfg, self.now()):
@@ -313,6 +313,7 @@ class Scheduler:
                              (qid, p, 1) in budget_waits or
                              self._terminal(qid, p, 1, attempts, rows) for p in PLAYERS)
             unfinished_first |= not tier1_done
+            high_first |= not tier1_done and entry["priority"] != "market_pulse"
             candidate = E.evaluate(snap, attempts, audit_events=view, now=self.now()) if tier1_done else None
             for p in PLAYERS:
                 if not enabled[p] or p in paused or p in active or p in waiting:
@@ -327,12 +328,22 @@ class Scheduler:
                 job = Job(p, tier, qid, snap, entry["priority"], deadline, estimate)
                 (first if tier == 1 else second).append(job)
         # Running first-layer work still has precedence; continuous paused lines do not block upgrades.
-        return order_jobs(first if unfinished_first else second, now=self.now(), urgent_slack_s=self.campaign["urgent_slack_s"])
+        # All main/MiniBench tiers precede Market Pulse; market tier1 cannot
+        # starve an already eligible high-priority tier2 job.
+        high = [j for j in (first if high_first else first + second) if j.priority != 'market_pulse']
+        if high:
+            candidates = high
+        elif high_first:
+            candidates = []
+        else:
+            candidates = first if unfinished_first else second
+        return order_jobs(candidates, now=self.now(), urgent_slack_s=self.campaign["urgent_slack_s"])
 
-    def _protected(self, player):
+    def _protected(self, player, priority="main"):
         attempts, _, _, _ = self.state()
         rows = read_complete(self.jobs_log)
-        return sum(not self._terminal(q["question_id"], player, 1, attempts, rows) for q in self.campaign["questions"])
+        return sum(not self._terminal(q["question_id"], player, 1, attempts, rows) for q in self.campaign["questions"]
+                   if priority == "market_pulse" or q["priority"] != "market_pulse")
 
     def execute(self, job: Job) -> dict:
         self._recover(job.player)
@@ -351,8 +362,11 @@ class Scheduler:
         else:
             shared = {"scheduler_run_id": self.run_id}
             def admit(request):
-                return self.budget.reserve(request, pending_tier1=self._protected(job.player),
-                    expected_new=self.campaign["expected_new_questions"], repair_reserve=self.campaign["repair_reserve"])
+                return self.budget.reserve(request, pending_tier1=self._protected(job.player, job.priority),
+                    expected_new=self.campaign["expected_new_questions"], repair_reserve=self.campaign["repair_reserve"],
+                    low_priority_protected=(2*self.campaign['expected_new_questions']+self.campaign['repair_reserve']
+                        +2*sum(q['priority']!='market_pulse' for q in self.campaign['questions'])
+                        if job.priority=='market_pulse' else 0))
             def recheck():
                 if self.execution_deadline is not None and self.now() >= self.execution_deadline:
                     raise F.QuestionDone("cycle time limit")

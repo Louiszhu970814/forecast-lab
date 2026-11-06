@@ -288,7 +288,8 @@ def test_preflight_passes_with_matching_acceptance_and_a_waived_baseline(tmp_pat
 
 @pytest.mark.parametrize("kw,expected", [
     ({"line_pass": False}, "did not pass"), ({"judge": "acceptance_judge_v1"}, "current judge"),
-    ({"cli": "2.0.0"}, "differs from the accepted"), ({"tamper": True}, "sha256 does not match"),
+    ({"cli": ""}, "CLI version"), ({"cli": "   "}, "CLI version"), ({"cli": 123}, "CLI version"),
+    ({"tamper": True}, "sha256 does not match"),
     ({"code": {**FP, "flab/runner.py": "changed"}}, "runtime code changed")])
 def test_preflight_rejects_a_stale_or_failed_acceptance(tmp_path: Path, kw: dict, expected: str) -> None:
     log = tmp_path / "acc.jsonl"
@@ -296,6 +297,14 @@ def test_preflight_rejects_a_stale_or_failed_acceptance(tmp_path: Path, kw: dict
     _accept(log, tmp_path, **kw)
     problems = " ".join(_pf(log, allow_unapproved_baseline=True).problems)
     assert expected in problems, problems
+
+
+def test_preflight_allows_cli_version_upgrade_when_acceptance_and_runtime_match(tmp_path: Path) -> None:
+    log = tmp_path / "acc.jsonl"
+    _accept(log, tmp_path, mode="production", cli="2.0.0")
+    _accept(log, tmp_path, cli="2.0.0")
+    pf = _pf(log, allow_unapproved_baseline=True)
+    assert pf.ok and pf.problems == [] and pf.production_record_id == "acc_production"
 
 
 def test_production_acceptance_must_match_the_configured_production_model(tmp_path: Path) -> None:
@@ -319,10 +328,17 @@ def test_preflight_requires_production_acceptance_mode_enabled_line_and_baseline
     blocked = {**SNAPSHOT, "versions": {**SNAPSHOT["versions"], "claude": None}}
     problems = " ".join(_pf(log, allow_unapproved_baseline=True, snapshot=lambda v: blocked).problems)
     assert "baseline blocker" in problems
+    approved_ver = {"type": "baseline_approved", "record_id": "base_0", **SNAPSHOT,
+                    "versions": {**SNAPSHOT["versions"], "claude": "2.1.300"}}
+    append_record(log, approved_ver)
+    assert _pf(log).ok
+    src_base = {"kind": "json_mixed", "player": "claude", "category": "content", "general_category": "general",
+                "exists": True, "content_hash": "c1", "general_hash": "g1"}
     approved = {"type": "baseline_approved", "record_id": "base_1", **SNAPSHOT,
-                "versions": {**SNAPSHOT["versions"], "claude": "2.1.300"}}
+                "sources": {"claude.settings": src_base}}
     append_record(log, approved)
-    assert "baseline check says 'reaccept'" in " ".join(_pf(log).problems)
+    curr_snap = {**SNAPSHOT, "sources": {"claude.settings": {**src_base, "general_hash": "g2"}}}
+    assert "baseline check says 'reaccept'" in " ".join(_pf(log, snapshot=lambda v: curr_snap).problems)
     assert "no acceptance record" in " ".join(_pf(tmp_path / "none.jsonl").problems)
 
 
@@ -604,7 +620,7 @@ def test_default_gemini_preflight_gets_credits_from_official_quota_snapshot(tmp_
     assert pf.ok, pf.problems
 
 
-@pytest.mark.parametrize('change', [{'cli': 'old'}, {'judge': 'old'}, {'code': {'adapters/claude.py': 'old'}}])
+@pytest.mark.parametrize('change', [{'cli': ''}, {'cli': 123}, {'judge': 'old'}, {'code': {'adapters/claude.py': 'old'}}])
 def test_tier1_production_proof_must_be_current_even_with_fresh_latest(tmp_path, change):
     log = tmp_path / 'acceptance.jsonl'
     _accept(log, tmp_path, mode='production', **change)

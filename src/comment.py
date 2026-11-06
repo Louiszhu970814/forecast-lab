@@ -6,7 +6,6 @@ optional sections are removed before shortening individual mandatory explanation
 from __future__ import annotations
 
 import hashlib
-import math
 import re
 import unicodedata
 from html import unescape
@@ -149,6 +148,8 @@ def build(snapshot: dict, aggregate: dict, records: list[dict], audit_events: li
         method = "Equal-weight arithmetic mean of CDFs; fixed-mass bounded-step projection."
     header = ["Final forecast: " + _probability(aggregate, snapshot), f"Aggregation: {version}. " + method,
               "Missing lines: " + (", ".join(missing) if missing else "none") + "."]
+    if snapshot.get('post_type') == 'group_of_questions':
+        header.insert(0, f"Question {snapshot['question_id']}: {plain(snapshot['title'])}")
     explanations, details, markets, sources = [], [], [], []
     for r in selected:
         label = LABELS[r["player"]]

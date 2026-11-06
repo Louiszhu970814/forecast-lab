@@ -26,6 +26,9 @@ from test_scheduler import campaign
 
 def test_protected_runtime_and_campaign_hashes():
     root = Path(__file__).resolve().parents[1]
+    # D136 advances only AGENTS.md for the reviewed D79 Cup wording correction.
+    # Adapter/runner/netguard and campaign/config digests remain unchanged.
+    # D137 explicitly authorizes the finite campaign/mode/venue transition only.
     expected = json.loads((root / "tests/fixtures/d121_protected_hashes.json").read_text())
     assert all(hashlib.sha256((root / name).read_bytes()).hexdigest() == sha for name, sha in expected.items())
     assert F.PROMPT_VERSION == "forecast_v2"

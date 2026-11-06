@@ -1,0 +1,11 @@
+D140 設計審對應（GPT整合，程式複審前）
+
+Claude實際設計答覆支持窄proof-reuse，來源將保存claude-d140-design.md。
+B1：新auto resume只點名lifts stop及proof attempt的typo；F.line_stopped不以auto resume推進resumed_at，F.latest_resume不把auto當人工時間豁免。其他未覆蓋stop、回補backdated危害仍有效；原人工語意保留。
+B2：精確AGY1.4.12 SHA/wrapper、STRICT UTF8/duplicate-key/schema、ACTIVE→ERROR無output、參數白名單、ownconversation系統page路徑、該n必為同attempt較早成功read_url_content、symlink拒絕、全部其他工具與flags/violations核對。真實事故僅metadata核對：typo step46指向成功read_url_content step39，raw不含tool output路徑欄位；page檔依已釘選CLI的步驟目錄規格對應。沒有把raw內容提供reviewer。
+B3：現有ledger transaction為短可重入鎖，append_record是O_APPEND+flock+fsync。manualresume新增line lock+transaction，F.run與reconcile stop補共同transaction，scheduler/advise/practice原已有共同transaction/同線鎖。控制器前後比對所有本線安全metadata雜湊；基準record CAS。殘行沿既有read_complete拒絕，沒有按設計建議忽略最後殘行。
+B4：沿用原Budget.reserve含所有pending/外部用量。在同一line鎖內先持久預留，再在ledger transaction二次核grant＋fsync唯一rerun start（claim），start內帶recovery_grant_id與admission_decision_id，才呼叫CLI。reservation後start前crash已證明沒CLI，原recover釋放unused預留；start後未知占槽且不能補跑。沒有另建與原會計不一致的claim帳冊。line鎖串行化同玩家，開始帳冊再檢查全題跨snapshot rerun，無雙claim窗口。
+B5：fast path沒有acceptance呼叫，不二次flock；用現有F.Lock及_HELD_LOCKS契約，F.preflight→recover_acceptance認出真實持鎖路徑。沒有為此更換已驗收runner/adapter。
+B6：兩次capture均取得fresh zero credits、來源snapshot、官方CLI版本、實體pin與wrapper SHA，以及F.preflight兩tier；後者驗證最新acceptance/evidence SHA、current runtime、judge及各production model/effort proof。任何waiver/不一致均hold。不更改baseline，不接受新CLI/config/plugin。
+B7：_may_rerun僅可讀精確grant，既有rerun→exhausted與已adoptable→already_selected判定順序不變；原失敗record維持invalid。新forecast繼承正常audit/validate/limits，replacement失敗不再給第三次base。
+保留原submit deadline fallback（已觀測main46572由其他合格線在UTC11:31完成），無權重/模型/預測內容調整。尚待程式雙審；此對應不是PASS。

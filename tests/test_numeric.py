@@ -494,6 +494,9 @@ def test_legacy_bitwise_golden_and_protected_files(tmp_path, monkeypatch):
         post["question"].update({k:v for k,v in snapshot().items() if k in N.SCALING_FIELDS})
         assert P.snapshot_from_post(post, "synthetic") == current
     assert P.snapshot_from_post({"id":1,"group_of_questions":{"questions":[]}}, "synthetic") is None
+    # D136 aligns AGENTS.md with D79 and retires the empty prompts/.gitkeep entry.
+    # Legacy payload rows and all runtime/config/prompt-content hashes stay pinned.
+    # D137 updates only authorized campaign/mode/venue hashes; legacy rows stay pinned.
     for path, digest in golden["protected"].items():
         assert hashlib.sha256((ROOT / path).read_bytes()).hexdigest() == digest, path
     actual_flags = json.loads((ROOT / "config/question_types.json").read_text())

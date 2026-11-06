@@ -1,25 +1,23 @@
-"""Opt-in synthetic host for restricted work-copy regression (no runtime changes).
+"""Synthetic host configuration for tests, with no runtime or pinned config edits.
 
-Use with run_offline.py --synthetic-host. The test host has a separate project
-root, an empty ancestor chain outside each fixture, a synthetic directory
-inventory, and local submission mode. Original sandbox failures are reported
-separately; this fixture never reads a denied path or changes pinned configs.
+conftest.py applies this once per test for every entrypoint. The host root is
+separate from the test's tmp_path, preserving empty-directory assertions.
 """
+import json
 from pathlib import Path
 import sys
 
-import pytest
-
 
 class SyntheticHost:
-    @pytest.fixture(autouse=True)
-    def host(self, tmp_path, monkeypatch):
+    def configure(self, fixture_root, host_root, monkeypatch):
         import baseline
         import flab.workdir as workdir
         import flab.config as config
         import adapters.gemini as gemini
 
-        project = tmp_path / "synthetic-project"
+        import question_types
+
+        project = host_root / "project"
         project.mkdir()
         monkeypatch.setattr(workdir, "PROJECT_ROOT", project)
         if "test_workdir" in sys.modules:
@@ -27,14 +25,14 @@ class SyntheticHost:
 
         ancestors = baseline.ancestor_sources
         monkeypatch.setattr(baseline, "ancestor_sources", lambda base:
-                            [s for s in ancestors(base) if Path(s.path).is_relative_to(tmp_path)])
+                            [s for s in ancestors(base) if Path(s.path).is_relative_to(fixture_root)])
         deny_rules = gemini.read_deny_rules
         def synthetic_rules(keep, listdir=None):
             if listdir is not None:
                 return deny_rules(keep, listdir=listdir)
             def listing(path):
                 # Only fixture-owned directories are actually listed.
-                if path.is_relative_to(tmp_path):
+                if path.is_relative_to(fixture_root):
                     return [p.name for p in path.iterdir()] if path.exists() else []
                 return []
             return deny_rules(keep, listdir=listing)
@@ -48,3 +46,6 @@ class SyntheticHost:
                 return {"mode": "local"}
             return result
         monkeypatch.setattr(config, "load_config_file", local_mode)
+        flags = host_root / "question-types.json"
+        flags.write_text(json.dumps({"numeric": True, "discrete": True}))
+        monkeypatch.setattr(question_types, "CONFIG_PATH", flags)
