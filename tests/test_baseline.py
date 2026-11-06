@@ -325,15 +325,19 @@ def test_codex_config_toml_is_informational_and_codex_home_is_respected(tmp_path
     assert srcs["codex.skills"] == "/opt/codexhome/skills"
 
 
-def test_version_change_is_informational_and_unknown_version_stops(tmp_path: Path) -> None:
+@pytest.mark.parametrize("player,new_version", [
+    ("claude", "2.1.999"), ("gemini", "1.4.13"), ("gpt", "0.167.0"),
+])
+def test_version_change_is_informational_and_unknown_version_stops(
+        tmp_path: Path, player: str, new_version: str) -> None:
     home = _make_home(tmp_path)
     a = _snap(home, tmp_path)
-    b = _snap(home, tmp_path, versions={**VERSIONS, "gemini": "1.4.13"})
+    b = _snap(home, tmp_path, versions={**VERSIONS, player: new_version})
     res = bl.compare(a.to_record(), b.to_record())
     assert res["decisions"] == {"claude": "ok", "gemini": "ok", "gpt": "ok"}
-    assert any(c["source"] == "cli_version:gemini" and c["category"] == bl.INFORMATIONAL for c in res["changes"])
-    c = _snap(home, tmp_path, versions={**VERSIONS, "gpt": None})
-    assert _decisions(a, c)["gpt"] == "stop"
+    assert any(c["source"] == f"cli_version:{player}" and c["category"] == bl.INFORMATIONAL for c in res["changes"])
+    c = _snap(home, tmp_path, versions={**VERSIONS, player: None})
+    assert _decisions(a, c)[player] == "stop"
 
 
 def test_agy_general_settings_project_grants_and_shared_config_are_informational_while_content_keys_stop(tmp_path: Path) -> None:

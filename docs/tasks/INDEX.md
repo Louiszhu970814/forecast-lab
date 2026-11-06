@@ -11,6 +11,7 @@
 
 | 檔案 | 對應決策 | 說明 |
 |---|---|---|
+| [`D145-CLI-UPGRADE-CHECK.md`](D145-CLI-UPGRADE-CHECK.md) | D145 | Codex 0.167.0 升版未停線；三線版本規則清理、Claude 一般設定恢復、六項前檢通過 |
 | [`D144-DEVELOPMENT-CATALOGS.md`](D144-DEVELOPMENT-CATALOGS.md) | D144 | 日常開發目錄內容變更不再停線、當日漏交／缺線盤點與部署證據 |
 | [`D140-AUTO-RECOVERY.md`](D140-AUTO-RECOVERY.md) | D140 | **COMPLETE（已部署／啟用）**：Gemini自動恢復，3道待補Market題皆forecast_ok／comment_ok；正式累計25題 |
 | [`D139-EXPANSION.md`](D139-EXPANSION.md) | D139 | **ACTIVE（已啟用）**：30分鐘搜尋、人類手動入口、Market Pulse；實際交付與提交狀態見任務單 |

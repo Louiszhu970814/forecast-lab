@@ -1,11 +1,11 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.98（v1.0 凍結後的修訂，見 §16；D144 日常開發目錄變更不再停線；保留 D143 及以前紀錄）
+> 版本：v1.99（v1.0 凍結後的修訂，見 §16；D145 核對三家 CLI 升版不停線、清理過時規則並恢復 Claude 一般設定阻擋；保留 D144 及以前紀錄）
 > 初稿：Claude
-> 本回合整合者：GPT（D144 日常開發目錄變更政策與當日缺線盤點）；上一回合 Gemini（D143 移除 CLI 版本更新停線與放寬 agy 一般設定／專案授權基準阻擋；D142／D141／D140／D139／D138／D137／D136／D135／D133／D134 由 GPT、D127 由 Claude、D126 由 Gemini 整合，見 `docs/tasks/HANDOFF.md`）
+> 本回合整合者：GPT（D145 CLI 升版核對、規則文字清理與 Claude 恢復；前一回合 D144 亦由 GPT 整合）；D143 由 Gemini 整合，歷史見 `docs/tasks/HANDOFF.md`。
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
-> 最後更新：2026-11-06
-> 狀態：D144 已依 Louis 指示將明列開發目錄的可讀內容變動改為僅記錄，保留工具權限、驗收證據與實際安全停線；當日 4 題已排入且全部送出，3 題因基準阻擋缺線（Gemini 2、GPT 1），非整題漏交。測試與部署證據見 `docs/tasks/D144-DEVELOPMENT-CATALOGS.md`。D139已於2026-11-05T05:57:07.361Z完成雙審、驗證與六鎖部署，30分鐘新題搜尋、人類賽手動入口及Market Pulse bot已啟用，實際開始／提交metadata見D139任務單。以下D137等紀錄保留沿革：D137 已獲 Louis「複審完 修改完可以 就直接開始正式賽了」授權，已於2026-11-05T02:49:33.366Z完成雙審／驗證與六鎖登記，主賽33121與MiniBench正式live；保留原根用量、130／200／130上限與UTC11/10 04:00截止，不待M4官方分數才加入，M3完整觀測／M4結算驗收未完成的限制不冒充通過。D129 `resolve_v2`／`score_v2` 手動入口已上線，D128 live 母體診斷已實作；首次決策未完整落盤，歷史與 live 完整 ITT 結論均維持禁止；D118已由D137接續主賽＋MiniBench（固定截止 UTC 11/10 04:00）；D127 M4 `resolve.py`／`score.py` 手動入口已上線（未啟用排程，首批正式已送出題的最早預定結算為台北 11/13 20:00，見 D132 日期核對）；M5、D121 第一批與 D123 已上線；D130 已恢復 Gemini（專案 pin 1.4.12，兩層前檢通過），D131 已完成 Claude／GPT 新隔離驗收與限縮基準核准，三線兩層前檢全過。D124 observe 與 D125 autoload_v3 已上線；D126 確立加速迭代窗口（每日已關閉題目三閘門健檢；M4 手動入口已上線，舊 11/06 日期由 D132 更正）並完成階段 A 過時文件清理、測試隔離修正、INDEX 建立與 PLAN 正文同步（v1.0 於 2026-10-31 經 Louis 核准凍結，D54）
+> 最後更新：2026-11-07（台北；D145 操作時間以 UTC 記錄）
+> 狀態：D145 已核對 Codex 0.167.0 升版未停線，三家 CLI 版本變更僅記錄；另已完成 Claude 一般設定變動的合成驗收與限縮基準更新，UTC 2026-11-06T22:57:26.939Z 三線兩層六項前檢全過、無 waiver，line guard 均無停線，見 `docs/tasks/D145-CLI-UPGRADE-CHECK.md`。以下保留沿革：D144 已依 Louis 指示將明列開發目錄的可讀內容變動改為僅記錄，保留工具權限、驗收證據與實際安全停線；當日 4 題已排入且全部送出，3 題因基準阻擋缺線（Gemini 2、GPT 1），非整題漏交。測試與部署證據見 `docs/tasks/D144-DEVELOPMENT-CATALOGS.md`。D139已於2026-11-05T05:57:07.361Z完成雙審、驗證與六鎖部署，30分鐘新題搜尋、人類賽手動入口及Market Pulse bot已啟用，實際開始／提交metadata見D139任務單。以下D137等紀錄保留沿革：D137 已獲 Louis「複審完 修改完可以 就直接開始正式賽了」授權，已於2026-11-05T02:49:33.366Z完成雙審／驗證與六鎖登記，主賽33121與MiniBench正式live；保留原根用量、130／200／130上限與UTC11/10 04:00截止，不待M4官方分數才加入，M3完整觀測／M4結算驗收未完成的限制不冒充通過。D129 `resolve_v2`／`score_v2` 手動入口已上線，D128 live 母體診斷已實作；首次決策未完整落盤，歷史與 live 完整 ITT 結論均維持禁止；D118已由D137接續主賽＋MiniBench（固定截止 UTC 11/10 04:00）；D127 M4 `resolve.py`／`score.py` 手動入口已上線（未啟用排程，首批正式已送出題的最早預定結算為台北 11/13 20:00，見 D132 日期核對）；M5、D121 第一批與 D123 已上線；D130 已恢復 Gemini（專案 pin 1.4.12，兩層前檢通過），D131 已完成 Claude／GPT 新隔離驗收與限縮基準核准，三線兩層前檢全過。D124 observe 與 D125 autoload_v3 已上線；D126 確立加速迭代窗口（每日已關閉題目三閘門健檢；M4 手動入口已上線，舊 11/06 日期由 D132 更正）並完成階段 A 過時文件清理、測試隔離修正、INDEX 建立與 PLAN 正文同步（v1.0 於 2026-10-31 經 Louis 核准凍結，D54）
 
 ---
 
@@ -706,9 +706,10 @@ token 欄位的對應（D29）：
   - 第一次建立基準時，先由人工審查內容：不得含有歷史答案、比賽資訊或可執行的 hook。接著做 §7.6 的自動載入測試，通過後才記錄雜湊值作為基準。自動載入測試要核對實際載入了哪些來源，不能只因輸出中沒有 canary 就推論沒有載入（D43）。
   - 每次執行前，由主程式比對各線的 CLI 版本與基準雜湊。
 - **變更處理**（D21、D143、D144）：
-  - CLI 版本改變，或一般設定改變（例如預設模型、介面偏好、權限規則）：自動重跑 §7.6 驗收。通過就繼續並更新基準；未通過就停止該線，並通知 Louis。【已由 D143 修訂：已知的非空字串 CLI 版本變更（`cli_version:*`）於 `baseline.compare()` 改列為資訊性來源（`informational`，僅記錄不觸發 `reaccept` 或停線），且 `forecast.check_acceptance()` 不再因版本號變動阻擋前檢或拒絕正式模型驗收紀錄（版本未知、空字串或非字串仍為 `content` blocker 停線；`judge_version`、`evidence_sha256`、`code_sha256` 與模型／effort 核對不變）。同時將 `agy.project_grants`（`~/.gemini/config/projects`）、`agy.shared_config`（`~/.gemini/config/config.json`）及 `agy.cli_settings`（`~/.gemini/antigravity-cli/settings.json`）的非內容鍵改列為 `informational`，互動式使用 `agy` 切換模式、模型或專案信任授權不再阻擋 Gemini 預測線；`agy.cli_settings` 的內容鍵（`hooks`、`mcpServers`、`plugins`、`skills`、`rules`、`agents`）及目錄／JSON 讀取錯誤仍維持 `content` 停線】
+  - **Codex、Claude、agy 的 CLI 升版本身不會停線**（D143、D145）：已知的非空字串版本變更（`cli_version:*`）只記為 `informational`，不觸發 `reaccept`、不要求重新核准基準，也不因版本不同拒絕既有正式模型驗收證據。未知、空字串或非字串版本仍阻擋；`judge_version`、`evidence_sha256`、`code_sha256`、模型／effort、Codex 模型型錄及實際工具權限檢查照常。升版若另造成實際相容性或工具限制問題，按該問題處理，不把版本差異本身當成問題。
+  - **一般設定變動**：仍列 `general` 的來源（例如 `claude.settings` 的預設模型、介面偏好）需完成 §7.6 合成隔離驗收並限縮更新基準後恢復；D124 目前僅觀察，尚未實作自動重驗，不宣稱每五分鐘恢復器會處理此類阻擋。D143 已將 `agy.project_grants`（`~/.gemini/config/projects`）、`agy.shared_config`（`~/.gemini/config/config.json`）及 `agy.cli_settings`（`~/.gemini/antigravity-cli/settings.json`）的非內容鍵列為 `informational`；其內容鍵（`hooks`、`mcpServers`、`plugins`、`skills`、`rules`、`agents`）與目錄／JSON 讀取錯誤仍受保護。
   - 全域指示、記憶、skills、hooks、plugins 或 MCP 的內容改變，包括設定檔中相關欄位的改變：停止該線並通知 Louis，經人工審查後再重跑驗收。自動測試只能確認這些來源會不會被載入，無法判斷新內容是否含有答案或危險指令。【D123 窄範圍例外：互動式 Claude Code 自動同步之 `~/.claude/skills/synced/` 目錄已改列為資訊性來源 `claude.skills_synced`（因無互動執行傳入 `--disable-slash-commands` 與 `--tools` 且 init 宣告 `skills=[]`，若宣告非空則由 `forecast.tool_violations` 停線）；個人 `~/.claude/skills/` 與其他內容來源仍維持停線審查】
-  - CLI 支援關閉自動更新時就關閉；不支援時，以執行前的版本檢查處理。
+  - 既有正式 CLI pin 與關閉自動更新的 wrapper 維持原設定；每次仍記錄版本，版本號變動本身不阻擋執行（D143、D145）。
   - D119：比賽啟動環境以專案 wrapper 固定已驗收的官方 Claude 2.1.316，核對複本 SHA-256 並設 DISABLE_AUTOUPDATER=1；全域 CLI 不降版。外掛盤點 `claude_plugin_inventory_v2` 僅將精確 synced UUID bucket 的合法 round token、etag、updated_at 值列資訊，listedFor／來源／版本／未知欄位與其餘檔案仍受內容保護；新舊格式不得自動核准。候選以固定 SHA 綁定人工接受，且必須有對應候選的新隔離驗收通過證據，才可只替換 claude.plugins 一個來源，其他已核准來源保持不變。
 - **D144 開發目錄變更不再停線**：依 Louis 於 2026-11-06 的直接指示，`baseline_v3` 將三線 skills、plugins、agents，以及 Claude commands／marketplace index／plugin state 的可讀內容新增、修改與移除改列為資訊性差異；精確 13 個來源見 `docs/tasks/D144-DEVELOPMENT-CATALOGS.md`。不因這些差異要求逐次人工接受、重驗或基準重新核准，原始雜湊與舊核准紀錄保留。這取代 D21／D119／D123／D130 對這些來源內容變動的停線要求；不是對任意來源或實際工具權限的豁免。全域指示、記憶、獨立 hooks／MCP、管理者設定、共同上層指示、其他受保護設定與讀取錯誤仍受原規則控制；來源定義（種類／路徑／歸屬）變動仍阻擋。首次有效基準、正式模型及兩層驗收證據、runtime 指紋、工具事件、暴露與額度檢查仍必須通過。Codex skills 的名稱／描述可能進入模型上下文，故不宣稱這些目錄內容完全不可見；本項明確移除目錄內容變更閘門，不賦予讀檔或執行工具。驗收中快照一致性、固定候選核准及 autoload 維護以 `catalog_drift=False` 保留精確內容綁定，不把營運放寬當作接受新證據。無已送出題重跑，無額度／截止／排程變更。
 - **D130 版本節奏**：Louis 指示有版本更新時每 3 天集中處理；正式預測環境固定已驗收版本，於維護檢查完成隔離驗收後才切換。開發用全域 CLI 更新與正式 pin 分離。此節奏不免除受保護內容的人工接受，也不代表 D124 尚未實作的自動核准已啟用。首個後續版本維護檢查登記於 UTC 2026-11-07T14:25:43.706000Z（台北11/07 22:25:43）；未部署自動升版執行器。
@@ -832,7 +833,7 @@ token 欄位的對應（D29）：
 - **開啟 metaculus.com**（`leak_confirmed`）：保留原始輸出並標記，不重試，該答案不納入整合（§4.2）。同一條線 7 天內出現 2 次以上時，停止該線並通知 Louis。
   - 停線後須經 Louis 明確恢復；恢復不刪除歷史。新一輪停線判定只計最近一次明確恢復之後、且仍在 7 天內的暴露，避免 resume 已記錄卻仍被同一批舊事件鎖住。錯誤模型與工具違規的停線同樣尊重這個恢復邊界。
 - **模型不符**（`model_mismatch`，§7.7）：答案無效、不納入整合；早期規則為立即停止該線並通知 Louis。【已由 D121 R1 fail-soft 取代：單次 `model_mismatch` 僅作廢該次答案並讓該線退避 60 分鐘；同一條線在 24 小時內發生 2 次以上才停線並通知 Louis，見 `docs/tasks/D121-FAIL-SOFT-BATCH1.md`】
-- **CLI 改版與設定改變**：每次執行都記錄 CLI 版本；依 §7.2 的變更處理重新驗收。
+- **CLI 改版與設定改變**：每次記錄 CLI 版本；三家 CLI 的已知版本號改變本身只記錄、不重驗、不停線（D143、D145）。其他設定或安全來源變更依 §7.2 各自分類處理。
 - 所有失敗與重試都追加寫入，不覆寫。
 
 ### 7.6 隔離驗收（三條線共用，D26）
@@ -843,7 +844,7 @@ token 欄位的對應（D29）：
   - 人工驗收時，必須以正式的模型與推理強度完整跑一次。
   - 便宜的模型可能比較少主動嘗試違規動作，所以測試 prompt 須明確要求模型嘗試每一項動作；模型沒有嘗試時不算通過（沿用下方的判定標準）。
 - 驗收產物分別對應第 1 層、第 2 層與格式修復三種設定，並記錄每個測項的證據：工具未提供，或 CLI 層的拒絕紀錄（D43）。
-- §7.2 的變更處理會自動觸發第 1～6 項與正向測試；第 7 項只在人工驗收時進行。
+- §7.2 中需重驗的變更執行第 1～6 項與正向測試；第 7 項只在人工驗收時進行。純 CLI 版本變更不觸發重驗（D143、D145）；一般設定自動重驗的落地狀態以 D124 為準，目前僅觀察。
 - M2 起提供 `--production --tier 2` 的 high 設定實測入口；每次驗收模型呼叫追加 start／finished 紀錄，包含中斷與失敗成本。最新驗收已開始但未完整結束時，不沿用舊 PASS 授權預測。Argon 驗收也逐次檢查 credits 0 與個人保留線。
 - **必須失敗的測試**：
   1. 讀檔：工作資料夾內的檔案、相鄰的其他暫存資料夾、專案資料夾（含 `.env` 的替身假檔）、家目錄、`/tmp` 下的其他資料夾；分別以絕對路徑、相對路徑與符號連結測試。
@@ -1885,10 +1886,13 @@ view_image                  stable true
 | D142 | 2026-11-05 | Louis 回報「這兩題我已經交上去了」，指 D132 的紐西蘭組閣與 COP31 超時兩題；其餘 Cup 題目「我截止前兩天再做」 | 本輪直接回報與安排。§8 記錄本人已手動提交（非平台讀回確認），原研究與未提交時的歷史紀錄保留；其餘題目按最新截止時間前48小時再研究。只更新文件與追加本人回報帳，不新增提醒／自動研究／人類帳號提交排程，不延長既有預算窗口。 |
 | D143 | 2026-11-06 | Louis 詢問預測現況後指示：「能不能拔掉版本更新就停線的規定這個看起來非常沒用這個agy自動更新頻率很快 還有就是我不是有每5分鐘自動恢復線路的工具呢為啥現在還是被擋住」、「OK 你跟claude 還有 gpt 討論一下 可以了就直接去做吧」 | Gemini 主持：先於 `01:09:42Z` 持鎖重新核准 Gemini 基準（`base_1793927382553_1a23704a`，`credits=0`），讓開放中主賽數值題 `46575` 於 `01:11:36Z` 補跑 Gemini 第 1 層並於 `01:21:18Z` 完成三線整合及 `forecast_ok`／`comment_ok` 送出（累計 29 題已送出）。接著實作永久修正並經 Claude／GPT 官方 CLI 工具關閉雙審 `r2` PASS（333 項相關測試全過）：(1) `baseline.compare()` 將 `cli_version:*` 變更改列為 `informational`（版本未知／空字串仍由 `blockers()` 停線），`forecast.check_acceptance()` 不再因兩端非空字串 `cli_version` 不同阻擋前檢或跳過正式驗收證據；(2) `baseline.default_sources()` 將 `agy.project_grants`、`agy.shared_config` 與 `agy.cli_settings` 的一般設定鍵改列為 `informational`（內容鍵 `hooks`/`mcpServers`/`plugins`/`skills`/`rules`/`agents` 與 JSON／目錄錯誤仍停線），使互動式 `agy` 的專案信任與權限設定變動不再觸發跨週期 `preflight_blocked`；(3) `auto_reaccept_policy.candidate()` 保留從 `all_changes` 偵測 `cli_version:*`；(4) 同步 `d121_protected_hashes.json` 中 D141 `AGENTS.md` SHA-256。詳見 `docs/tasks/D143-BASELINE-RELAX.md`。 |
 | D144 | 2026-11-06 | Louis 指示「可以也把這種限制拔掉嗎 我被這種當掉太多次了之後還會有別的開發一定會變的 看看今天因為這樣漏了幾題」 | GPT 整合 `baseline_v3`：明列三線開發目錄可讀內容變動僅記錄，不再阻擋正式預測；全域指示／記憶／獨立 hooks／MCP／管理者及上層設定、讀取錯誤、工具權限與正式驗收證據仍保留，固定候選與驗收快照使用嚴格比較。UTC 11:34:02.725 截點，台北11/6排入4題全數forecast_ok／comment_ok，3題缺線（Gemini2、GPT1），無已排入題整題漏交；不宣稱平台完整涵蓋或分數損失。操作及測試證據見 D144-DEVELOPMENT-CATALOGS.md。 |
+| D145 | 2026-11-07（台北） | Louis 指示「我把codex更新了幫看一下這樣會停線嗎 如果會的話先幫我恢復 再把codex and claude and agy cli版本升級就停線的規定拔掉」 | GPT 核對 Codex 0.167.0 已通過兩層前檢；D143 已取消三線純版本差異停線，本輪清理 §7.2／§7.5 舊文字並擴充三線版本回歸（相關192 passed）。另發現 Claude 因一般設定變動受阻，依恢復授權完成三次 Haiku 合成驗收（29項PASS），只更新 claude.settings 基準、保留其他來源；UTC 2026-11-06T22:56:37.662Z 恢復，22:57:26.939Z 六項前檢全過。正式程式／CLI pins／模型／prompt／額度／排程不改，不重跑已提交題；證據見 D145-CLI-UPGRADE-CHECK.md。 |
 
 ---
 
 ## 16. 變更紀錄
+
+- **v1.99**（2026-11-07，台北）：D145，核對 Codex `0.166.0 → 0.167.0` 兩層前檢通過；三家 CLI 的純版本差異已由 D143 程式放行，本輪清理 §7.2／§7.5 殘留的「CLI 更新需重驗」文字，將一般設定與版本變更分開。版本回歸擴為三線，相關離線 192 passed。另處理與 Codex 更新無關的 `claude.settings` 一般設定阻擋：三次 Haiku 合成呼叫、29項驗收全過，UTC 2026-11-06T22:56:37.662Z 只更新該來源基準並恢復 Claude 兩層，保留其餘來源與歷史。正式程式、CLI pin、模型／prompt／額度／排程不改；證據見 `docs/tasks/D145-CLI-UPGRADE-CHECK.md`。
 
 - **v1.98**（2026-11-06）：D144，`baseline_v3` 將明列開發目錄內容變更列資訊性，解除日常 skills／外掛／agents／commands 變動造成的前檢阻擋；既有目錄雜湊、基準核准與失敗歷史保留。`acceptance.py`、`claude_baseline_candidate.py`、`autoload_maintenance.py` 明確維持固定快照嚴格比較；三線 adapters／runner／netguard 與正式設定不變。新增政策／混合安全變更／嚴格證據回歸，更新歷史政策測試，完成當日缺線 metadata 盤點；未讀取預測正文／機率／理由，不重跑已提交題。測試、套用及當前三線前檢結果見 `docs/tasks/D144-DEVELOPMENT-CATALOGS.md`。
 

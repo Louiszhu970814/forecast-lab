@@ -1,3 +1,5 @@
+D145 接手（台北2026-11-07，PLAN v1.99）：Codex 已升為0.167.0且未停線；D143已移除三家CLI純版本差異阻擋，本輪清理殘留舊規則文字、三線回歸192 passed。另處理Claude一般設定變動：三次Haiku合成呼叫／29項PASS，僅更新claude.settings基準，UTC 2026-11-06T22:56:37.662Z恢復；22:57:26.939Z六項前檢全部通過且無安全停線。正式程式與pins不變，未重跑已提交題；詳見 [D145](D145-CLI-UPGRADE-CHECK.md)。Louis隨後已指示commit／push，實際結果見git與手機進度帳冊；原排程繼續。
+
 D144 接手（2026-11-06，PLAN v1.98）：Louis 已授權日常開發目錄變更不再停線；GPT 完成 `baseline_v3`、嚴格驗收綁定與完整3644項離線測試。今天排入4題全交，3題缺線（Gemini2、GPT1），不重跑已提交題。UTC 2026-11-06T11:44:15.800Z 六鎖部署完成，三線兩層前檢全過無 waiver；詳見 [D144](D144-DEVELOPMENT-CATALOGS.md) 與 project_control status；舊D143交接保留。
 
 D143 接手（2026-11-06，PLAN v1.97）：依 Louis 指示，已先行解鎖 Gemini 使主賽 `qid=46575` 完成三線第 1 層整合並送出（`forecast_ok`＋`comment_ok`，累計 29 題已送出），並經 Claude／GPT 官方 CLI `r2` 雙 PASS、333 項測試通過與六鎖部署，永久移除 CLI 版本更新停線規定，且將 `agy.project_grants`、`agy.shared_config` 與 `agy.cli_settings` 一般設定鍵改列為 `informational`（內容鍵與讀取錯誤仍停線），三線兩層 6 項前檢全數 `ok=True`。詳見 [D143](D143-BASELINE-RELAX.md)。
