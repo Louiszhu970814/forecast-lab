@@ -1,3 +1,9 @@
+D148（台北2026-11-09，PLAN v1.102）：Louis 回報 TG 一直重述 D101 等已結案事項，且無法操控專案。Claude 已實作 `telegram_ops_v5`／`team_chat_v3`：只呈現目前事項，結案或過期超過 24 小時的決策、舊摘要細節與舊對話不再帶入；`進度` 新增近 24 小時營運計數（`ops_report.live_brief`）。TG 相關 256 passed，完整回歸 3663 passed；UTC 2026-11-09T15:02:44Z 已重載 `org.forecast-lab.telegram`（v5 在線、心跳正常）。Louis 決定不做 TG 操控或開發功能：TG 只用來問今天有沒有卡線、預測情況，卡線沿用自動恢復；權限不變。D146／D147 未提交內容保留；未 commit／push。
+
+D147（台北2026-11-08，PLAN v1.101）：依 Louis 指示處理第4題，已完成 `baseline_v4` 官方Codex外掛latest別名相容、Gemini獨立PASS、3660項完整回歸及六鎖部署；UTC10:12:26六項前檢通過，10:13:44自然cycle三線ready。第4題已於UTC10:18:17／10:18:25確認預測及留言送達，三線兩層全完成；今日4題、累計36題全交，pending attempt與未完成intent均0。最新證據見 [D147](D147-CODEX-CACHE-ALIAS.md) 與 project_control status；Cup唯讀查到29道開放一般題及3道11/10台北02:00即將開放題，未開始新研究。原D146未提交內容保留；未commit／push。
+
+D146（台北2026-11-07，PLAN v1.100）：Louis要求之後問「情況如何」時，一併查各已參賽場次的最新官方分數與排名，附來源／查詢時間；沿用PLAN §4.1帳號核對，未計分、未上榜或查詢失敗須分清。這是持續回報偏好，沒有新增排程或推播；本次只更新文件，未查分數。D145已commit／push至644f08e且遠端核對相同；D146文件尚未提交。
+
 D145 接手（台北2026-11-07，PLAN v1.99）：Codex 已升為0.167.0且未停線；D143已移除三家CLI純版本差異阻擋，本輪清理殘留舊規則文字、三線回歸192 passed。另處理Claude一般設定變動：三次Haiku合成呼叫／29項PASS，僅更新claude.settings基準，UTC 2026-11-06T22:56:37.662Z恢復；22:57:26.939Z六項前檢全部通過且無安全停線。正式程式與pins不變，未重跑已提交題；詳見 [D145](D145-CLI-UPGRADE-CHECK.md)。Louis隨後已指示commit／push，實際結果見git與手機進度帳冊；原排程繼續。
 
 D144 接手（2026-11-06，PLAN v1.98）：Louis 已授權日常開發目錄變更不再停線；GPT 完成 `baseline_v3`、嚴格驗收綁定與完整3644項離線測試。今天排入4題全交，3題缺線（Gemini2、GPT1），不重跑已提交題。UTC 2026-11-06T11:44:15.800Z 六鎖部署完成，三線兩層前檢全過無 waiver；詳見 [D144](D144-DEVELOPMENT-CATALOGS.md) 與 project_control status；舊D143交接保留。

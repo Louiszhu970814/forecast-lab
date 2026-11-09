@@ -419,6 +419,45 @@ def test_handoff_for_unselected_option_or_before_acceptance_does_not_notify(proj
     assert sum('決策執行更新' in text for _,text in bot.api.sent)==1
 
 
+def test_resolved_history_drops_out_after_24h(project):
+    b=board(project);ask(b,name='OLD-1');ask(b,name='OLD-2');ask(b,name='FAIL-1')
+    b.close('OLD-1','完成，來源為離線測試')
+    b.record('action_finished',decision_id='FAIL-1',status='failed')
+    assert 'OLD-1' in b.decision_text()
+    later=Board(project,now=lambda:NOW+timedelta(hours=26))
+    text=later.decision_text()
+    # Closed and long-expired items are hidden; items needing a check remain visible.
+    assert 'OLD-1' not in text and 'OLD-2' not in text and 'FAIL-1' in text
+    assert '另有 2 項' in text
+    later.ask('NEW-1','新問題',{'A':'a','B':'b'},expires_at=to_iso(NOW+timedelta(hours=30)))
+    assert 'NEW-1' in later.decision_text()
+
+
+def test_old_summary_and_chat_do_not_reach_model_context(project):
+    b=board(project);b.publish('GPT D147完成\nD100、D101 已結案的舊細節',source='old')
+    q=b.submit('o','1','gpt','進度？')
+    b.record('answer_finished',request_id=q['request_id'],status='finished',answer='D101 已結案')
+    later=Board(project,now=lambda:NOW+timedelta(hours=25))
+    ctx=later.context('o','new')
+    assert ctx['recent_chat_untrusted']==[] and 'D101' not in ctx['facts']
+    assert 'GPT D147完成' in ctx['facts'] and '細節已收合' in ctx['facts']
+    assert len(b.context('o','new')['recent_chat_untrusted'])==1
+
+
+def test_live_brief_counts_without_question_details(project):
+    data=project/'data';data.mkdir(exist_ok=True)
+    rows=[{'status':'forecast_ok','question_id':46707,'at':to_iso(NOW-timedelta(hours=1)),'probability':0.12345},
+          {'status':'comment_ok','question_id':46707,'at':to_iso(NOW-timedelta(hours=1))},
+          {'status':'forecast_ok','question_id':11111,'at':to_iso(NOW-timedelta(days=3))}]
+    (data/'submissions.jsonl').write_text(''.join(json.dumps(r)+'\n' for r in rows))
+    (data/'forecasts.jsonl').write_text(json.dumps({'player':'gpt','finished_at_utc':to_iso(NOW-timedelta(hours=2)),
+        'probability':0.98765,'reasoning_summary':'SECRET_REASON'})+'\n')
+    text=board(project).snapshot()
+    assert '確認送出預測：1 題' in text and 'gpt 1' in text
+    for hidden in ('46707','11111','0.12345','0.98765','SECRET_REASON'):
+        assert hidden not in text
+
+
 def test_expired_condition_never_releases_or_queues_work(project):
     b=board(project);spec=script(project);ask(b,actions={'B':spec})
     b.handoff('M3-1','B',coordinator='Claude',next_step='run',condition='D99')

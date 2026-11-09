@@ -33,7 +33,7 @@ from flab.workdir import PROJECT_ROOT, default_base_dir  # noqa: E402
 
 ACCEPTANCE_LOG = PROJECT_ROOT / "data" / "acceptance.jsonl"
 PLAYERS = ("claude", "gemini", "gpt")
-VERSION = "baseline_v3"
+VERSION = "baseline_v4"
 
 # Never open files or descend into directories with these names (credentials, sessions, outputs).
 # Items inside an inventoried directory that are never read: folders that hold conversation data and
@@ -213,8 +213,33 @@ def _unsafe_target(target: Path, root_real: Path, exclude: tuple[str, ...]) -> b
         or any(x in exclude for x in parts)
 
 
+def _codex_cache_alias(path: Path, root: Path, exclude: tuple[str, ...]) -> str | None:
+    """Inventory a latest -> sibling version directory alias without traversing it.
+
+    The real version directory is visited independently by the ordinary walk.
+    Only Codex's exact cache/provider/plugin/latest layout is supported; source
+    links, arbitrary directory links, link chains and private targets still fail.
+    """
+    rel = path.relative_to(root)
+    if len(rel.parts) != 4 or rel.parts[0] != "cache" or rel.name != "latest":
+        return None
+    if any(PRIVATE_DIR.fullmatch(p) or CREDENTIAL_FILE.search(p) for p in rel.parts):
+        return None
+    target = Path(os.readlink(path))
+    if not target.is_absolute():
+        target = path.parent / target
+    real = target.resolve(strict=True)
+    if target.absolute() != real or real.parent != path.parent.resolve() or not real.is_dir() \
+            or not re.fullmatch(r"[0-9]+(?:\.[0-9]+){2}", real.name):
+        return None
+    target_rel = real.relative_to(root.resolve())
+    if any(str(parent) in exclude for parent in (target_rel, *target_rel.parents)):
+        return None
+    return target_rel.as_posix()
+
+
 def _hash_dir(root: Path, exclude: tuple[str, ...] = (), exclude_top_files: re.Pattern[str] | None = None,
-              *, synced_metadata: bool = False) -> dict[str, Any]:
+              *, synced_metadata: bool = False, codex_cache_aliases: bool = False) -> dict[str, Any]:
     """Hash of sorted (relative path, kind, digest) entries.
 
     Private folders and credential files are not read (see PRIVATE_DIR, CREDENTIAL_FILE): their
@@ -238,7 +263,13 @@ def _hash_dir(root: Path, exclude: tuple[str, ...] = (), exclude_top_files: re.P
             if rel in exclude:
                 continue
             if p.is_symlink():
-                unsafe.append(rel)
+                alias = _codex_cache_alias(p, root, exclude) if codex_cache_aliases else None
+                if alias is None:
+                    unsafe.append(rel)
+                else:
+                    item = [rel, "symlink->plugin-version-dir", alias]
+                    entries.append(item)
+                    raw_entries.append(item)
             elif PRIVATE_DIR.match(d):
                 private_dirs.append(rel)
             else:
@@ -378,7 +409,8 @@ def inspect_source(src: Source, home: Path) -> dict[str, Any]:
                 rec["error"] = "expected directory"
                 return rec
             rec.update(_hash_dir(path, src.exclude, src.exclude_top_files,
-                                 synced_metadata=src.kind == "claude_plugin_dir"))
+                                 synced_metadata=src.kind == "claude_plugin_dir",
+                                 codex_cache_aliases=src.source_id == "codex.plugins"))
             if rec["unsafe_symlinks"]:
                 rec["error"] = "symlink points outside the source, into a private folder or credential file, or to a directory"
             elif rec.get("walk_errors"):

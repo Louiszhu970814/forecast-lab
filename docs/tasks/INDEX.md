@@ -11,6 +11,7 @@
 
 | 檔案 | 對應決策 | 說明 |
 |---|---|---|
+| [`D147-CODEX-CACHE-ALIAS.md`](D147-CODEX-CACHE-ALIAS.md) | D147 | Codex 外掛版本別名相容已部署、六項前檢通過；第4題續作與 Cup 新題盤點 |
 | [`D145-CLI-UPGRADE-CHECK.md`](D145-CLI-UPGRADE-CHECK.md) | D145 | Codex 0.167.0 升版未停線；三線版本規則清理、Claude 一般設定恢復、六項前檢通過 |
 | [`D144-DEVELOPMENT-CATALOGS.md`](D144-DEVELOPMENT-CATALOGS.md) | D144 | 日常開發目錄內容變更不再停線、當日漏交／缺線盤點與部署證據 |
 | [`D140-AUTO-RECOVERY.md`](D140-AUTO-RECOVERY.md) | D140 | **COMPLETE（已部署／啟用）**：Gemini自動恢復，3道待補Market題皆forecast_ok／comment_ok；正式累計25題 |

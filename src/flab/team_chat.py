@@ -9,6 +9,7 @@ import hashlib
 import re
 import threading
 import uuid
+from datetime import timedelta
 from pathlib import Path
 
 from flab.dev_tasks import TaskError, safe_text, public_text
@@ -16,8 +17,14 @@ from flab.jsonl import append_record
 from flab.ledger import read_complete, transaction
 from flab.timeutil import utc_now, to_iso, parse_iso
 
-VERSION = "team_chat_v2"
+VERSION = "team_chat_v3"
+# Decision events written by these versions drive phone notifications (v1 history never replays).
+NOTIFY_VERSIONS = {"team_chat_v2", "team_chat_v3"}
+# Finished, closed or expired items and old chat drop out of phone views and model context
+# after this window, so the board stops repeating resolved history (D148).
+RECENT = timedelta(hours=24)
 UNSTARTED = {"open", "queued", "waiting_coordinator", "waiting_condition"}
+NEEDS_CHECK = {"failed", "unknown"}
 MODELS = {"gpt": "gpt-6-sol", "claude": "claude-sonnet-5-5", "gemini": "gemini-3.8-flash-low"}
 LABELS = {"gpt": "GPT", "claude": "Claude", "gemini": "Gemini"}
 HELP = """Forecast Lab 工作對話
@@ -301,27 +308,56 @@ class Board:
             out += [f"{k}：{v} → 決定 {d['decision_id']} {k}" for k,v in d["options"].items()]
         return "\n".join(out)
 
+    def recent(self, at):
+        return self.now() - parse_iso(at) <= RECENT
+
+    def is_current(self, d):
+        """Actionable now, or finished/closed/expired within RECENT."""
+        if d["status"] in UNSTARTED:
+            expires = parse_iso(d["expires_at"])
+            return expires > self.now() or self.now() - expires <= RECENT
+        if d["status"] in {"running", "coordinator_running"} | NEEDS_CHECK:
+            return True
+        return self.recent(d["at"])
+
     def decision_text(self, events=None):
         rows = list(self.decisions(events).values())
         out = [f"待決與續作狀態（查詢 {to_iso(self.now())} UTC；最新帳冊）"]
-        # Active decisions must never disappear behind historical closures.
-        rows = [d for d in rows if d["status"] != "closed"] + [d for d in rows if d["status"] == "closed"][-3:]
-        out += [self.describe_decision(d) for d in rows]
-        if not rows:
-            out.append("目前沒有主持人登記的待決事項。")
+        # Active decisions never disappear; resolved history is hidden after RECENT.
+        current = [d for d in rows if d["status"] != "closed" and self.is_current(d)]
+        current += [d for d in rows if d["status"] == "closed" and self.is_current(d)]
+        out += [self.describe_decision(d) for d in current]
+        if not current:
+            out.append("目前沒有需要你決定或正在接手的事項。")
+        if len(rows) > len(current):
+            out.append(f"（另有 {len(rows) - len(current)} 項超過 24 小時的已結案或過期決策，不再列出。）")
         return "\n\n".join(out)
+
+    def live_text(self):
+        # Counts only (ops_report never emits question IDs, probabilities or reasons).
+        from flab.ops_report import ReportError, live_brief
+        try:
+            return live_brief(self.project, now=self.now())
+        except (ReportError, ValueError, OSError):
+            return "即時營運數據暫時無法讀取（帳冊或設定不完整）；請在電腦檢查。"
 
     def snapshot(self):
         events = self.events()
         latest = next((r for r in reversed(events) if r["type"] == "progress"), None)
         if not latest:
             head = "尚無主持人發布的專案進度；無法確認 M2／M3 完成情況。"
+        elif not self.recent(latest["at"]):
+            # Old prose keeps resurfacing resolved work; show only its title line.
+            title = latest["summary"].strip().splitlines()[0] if latest["summary"].strip() else ""
+            head = (f"主持人最後一次摘要：{latest['at']}（UTC），已超過 24 小時，細節已收合。\n"
+                    f"標題：{title}\n目前狀態以上方即時營運數據與待決事項為準。")
         else:
             age = (self.now() - parse_iso(latest["at"])).total_seconds()
             head = f"主持人進度更新：{latest['at']}（UTC）\n依據：{latest['source']}\n{latest['summary']}"
             if age > 3600:
                 head += "\n注意：此紀錄超過一小時，不能當作即時執行狀態。"
-        return self.health_text(events) + "\n\n" + self.decision_text(events) + "\n\n以下是主持人摘要；若與上方較新決策衝突，以較新決策為準：\n" + public_text(head, limit=5500)
+        return (self.health_text(events) + "\n\n" + self.live_text() + "\n\n" + self.decision_text(events)
+                + "\n\n以下是主持人摘要；若與上方較新決策或即時數據衝突，以較新者為準：\n" + public_text(head, limit=5500))
 
     def state_token(self):
         return next((r["event_id"] for r in reversed(self.events()) if r["type"] in {
@@ -359,7 +395,9 @@ class Board:
         # No source files, forecast logs, .env or CLI sessions are opened here.
         history = []
         for q in self.questions().values():
-            if q["owner"] == owner and q["request_id"] != request_id and q["status"] == "finished":
+            # Old answers restate resolved issues; only recent chat is carried over.
+            if (q["owner"] == owner and q["request_id"] != request_id and q["status"] == "finished"
+                    and self.recent(q["at"])):
                 history.append({"player": q["player"], "question": q["question"], "answer": q["answer"]})
         with transaction(self.root):
             return {"facts": self.snapshot(), "as_of": to_iso(self.now()), "state_token": self.state_token(),

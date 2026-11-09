@@ -31,9 +31,9 @@ from flab.jsonl import append_record
 from flab.ops_report import ReportError, build_report, read_ledger, status_text
 from flab.timeutil import parse_iso, to_iso, utc_now
 from flab.dev_tasks import DEV_HELP, TaskError, TaskStore, parse_dev_command
-from flab.team_chat import Board, TeamWorker, LABELS, HELP as TEAM_HELP, parse_team
+from flab.team_chat import Board, TeamWorker, LABELS, NOTIFY_VERSIONS, HELP as TEAM_HELP, parse_team
 
-VERSION = "telegram_ops_v4"
+VERSION = "telegram_ops_v5"
 PROJECT = Path(__file__).resolve().parents[1]
 TAIPEI = ZoneInfo("Asia/Taipei")
 LABEL = "org.forecast-lab.telegram"
@@ -371,7 +371,7 @@ class Service:
         for r in self.board.events():
             if r["type"] == "notice" and r.get("owner") == self.dev_owner:
                 self.enqueue_text("team_notice:" + r["event_id"], f"專案通知 {r['at']} UTC\n依據：{r['source']}\n{r['summary']}")
-            elif r.get("version") == "team_chat_v2" and r["type"] in {
+            elif r.get("version") in NOTIFY_VERSIONS and r["type"] in {
                     "decision_accepted", "decision_handoff", "condition_ready", "coordinator_started", "action_started", "action_finished", "decision_closed"}:
                 if r["type"] == "decision_handoff" and "status" not in r:
                     continue

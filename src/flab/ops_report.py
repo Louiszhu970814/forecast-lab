@@ -57,12 +57,11 @@ def _time(row: dict, field: str):
         return None
 
 
-def status_text(project: Path, *, now=None) -> str:
-    now = now or utc_now()
+def _setting_lines(project: Path) -> list[str]:
     mode = _config(project, "submit_mode.json").get("mode")
     mode = mode if mode in {"local", "trial", "live"} else "未知"
     players = _config(project, "players_enabled.json")
-    lines = ["Forecast Lab 狀態", f"更新：{to_iso(now)}", f"送出模式：{mode}",
+    lines = [f"送出模式：{mode}",
         "送出暫停標記：" + ("已設定" if (project / "config/STOP_SUBMIT").exists() else "未設定"),
         "預測線設定：" + "、".join(f"{p} {'開' if players.get(p) is True else '關' if players.get(p) is False else '未知'}" for p in PLAYERS)]
     cycles = read_ledger(project / "data/cycles.jsonl")
@@ -74,8 +73,42 @@ def status_text(project: Path, *, now=None) -> str:
         lines.append(f"最近已記錄週期：{state}（{to_iso(finished) if finished else '時間未知'}）")
     else:
         lines.append("最近已記錄週期：尚無紀錄")
+    return lines
+
+
+def status_text(project: Path, *, now=None) -> str:
+    now = now or utc_now()
+    lines = ["Forecast Lab 狀態", f"更新：{to_iso(now)}", *_setting_lines(project)]
     lines.append("以上為設定與歷史紀錄；不代表預測排程目前正在執行。")
     return "\n".join(lines)
+
+
+def live_brief(project: Path, *, now=None) -> str:
+    """Compact last-24h counts for the phone board and Q&A context (D148).
+
+    Same information limits as build_report: no question titles, IDs, probabilities,
+    options, reasons, raw errors or URLs; question IDs are only counted.
+    """
+    now = now or utc_now()
+    start = now - timedelta(days=1)
+    data = project / "data"
+    attempts = read_ledger(data / "forecasts.jsonl")
+    submissions = read_ledger(data / "submissions.jsonl")
+    done = [r for r in attempts if (f := _time(r, "finished_at_utc")) is not None and start <= f <= now]
+    counts = "、".join(f"{p} {sum(r.get('player') == p for r in done)}" for p in PLAYERS)
+    errors = sum(bool(r.get("error_type")) for r in done)
+    ok = [(t, r.get("question_id")) for r in submissions
+        if r.get("status") == "forecast_ok" and (t := _time(r, "at")) is not None and start <= t <= now]
+    comments = {r.get("question_id") for r in submissions
+        if r.get("status") == "comment_ok" and (t := _time(r, "at")) is not None and start <= t <= now}
+    questions = {q for _, q in ok}
+    last = f"；最近一次 {to_iso(max(t for t, _ in ok))}" if ok else ""
+    return "\n".join([f"即時營運（近 24 小時；直接讀帳冊、不經模型；資料截止 {to_iso(now)} UTC）",
+        *_setting_lines(project),
+        f"確認送出預測：{len(questions)} 題（含對帳確認）{last}",
+        f"確認送出留言：{len(comments)} 題",
+        f"完成預測嘗試：{counts}；回報錯誤 {errors} 次",
+        "只列計數；題目內容、機率與理由不顯示。分數與排名不在此列。"])
 
 
 def build_report(project: Path, *, days=1, now=None) -> str:

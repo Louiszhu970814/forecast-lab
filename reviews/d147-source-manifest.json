@@ -1,0 +1,20 @@
+{
+  "version": "d147_source_manifest_v1",
+  "files": {
+    "src/baseline.py": {
+      "before": "1fb9c00b44a25e6900d692e3d4df52b8ae0cf83980ac0c699ec6fff93ad91b9d",
+      "after": "d2c471f229de9a691ec34c3b84a6fc8f7e68442816616cbcce4047837bfc7748"
+    },
+    "tests/test_codex_cache_alias.py": {
+      "before": null,
+      "after": "eee17dd6533827085ec321176bcdb8eb5991a8e0d1b41a8f4eb730873ae1c148"
+    }
+  },
+  "protected_count": 115,
+  "full_test_summary": "3660 passed in 157.40s (0:02:37)",
+  "review_packet_sha256": "f1cdc4bfc8b14a97de04a9a36b8d3e9dda1254b1731ed4f8dc74570d13d2d576",
+  "review_answer_sha256": "5a40245791b1aa83e4863688d6b0c00e71d11ff21b0a051b37004c7958f4f1be",
+  "deployment_at": "2026-11-08T10:12:26.669Z",
+  "evidence_root": "data/operations/d147-codex-cache-20261108",
+  "forecast_outcome": "see D147 task and append-only completion evidence"
+}
