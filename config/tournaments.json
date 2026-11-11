@@ -28,6 +28,6 @@
   "_notes": {
     "minibench_id": "暫定：minibench 的數字 ID 隨當期輪次變動，初始設為 null",
     "trial_ground_types": "試驗場地類型代號對應 bot testing area 與主站題目。2026-11-01 Louis 決定拿掉 Metaculus Cup：Louis 以本人帳號參加 Cup 人類賽，機器人不在 Cup 送出（PLAN D79）",
-    "submit_whitelisted": "所有比賽的 submit_whitelisted 初始皆為 false，須完成規則核對並經 Louis 核准後才可開啟"
+    "submit_whitelisted": "目前已核准開啟 FutureEval 主賽（main）、MiniBench 與 Market Pulse 26Q4（market_pulse）；bot_testing_area 為試驗場地維持 false"
   }
 }

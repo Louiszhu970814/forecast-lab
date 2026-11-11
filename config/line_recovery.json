@@ -1,6 +1,6 @@
 {
   "version": "line_recovery_v1",
-  "enabled": true,
-  "authorization": "PLAN D140",
+  "enabled": false,
+  "authorization": "PLAN D150 (retired after D149 removed persistent stops)",
   "interval_s": 300
 }

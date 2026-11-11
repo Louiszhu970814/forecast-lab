@@ -1,17 +1,17 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.103（v1.0 凍結後的修訂，見 §16；D149 不停線、截止前必送與 live 窗口自動續期；D148 TG 只呈現目前事項；保留 D147 及以前紀錄）
+> 版本：v1.104（v1.0 凍結後的修訂，見 §16；D150 清理過時背景服務／中間退件／作廢提案與 PLAN 正文同步；D149 不停線、截止前必送與 live 窗口自動續期）
 > 初稿：Claude
-> 本回合整合者：Claude → agy（Claude Opus 5.5）接續（D149 不停線與截止前必送；Claude Code 額度用盡，依 D141 改用 agy 備援）；Claude（D148 TG 只呈現目前事項）；GPT（D147 Codex 外掛版本別名相容與續作；D146／D145／D144 亦由 GPT 整合）；D143 由 Gemini 整合，歷史見 `docs/tasks/HANDOFF.md`。
+> 本回合整合者：Gemini（agy，D150 文件與過時背景機制清理）；Claude → agy（Claude Opus 5.5 → Gemini 4 Argon）接續（D149 不停線與截止前必送）；歷史交接見 `docs/tasks/HANDOFF.md`。
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
-> 最後更新：2026-11-10（台北；操作時間以 UTC 記錄）
-> 狀態：D149 已依 Louis 指示拔除永久停線規則（前檢只剩手設開關擋線、只認限時等待、已有答案不等缺線），新增截止前必送保底 `deadline_fallback_v1` 與 live 窗口自動續期；UTC 2026-11-10T13:40:12Z 窗口已續為 `auto_20261110T0400Z`，三線前檢 ready，見 §7.5、§15 D149。以下保留沿革：D147 已於 UTC 2026-11-08T10:12:26.669Z 部署外掛版本別名相容修正，3660項完整離線回歸與Gemini獨立審查通過、三線兩層前檢全過；第4題由既有排程於UTC10:18完成預測與留言確認、三線兩層齊全，今日4題／累計36題全交；提交證據見 `docs/tasks/D147-CODEX-CACHE-ALIAS.md`。以下保留沿革：D145 已核對 Codex 0.167.0 升版未停線，三家 CLI 版本變更僅記錄；另已完成 Claude 一般設定變動的合成驗收與限縮基準更新，UTC 2026-11-06T22:57:26.939Z 三線兩層六項前檢全過、無 waiver，line guard 均無停線，見 `docs/tasks/D145-CLI-UPGRADE-CHECK.md`。以下保留沿革：D144 已依 Louis 指示將明列開發目錄的可讀內容變動改為僅記錄，保留工具權限、驗收證據與實際安全停線；當日 4 題已排入且全部送出，3 題因基準阻擋缺線（Gemini 2、GPT 1），非整題漏交。測試與部署證據見 `docs/tasks/D144-DEVELOPMENT-CATALOGS.md`。D139已於2026-11-05T05:57:07.361Z完成雙審、驗證與六鎖部署，30分鐘新題搜尋、人類賽手動入口及Market Pulse bot已啟用，實際開始／提交metadata見D139任務單。以下D137等紀錄保留沿革：D137 已獲 Louis「複審完 修改完可以 就直接開始正式賽了」授權，已於2026-11-05T02:49:33.366Z完成雙審／驗證與六鎖登記，主賽33121與MiniBench正式live；保留原根用量、130／200／130上限與UTC11/10 04:00截止，不待M4官方分數才加入，M3完整觀測／M4結算驗收未完成的限制不冒充通過。D129 `resolve_v2`／`score_v2` 手動入口已上線，D128 live 母體診斷已實作；首次決策未完整落盤，歷史與 live 完整 ITT 結論均維持禁止；D118已由D137接續主賽＋MiniBench（固定截止 UTC 11/10 04:00）；D127 M4 `resolve.py`／`score.py` 手動入口已上線（未啟用排程，首批正式已送出題的最早預定結算為台北 11/13 20:00，見 D132 日期核對）；M5、D121 第一批與 D123 已上線；D130 已恢復 Gemini（專案 pin 1.4.12，兩層前檢通過），D131 已完成 Claude／GPT 新隔離驗收與限縮基準核准，三線兩層前檢全過。D124 observe 與 D125 autoload_v3 已上線；D126 確立加速迭代窗口（每日已關閉題目三閘門健檢；M4 手動入口已上線，舊 11/06 日期由 D132 更正）並完成階段 A 過時文件清理、測試隔離修正、INDEX 建立與 PLAN 正文同步（v1.0 於 2026-10-31 經 Louis 核准凍結，D54）
+> 最後更新：2026-11-11（台北；操作時間以 UTC 記錄）
+> 狀態：正式參賽運轉中（`submit_mode = "live"`，機器人帳號 `311763`）。已啟用白名單場地為 FutureEval 2026 秋季主賽（`33121`，D137）、MiniBench 系列（D117／D118）與 Market Pulse 26Q4（`33131`，D139），支援是非、多選、數值與離散四種題型（M5，D122／D123），並提供 Metaculus Cup 2026 秋季人類賽手動輔助入口（`33108`，D132／D139／D142）。排程僅保留 `org.forecast-lab.cycle`（60 秒 heartbeat ＋ 30 分鐘新題搜尋 `discovery_v1`）與 `org.forecast-lab.telegram`（手機唯讀進度與目前事項問答，D148）；依 D149 已拔除永久停線規則（`PERSISTENT_STOPS = False`：前檢只剩手設開關擋線、只認限時等待、超過 15 分鐘不等缺線），新增截止前必送保底 `deadline_fallback_v1`（至少一個模型有完整非洩漏預測答案即送出）與 7 天 `live` 窗口到期自動續期 `live_window_renewal_v1`（現行窗口 `auto_20261110T0400Z`）；D150 已退役無效的 `line-recovery` 背景服務與 `auto_reaccept` 週期尾端呼叫，並清理 §14 早期審查對話與過時中間檔案。完整演進沿革見 §15「決策紀錄」、§16「變更紀錄」與 `docs/tasks/HANDOFF.md`（v1.0 於 2026-10-31 經 Louis 核准凍結，D54）。
 
 ---
 
 ## 0. 一句話目標
 
-以 Claude、Gemini、GPT 三個模型組成一支預測隊伍，參加 Metaculus 的 FutureEval 機器人預測賽。三個模型先各自獨立研究並給出預測，再由程式整合成一個預測送出，目標是在三家訂閱額度內把比賽分數衝到最高（D31）。機器人賽用剩的額度，可以為 Louis 參加的人類賽提供參考預測（D32）。本專案不下注、不交易（硬性規則 1）。
+以 Claude、Gemini、GPT 三個模型組成一支預測隊伍，參加 Metaculus 的機器人預測賽（FutureEval 主賽、MiniBench 與 Market Pulse 26Q4）。三個模型先各自獨立研究並給出預測，再由程式整合成一個預測送出，目標是在三家訂閱額度內把比賽分數衝到最高（D31、D137、D139）。機器人賽用剩的額度，可以為 Louis 參加的人類賽（Metaculus Cup）提供參考預測（D32、D76）。本專案不下注、不交易（硬性規則 1）。
 
 ---
 
@@ -72,24 +72,25 @@
 
 ## 3. 比賽與預測流程
 
-### 3.1 目標比賽與優先序（D32）
+### 3.1 目標比賽與優先序（D32、D137、D139）
 
 | 優先 | 比賽 | 說明 |
 |---|---|---|
-| 1 | FutureEval 主賽 | 每季一輪（9 月、1 月、5 月開始），每季約 300～400 題，題型包括是非、多選、數值與離散，獎金池 5 萬美元。2026 秋季賽（project ID `fall-futureeval-2026`）自 2026-09-28 起開題，持續到 2027-01-01 前幾週；剩約 50 題以上時加入，仍有機會進入獎金區。主要目標。 |
-| 2 | MiniBench | 每兩週一輪，每輪約 60 題、獎金 1 千美元，題目由 LLM 自動產生，多數在前幾天開出；獎金與主賽同時發放。正式參賽的第一站，也比主賽更快得到實戰回饋。 |
-| 3 | 人類賽輔助（§8） | 只使用機器人賽用剩的額度。 |
+| 1 | FutureEval 主賽 | 每季一輪（9 月、1 月、5 月開始），每季約 300～400 題，題型包括是非、多選、數值與離散，獎金池 5 萬美元。2026 秋季賽（project ID `33121`、`fall-futureeval-2026`）自 2026-09-28 起開題，持續到 2027-01-01 前幾週；剩約 50 題以上時加入，仍有機會進入獎金區。主要目標（D137 已正式參賽）。 |
+| 2 | MiniBench | 每兩週一輪，每輪約 60 題、獎金 1 千美元，題目由 LLM 自動產生，多數在前幾天開出；獎金與主賽同時發放。正式參賽的第一站，也比主賽更快得到實戰回饋（D117／D118 已正式參賽）。 |
+| 3 | Market Pulse 26Q4 | project ID `33131`（`market-pulse-26q4`），含題組與子題映射（`question_mapping_v1`）。依 `market_pulse_v1` 有限策略，在主賽與 MiniBench 兩層皆優先且保留預期新題容量後，對每子題作答最多一次（D139 已正式參賽）。 |
+| 4 | 人類賽輔助（§8） | 只使用機器人賽用剩的額度（目前支援 Metaculus Cup `33108`，由本人手動觸發與提交，D132／D139／D142）。 |
 
-- 兩種比賽的題目都在隨機時段開出，每題開放 3 小時；同時開放的題目通常不超過 5 題，偶爾約 10 題（§3.5、§9）。
+- 主賽與 MiniBench 的題目都在隨機時段開出，每題開放 3 小時；同時開放的題目通常不超過 5 題，偶爾約 10 題（§3.5、§9）。
 - **試驗場地**（D45）：不計獎、允許重跑的場地，試驗期只在這些地方作答與送出：
   - bot testing area（project ID `bot-testing-area`）：每種題型各一題，不計分。
   - 主站題目：機器人不能領獎，但可以重跑，送出後能取得官方分數與結算值。
   - **Metaculus Cup 不再是試驗場地**（D79）：Louis 以本人帳號參加 Cup 人類賽，機器人不在 Cup 送出，以免被視為同一人用兩個帳號參加同一場比賽。Cup 的題目常常同時掛在主站，所以主站題目也要排除任何同時屬於 Cup 的題目（M3-W9 實作）。
   - 排除同步題（D53）：試驗場地的題目若與主賽或 MiniBench 中開放中、即將開放的題目是同一題（例如同步到主站的題目），一律排除，而且排除優先於場地允許。判斷以平台的 ID 與歸屬對應為主；標題相同只當作疑似重複的訊號，標題不同也不代表安全。無法確定時，改選其他題目。
-- 額度不足時採「先廣後深」：先完成所有比賽的第 1 層，再依優先序做第 2 層，最後才做人類賽輔助（§9）。
+- 額度不足時採「先廣後深」：先完成高優先比賽的第 1 層與第 2 層（主賽與 MiniBench 優先於 Market Pulse），最後才做人類賽輔助（§3.6、§9）。
 - 每場比賽參加前都要完成規則核對並記錄（§3.7）。核對完成並經 Louis 核准的比賽，才會列入 `config/tournaments.json` 的送出白名單。
-- D117：已依 §3.6 的有限七天授權啟用 MiniBench 系列白名單；其他場地維持 false。官方每輪數字 ID 仍須逐次發現與核對，不能把系列核准當成任意場地核准。
-- 以上比賽資訊來自主辦方的資源頁與正式規則，摘要見 `docs/tournament_checks/futureeval.md`。
+- 現行白名單狀態（D117／D137／D139）：`futureeval-main-2026-fall`（`33121`）、`minibench` 系列與 `market-pulse-26q4`（`33131`）的 `submit_whitelist` 為 `true`；`bot-testing-area` 維持 `false`。MiniBench 官方每輪數字 ID 仍須逐次發現與核對，不能把系列核准當成任意場地核准。
+- 以上比賽資訊來自主辦方的資源頁與正式規則，摘要見 `docs/tournament_checks/futureeval.md` 與 `docs/tournament_checks/market-pulse-26q4.md`。
 
 ### 3.2 題目取得
 
@@ -168,9 +169,9 @@
    - 輸入：題目，以及第 1 層通過稽核的合格答案的匿名摘要（機率、推理摘要、關鍵因素、來源與 `market_refs`），以 A、B、C 標示，順序隨機（D48）。缺線時只用現有的摘要，不要求湊齊三份。
    - 保存所有輸入的 attempt ID、匿名排列，以及子代理的來源關係。
    - 指示：找出分歧的關鍵，並針對它研究。
-   - 推理強度為 `high`。子代理要等該線通過 §7.6 的子代理驗收才開放，並受 §5.3 的上限約束。
+   - 推理強度為 `high`。子代理要等該線通過 §7.6 的子代理驗收才開放（目前三線皆固定關閉，`subagents_enabled = false`），並受 §5.3 的上限約束。
    - 各線輸出自己的最終預測，可以維持原本的答案。
-7. **最終整合**：有第 2 層有效答案的線用第 2 層的答案，其他線用第 1 層的答案，再依 §4.2 整合。
+7. **最終整合**：有第 2 層有效答案的線用第 2 層的答案，其他線用第 1 層的答案，再依 §4.2 整合；同一題已有可用答案時，等待超過 15 分鐘（`STRAGGLER_HOLD_S`）、趕不上決策截止或前檢被擋的線不再拖住整合，最終整合記 `lines_not_waited_for`（D149）。
 8. **留言**：由程式從實際使用的結構化輸出組成推理說明（§5.6），不另外呼叫模型。
 9. **送出**（§3.6）：白名單比賽的每一題只送出一次（D44）。
    - 沒有升級的題目：第 1 層整合完成後送出。
@@ -186,7 +187,7 @@
 - 只有預估完成時間早於決策截止點，才會啟動第 2 層（D52）。
   - 預估時間 = 同一條線、同一層近期耗時的第 90 百分位數 + 驗證與稽核所需的時間。
   - 還沒有資料時，以單次執行上限計算（§7.5）。
-- 某題到截止時間都沒有可送出的整合結果，就記為漏答，並保留原因（例如 `quota_exhausted`、`timeout`、`unsupported_type`）。
+- **截止前必送保底**（`deadline_fallback_v1`，D149）：在決策截止點若尚無一般可採用答案，但至少一個模型產出格式有效且具完整說明（`reasoning_summary`，第 2 層另含 `change_reason`）、僅因非 `leak_confirmed` 的稽核標記（如 `model_mismatch`、`tool_scope_violation`）被排除的預測答案，改以 `salvaged_inputs` 依 `agg_v1` 整合並標明 Deadline fallback 送出；只有完全沒有任何模型產出完整非洩漏預測答案時，才維持 `no_valid_inputs` 記為漏答並保留原因（例如 `quota_exhausted`、`timeout`、`unsupported_type`），不送中性先驗（§7.5）。
 - v0.3 的「t0 後 6 小時」作答窗口（D14）不再適用，因為已經不跟 t0 的社群預測比較（D40）。
 
 ### 3.6 送出規則（D33、D44～D46）
@@ -204,11 +205,11 @@
   - Louis 在 §15 記錄核准。
 
   每場比賽還須另外列入送出白名單（§3.1）。
-  - D117：Louis 於 2026-11-03 明確回覆「OK 請參賽」，接受 D116 已揭露限制的條件式 M3-4／V11 依據，並核准 bot 311763 僅參加 MiniBench 系列，UTC 11/3 13:03～11/10 13:03，無自動續期。此有限准入以既有試驗端到端、歷史全樣本與固定壓力情境為據；完整 D114 新觀測保留為補充，未冒稱原完整實測已完成。晚接手不延後截止。其他場地與主賽未獲此授權。
-  - D117 啟用紀錄：UTC 11/3 01:53:56 已載入 `org.forecast-lab.cycle` 並驗證 `waiting`；runtime 為帶有固定窗口合約的 `live`，僅 MiniBench 白名單為 true。每 600 秒檢查，窗口開始後下一輪以當時時間登記與前檢，並非保證 13:03 整點作答。開始前不呼叫模型／API；到期不啟動新 worker 或 POST，不自動續期。安裝驗證新增模型嘗試與 POST 均為 0。
-  - D118：Louis 明確要求提前，七天窗口前移至 UTC 11/3 04:00～11/10 04:00（台灣12:00～12:00）；經測試／複審後以真正現在時間接手，晚接手不順延截止。bot311763、僅MiniBench、130／200／130上限與D117條件式依據不變；所有舊D105窗口用量併入上限。新接續登記保留舊紀錄並禁止舊窗口再取額度，唯一允許重疊的是明確綁定且完整保留用量的來源。D117未登記的21:03候選由此取代，不並存兩份額度；無自動續期。詳見 `docs/tasks/MINIBENCH-EARLY-D118.md`。
+  - **現行窗口與自動續期（D149，`live_window_renewal_v1`）**：下方 D117／D118／D137／D139 為初期單次七天窗口（固定截止 UTC `2026-11-10T04:00:00Z`、無自動續期）的沿革紀錄；自 D149 起，`live` 窗口到期時由 `src/live_window.py` 自動續下一個 7 天窗口（已於 UTC `2026-11-10T13:40:12Z` 續為 `auto_20261110T0400Z`），白名單場地、機器人帳號 `311763` 與每週嘗試上限（Claude 130／Gemini 200／GPT 130）維持不變，暫停仍由 `STOP_SUBMIT` 與 `players_enabled` 控制。
+  - D117（沿革，已被 D118 取代）：Louis 於 2026-11-03 明確回覆「OK 請參賽」，接受 D116 已揭露限制的條件式 M3-4／V11 依據，並核准 bot 311763 僅參加 MiniBench 系列，原訂 UTC 11/3 13:03～11/10 13:03。
+  - D118（沿革）：Louis 明確要求提前，七天窗口前移至 UTC 11/3 04:00～11/10 04:00（台灣12:00～12:00）；bot311763、僅MiniBench、130／200／130上限與D117條件式依據不變；所有舊D105窗口用量併入上限。詳見 `docs/tasks/MINIBENCH-EARLY-D118.md`。
   - **D137 主賽有限准入（2026-11-05）**：Louis 在清理複審期間明確指示「複審完 修改完可以 就直接開始正式賽了」。本次授權取代原 M6 等 M4 分數後才加入的時間安排，核准 bot311763 加入當季主賽33121，並保留 MiniBench；在有界預算接續的離線驗證、Claude 完整與 Gemini 獨立審查及正式前檢通過後執行，不再重問是否參賽。這是有限准入決策，沿用 D116 已披露的歷史全樣本／壓力情境、D113–D115 端到端及M5證據，不宣稱完整 M3 實測或 M4 已完成。D114 原觀測以登記時相同程式核對為24／168輪、未完成、不可重播，保留缺口；M4官方分數尚待結算，仍不得作準確度／完整ITT結論。
-  - **D137 接續契約**：continuous_v10／budget_handoff_v2 最多兩條來源連結（目前D105→D118→D137）；每個來源hash、原登記與根accounting_start保持，拒絕分叉、循環、第三跳、無關窗口重疊、未登記v10准入、改寫來源、延長來源終點或變更cap／固定run/quota／預留參數。主賽與MiniBench共用同一額度，保留從UTC11/02 13:03起的所有原用量；Claude／Gemini／GPT上限仍130／200／130。候選窗口授權起點UTC11/05 01:49:59.950，實際登記與啟動另記；截止固定UTC11/10 04:00，不因晚接手延後、不自動續期。正式prompt／模型／權重／升級門檻與600秒排程不變；每題一次送出及開放題不預覽規則保持。任務與安全復原契約見 `docs/tasks/D137-MAIN-LAUNCH.md`。
+  - **D137 接續契約（初期窗口沿革）**：continuous_v10／budget_handoff_v2 最多兩條來源連結（當時 D105→D118→D137）；每個來源hash、原登記與根accounting_start保持，主賽與MiniBench共用同一額度，Claude／Gemini／GPT上限仍130／200／130。任務與安全復原契約見 `docs/tasks/D137-MAIN-LAUNCH.md`（單次截止不續期規定已由上方 D149 `live_window_renewal_v1` 取代）。
 - **MiniBench 不另設固定的試驗天數**（D77）：§10 M3 的必要驗收全部通過，而且 Louis 在 §15 記錄核准後，就可以進入 MiniBench。第一輪即是正式參賽，同時作為觀察期（§10 M4）；仍然每題只送一次，不得人為介入。
   - MiniBench 每輪換一個 project ID。白名單以系列（slug `minibench`）核准，每一輪的數字 ID 由執行時的官方 API 發現並記錄，送出前逐題核對。M3-W9 已實作系列白名單；可送出集合要求 `is_ongoing = true`，且 API 若提供 `start_date`，必須已到開始時間。API 提前標為 ongoing 的未來輪次仍列入試驗排除索引，但不列入可送出集合（D83）。此離線實作不代表真實 V15 或正式參賽核准完成。
 - **每題只送一次**（D44）：白名單比賽的每一題，只送出一次預測與一則留言（§3.4 第 9 點）。試驗場地允許重送，但流程和正式參賽相同，以便驗證。
@@ -243,7 +244,7 @@
 
 **D139 新題搜尋與 Market Pulse 有限准入**：Louis 明確授權依序完成 30 分鐘新題發現、人類賽通用入口、Market Pulse，驗證／雙審通過後直接啟用。`discovery_v1` 全量發現 1800 秒，60 秒本地 heartbeat 及已知題刷新／截止／送出分離；觀測短於一小時窗口或首次發現剩餘決策時間不足既有 3240 秒研究界線，縮至 300 秒且不自動回升。既有 worker 准入／handoff／清理上限不隨搜尋間隔放大。失敗不前移成功時鐘，upcoming 到開放可提早發現；睡眠／鎖／網路仍可能延遲，不宣稱完整覆蓋率。
 
-Market Pulse project33131 以 bot311763 加入；`market_pulse_v1` 在本窗口採首次剩餘容量作答、每子題最多一筆預測、更新0次、私人留言含子題ID。主賽與 MiniBench 兩層皆優先，Market Pulse 保留預期新題兩層＋修復及目前高優先題容量。`question_mapping_v1` 在抓題、precheck、讀回、結算及關題稽核使用同一父post／group／child映射，合併共用與子題條件，子題尺度與時程獨立；conditional仍不支援。`continuous_v11`／`budget_handoff_v3` 只從原D137接續至第三段，原v1／v2限制不變，保留原根用量、130／200／130、UTC2026-11-10 04:00截止，不續期或重置，第四段／分叉／變更固定設定拒絕。這是事先固定的有限策略，並非把FutureEval單次規則誤當本季要求；核對與部署見 `docs/tasks/D139-EXPANSION.md`。
+Market Pulse project33131 以 bot311763 加入；`market_pulse_v1` 在本窗口採首次剩餘容量作答、每子題最多一筆預測、更新0次、私人留言含子題ID。主賽與 MiniBench 兩層皆優先，Market Pulse 保留預期新題兩層＋修復及目前高優先題容量。`question_mapping_v1` 在抓題、precheck、讀回、結算及關題稽核使用同一父post／group／child映射，合併共用與子題條件，子題尺度與時程獨立；conditional仍不支援。`continuous_v11`／`budget_handoff_v3` 當時從原D137接續至第三段，保留原根用量與 130／200／130 上限（初期 UTC 2026-11-10 04:00 單次截止已由 D149 `live_window_renewal_v1` 每 7 天自動續期取代）。這是事先固定的有限策略，並非把FutureEval單次規則誤當本季要求；核對與部署見 `docs/tasks/D139-EXPANSION.md`。
 
 ### 3.7 比賽規則核對
 
@@ -283,7 +284,7 @@ FutureEval 主賽與 MiniBench 的核對已依 Louis 提供的資源頁與正式
 
 - **是非題**：對各線的有效答案取 log-odds 平均，不做 extremizing（係數 1.0），最後截斷到 [0.02, 0.98]。
 - **多選題**：各線的機率取幾何平均後重新正規化，再以均勻分布平滑：p′ = (1 − ε)·p + ε / K，其中 K 為選項數，ε = 0.02（D52）。這樣一次就完成正規化，每個選項至少有 ε / K。
-- **缺線**：用現有的有效答案整合；完全沒有有效答案就不送出。`leak_confirmed` 與 `model_mismatch` 的答案不納入整合（§3.3、§7.7）。
+- **缺線**：用現有的有效答案整合；一般整合中，`leak_confirmed`、`model_mismatch` 與 `tool_scope_violation` 的答案不納入整合（§3.3、§7.7）。在決策截止點若無一般有效答案，但至少一個模型有格式有效且具完整說明、非 `leak_confirmed` 的預測答案，則由 `deadline_fallback_v1`（`salvaged_inputs`，D149）整合送出；完全沒有任何模型完整非洩漏答案時維持 `no_valid_inputs` 不送出（§3.5、§7.5）。
 - **權重**：三條線等權。
 - 理由（這是初版的選擇，不代表一定比其他規則好）：
   - log-odds 平均在模型方向一致時能保留信心，比較不會被單一保守的答案拉回 0.5。
@@ -331,7 +332,7 @@ FutureEval 主賽與 MiniBench 的核對已依 Louis 提供的資源頁與正式
 
 ### 4.5 定期報告（D17、D24，依 v0.4 調整）
 
-- **頻率與檔名**：每週產出一次，也可以手動指定期間（UTC 半開區間）。輸出到 `reports/periodic/<起日>_<迄日>_<產生時間>.md`，不覆寫舊報告。
+- **頻率與實作狀態**：原訂每週自動產出 `reports/periodic/<起日>_<迄日>_<產生時間>.md`（`report.py` 尚未獨立實作，目前由手動執行 `resolve.py`、`score.py`、`post_close_audit.py` 與 `flab/ops_report.py` 分別承擔結算計分、已關閉題目健檢與唯讀營運計數；下方保留完整指標規格供後續報表沿用）。
 - **可重現性**：保存採用的題號、attempt ID、設定版本，以及資料、結算與稽核的截止時間。
 - **只呈現已關閉題目的答案**（D45）：白名單比賽中開放中或即將開放的題目，只列題數，不列機率、理由或任何能反推答案的內容。這是為了遵守「不得預覽後修改」的規則（§3.6）。
 - **內容**：
@@ -360,18 +361,20 @@ FutureEval 主賽與 MiniBench 的核對已依 Louis 提供的資源頁與正式
 ```
 poll_questions.py ─► data/questions.jsonl        題目快照（白名單欄位；修訂時追加新快照）
                   └► data/poll_log.jsonl         每次查詢的時間與題目狀態（量測作答窗口、模擬覆蓋率）
+discovery.py      ─► data/discovery_state.jsonl  30 分鐘新題搜尋與 60 秒已知題 heartbeat 分離狀態（D139）
 quota.py          ─► data/quota.jsonl            額度查詢快照（§7.7）
 acceptance.py     ─► data/acceptance.jsonl       隔離驗收結果與全域基準（§7.2、§7.6）
 forecast.py       ─► data/forecasts.jsonl        各線各層的每次嘗試
                   └► data/raw/<player>/<qid>_<attempt_id>/  原始輸出、事件紀錄、stderr
 audit.py          ─► data/audits.jsonl           metaculus.com 稽核結果與人工判讀
-aggregate.py      ─► data/aggregates.jsonl       第 1 層整合、升級判斷、最終整合
+aggregate.py      ─► data/aggregates.jsonl       第 1 層整合、升級判斷、最終整合（含 D149 保底整合）
 comment.py        ─► （寫入 submissions）          推理說明留言（§5.6）
 submit.py         ─► data/submissions.jsonl      送出意圖、回應與狀態（標記送出模式）
-advise.py         ─► reports/advisory/<日期>_<題號>.md   人類賽參考報告（§8）
-resolve.py        ─► data/resolutions.jsonl      結算事件與官方分數
-score.py          ─► reports/scoreboard.md       分數總表
-report.py         ─► reports/periodic/<起日>_<迄日>_<產生時間>.md  定期報告（§4.5）
+                  └► data/submission_readbacks.jsonl  成功回執獨立讀回驗證（D111）
+human_advice.py   ─► reports/advisory/<日期>_<題號>.md   人類賽通用入口與參考報告（§8，搭配 advise.py）
+resolve.py        ─► data/resolutions.jsonl      結算事件、官方分數與排名觀測（手動執行）
+score.py          ─► reports/scoreboard.md       分數總表與診斷（手動執行）
+post_close_audit.py ─► （唯讀檢查）               已關閉題目三閘門健檢與品質診斷（D126、D135）
 ```
 
 - `forecast.py` 依 §9 的額度預算與優先序，以跨題目的工作佇列安排第 1 層、整合、升級判斷與第 2 層。
@@ -389,62 +392,70 @@ forecast-lab/
 ├── .gitignore
 ├── .env                       不進版本控制，放 METACULUS_TOKEN（機器人帳號）、TELEGRAM_BOT_TOKEN 與配對 ID 等機密
 ├── config/
-│   ├── run_config_v2.json     各線各層的模型、推理強度、子代理上限與升級門檻；修改即升版
+│   ├── run_config_v2.json     各線各層的模型、推理強度、子代理上限與升級門檻（內容為 run_config_v3）；修改即升版
 │   ├── agg_v1.json            整合規則參數；修改即升版
-│   ├── quota_policy.json      額度預算、保留線與優先序；修改即升版
-│   ├── tournaments.json       比賽清單與送出白名單；修改須經 Louis 核准
+│   ├── quota_policy.json      額度預算、保留線與優先序（quota_policy_v5）；修改即升版
+│   ├── tournaments.json       機器人賽清單與送出白名單；修改須經 Louis 核准
+│   ├── human_tournaments.json 人類賽清單（Metaculus Cup 等，D139）
 │   ├── submit_mode.json       local、trial 或 live；改為 trial 或 live 須經 Louis 核准（§3.6）
 │   ├── players_enabled.json   各線啟用開關；修改不升版，每次執行記錄當時狀態
 │   ├── question_types.json    M5 數值題與離散題動態開關（D122）
-│   └── cycle_campaign.json    持續模式預算窗口、各線週上限與設定雜湊（D105、D118）
+│   ├── cycle_campaign.json    持續模式預算窗口、各線週上限與自動續期窗口（D105、D118、D149）
+│   └── line_recovery.json     舊 D140 單項恢復設定（D150 已設 enabled=false 退役）
 ├── docs/
+│   ├── telegram.md            Telegram 手機工作對話操作說明
 │   ├── tasks/                 任務規格、交接紀錄（HANDOFF.md）與狀態索引（INDEX.md）
-│   └── tournament_checks/     比賽規則核對紀錄（§3.7），例如 futureeval.md
+│   └── tournament_checks/     比賽規則核對紀錄（§3.7），例如 futureeval.md、market-pulse-26q4.md
+├── reviews/                   各階段正式審查最終通過報告與狀態索引（INDEX.md）
 ├── prompts/
-│   ├── forecast_v2.md         第 1 層
-│   ├── reconcile_v1.md        第 2 層
+│   ├── forecast_v2.md         第 1 層（是非／多選）
+│   ├── reconcile_v1.md        第 2 層（是非／多選）
 │   ├── repair_v1.md           第 1 層格式修復
 │   ├── repair_v2.md           第 2 層格式修復，原樣保留 change_reason
-│   └── output_schema_v2.json
+│   ├── output_schema_v2.json
+│   ├── forecast_numeric_v1.md 第 1 層（數值／離散，M5）
+│   ├── reconcile_numeric_v1.md 第 2 層（數值／離散，M5）
+│   ├── repair_numeric_v1.md   數值／離散格式修復（M5）
+│   └── output_schema_numeric_v1.json
 ├── src/
 │   ├── poll_questions.py
-│   ├── continuous.py          持續輪詢佇列與週期窗口登記（continuous_v9）
-│   ├── cycle.py               單次有界輪詢／預測／送出週期執行器（cycle_v8）
+│   ├── discovery.py           30 分鐘新題搜尋與已知題分離調度（discovery_v1，D139）
+│   ├── question_mapping.py    題組與子題共用映射（question_mapping_v1，D139）
+│   ├── market_policy.py       Market Pulse 有限容量作答策略（market_pulse_v1，D139）
+│   ├── continuous.py          持續輪詢佇列與週期窗口登記（continuous_v11）
+│   ├── live_window.py         live 窗口核對與 7 天到期自動續期（live_window_renewal_v1，D117、D149）
+│   ├── cycle.py               單次有界輪詢／預測／送出週期執行器（cycle_v9）
 │   ├── numeric.py             M5 數值題與離散題 CDF 轉換、整合與驗證（D122）
-│   ├── post_close_audit.py    已關閉題目唯讀三閘門健檢工具（D126）
+│   ├── post_close_audit.py    已關閉題目唯讀三閘門健檢工具（post_close_audit_v3，D126、D135、D139）
+│   ├── practice.py            已關閉題目有界本地練習（D133）
 │   ├── quota.py
 │   ├── acceptance.py
-│   ├── forecast.py
-│   ├── scheduler.py            M2 有界本地跨題佇列
-│   ├── budget.py               逐次預算保留與熔斷
-│   ├── m2_campaign.py          試驗場地中繼資料與同步題共用發現器
-│   ├── m2_prepare.py           輸出前準備固定 20 題名單（M2 歷史工具）
-│   ├── m2_report.py            有效率、成本與驗收缺口（M2 歷史工具）
-│   ├── telegram_bot.py         手機控制台：私人配對、狀態、營運報告、工作對話（D91 取代 D73 開發任務）
-│   ├── project_control.py      主持人進度發布與手機決策同步工具（D91）
-│   ├── flab/ops_report.py      只輸出計數的營運摘要
-│   ├── flab/dev_tasks.py       【已由 D91 取代：舊 D73 手機開發佇列停用，僅保留相容匯入】
-│   ├── flab/dev_runner.py      【已由 D91 取代：舊 D73 開發執行器停用，保留 clean_env/codex_binary 共用輔助】
+│   ├── baseline.py            全域設定與開發目錄基準比對（baseline_v4，D143、D144、D147）
+│   ├── forecast.py            模型呼叫、驗證與軟失敗判定（forecast_pipeline_v11）
+│   ├── scheduler.py           跨題工作佇列與不等缺線／保底調度（scheduler_v9，D149）
+│   ├── budget.py              逐次預算保留與熔斷（budget_v10）
+│   ├── telegram_bot.py        手機控制台：私人配對、狀態、營運報告、目前事項問答（telegram_ops_v5，D91、D148）
+│   ├── project_control.py     主持人進度發布與手機決策同步工具（D91、D103）
+│   ├── flab/fail_soft.py      軟失敗常數與不停線開關（PERSISTENT_STOPS=False，D121、D149）
+│   ├── flab/ops_report.py     只輸出計數的營運摘要与近 24 小時簡報（D148）
 │   ├── adapters/
 │   │   ├── claude.py
 │   │   ├── gemini.py
 │   │   └── gpt.py
 │   ├── audit.py
 │   ├── audit_ledger.py        事後稽核傳播與追加影響帳冊，不重新送出
-│   ├── aggregate.py
-│   ├── escalate.py           升級候選判斷；不直接執行第 2 層
-│   ├── reconcile.py          凍結匿名摘要與有准入門檻的本地第 2 層流程
+│   ├── aggregate.py           整合規則與截止前保底整合（agg_v1、deadline_fallback_v1）
+│   ├── escalate.py            升級候選判斷；不直接執行第 2 層
+│   ├── reconcile.py           凍結匿名摘要與有准入門檻的本地第 2 層流程
 │   ├── comment.py
-│   ├── submit.py
-│   ├── advise.py
-│   ├── resolve.py
-│   ├── score.py
-│   └── report.py
-├── data/                      不進版本控制
-├── reports/                   不進版本控制
-│   ├── periodic/
-│   └── advisory/
-└── launchd/                   macOS 排程設定（預測排程範本；org.forecast-lab.telegram 為常駐的手機控制台）
+│   ├── submit.py              送出狀態機與送出前重查（submit_v12）
+│   ├── human_advice.py        人類賽通用盤點與研究入口（advisory_v2，D139）
+│   ├── advise.py              人類賽單批研究與恢復輔助（D132）
+│   ├── resolve.py             結算事件與官方分數／排名抓取（resolve_v3，手動執行）
+│   └── score.py               本地計分與母體診斷（score_v2，手動執行）
+├── data/                      不進版本控制（核心帳冊 *.jsonl、raw/、cli_pins/ 與 D138 封存）
+├── reports/                   不進版本控制（advisory/ 與 practice/）
+└── launchd/                   macOS 排程設定（僅 org.forecast-lab.cycle 與 org.forecast-lab.telegram 兩項常駐服務，D150）
 ```
 
 手機工作對話（`telegram_ops_v5`、`team_chat_v3`，D91 取代 D73 的手機開發入口，D103 修正決策接手，D148 只呈現目前事項；操作見 `docs/telegram.md`）：
@@ -458,7 +469,7 @@ D110 的 `src/cycle_monitor.py`（`cycle_monitor_v1`）是桌面主持人啟動�
 - `data/team_chat/events.jsonl` 只追加 UTC 事件；開發模型消耗使用既有訂閱、獨立於預測每週次數，沒有主動燒額度。主持人在工作檢查點查決策並更新進度。
 - D103：尚未開始且未到期的決策可以改選（版本遞增，保留歷史；開始後不能改選）；主持人以指定版本 `claim` 登記實際接手；`ask` 可為每個選項登記負責人、下一步、阻塞與條件，條件由本機有證據的 `milestone` 事件釋放並通知一次；較新的決策優先於較舊的主持人摘要；問答附資料截點，生成期間狀態改變就丟棄舊答案；服務與執行器心跳每 30 秒入帳、90 秒過期；長訊息依 UTF-16 上限分段。仍沒有喚醒桌面對話的機制。
 - Louis 多數時間在電腦前，以 Claude Code 對話做決定；只有他從 TG 詢問時才在 TG 決策。主持人的待決選項必須在桌面對話列出，進度板只是同步；桌面對話的決定是正式決定，主持人據此在進度板結案並註明來源。
-- D148：`進度`、`待決事項` 與問答模型脈絡只呈現目前事項。未開始且未到期、執行中、主持人已接手、失敗或結果不明的決策一律列出；已結案、已完成或已到期超過 24 小時者不列，只顯示數量。超過 24 小時的主持人摘要只留標題；問答只帶入 24 小時內的同帳號對話，並指示不重述已結案歷史。`進度` 另加近 24 小時營運計數（`ops_report.live_brief`，直接讀帳冊、不呼叫模型，與營運報告相同的資訊限制：不含題號、機率、選項、理由或原始輸出），也提供給問答模型。Louis 確認 TG 只用於查詢卡線與當日預測情況，卡線由自動恢復處理，不新增 TG 操控或開發功能；權限與決策界線不變。
+- D148：`進度`、`待決事項` 與問答模型脈絡只呈現目前事項。未開始且未到期、執行中、主持人已接手、失敗或結果不明的決策一律列出；已結案、已完成或已到期超過 24 小時者不列，只顯示數量。超過 24 小時的主持人摘要只留標題；問答只帶入 24 小時內的同帳號對話，並指示不重述已結案歷史。`進度` 另加近 24 小時營運計數（`ops_report.live_brief`，直接讀帳冊、不呼叫模型，與營運報告相同的資訊限制：不含題號、機率、選項、理由或原始輸出），也提供給問答模型。Louis 確認 TG 只用於查詢卡線與當日預測情況，不新增 TG 操控或開發功能（D149 已拔除永久停線規則，D150 已退役舊 `line-recovery` 服務）；權限與決策界線不變。
 - 人工隔離驗收觀測 LaunchAgents 期間不得安裝、重載或修改服務。
 
 ### 5.3 模型轉接層（adapters）
@@ -478,9 +489,9 @@ D110 的 `src/cycle_monitor.py`（`cycle_monitor_v1`）是桌面主持人啟動�
 
 | 選手 | 第 1 層模型與推理強度 | 第 2 層模型與推理強度 | 第 2 層子代理 |
 |---|---|---|---|
-| claude | `claude-opus-5-5`／`medium` | `claude-opus-5-5`／`high` | 通過 §7.6 子代理驗收後開放 |
-| gemini | `gemini-4-argon-medium`／`medium` | `gemini-4-argon-high`／`high` | 同上；`agy models` 已列出 `gemini-4-argon-high`（V18） |
-| gpt | `gpt-6-astra`／`medium` | `gpt-6-astra`／`high` | 同上；CLI 內建目錄的預設推理強度為 `low`，必須明確指定 |
+| claude | `claude-opus-5-5`／`medium` | `claude-opus-5-5`／`high` | 目前固定關閉（`subagents_enabled = false`）；通過 §7.6 子代理驗收後才可開放 |
+| gemini | `gemini-4-argon-medium`／`medium` | `gemini-4-argon-high`／`high` | 同上（目前固定關閉）；`agy models` 已列出 `gemini-4-argon-high`（V18） |
+| gpt | `gpt-6-astra`／`medium` | `gpt-6-astra`／`high` | 同上（目前固定關閉）；CLI 內建目錄的預設推理強度為 `low`，必須明確指定 |
 
 - 第 1 層的設定沿用 Louis 的決定（D13）；第 2 層的設定經 Louis 確認（D37、D49），之後依定期報告調整。
 - 各家對推理強度的定義不同，同一個等級不代表相同的運算量。
@@ -508,9 +519,8 @@ D110 的 `src/cycle_monitor.py`（`cycle_monitor_v1`）是桌面主持人啟動�
 - codex 的 `--json` 輸出的是事件 JSONL，`--output-schema` 約束的是最後的答案，兩者不可混為同一份 JSON。`-c 'web_search="live"'` 已在 2026-10-31 的本機執行中確認有效。
 - CLI 版本的取得方式：
   - claude 與 codex：以 `--version` 取得。
-  - agy：`--version` 不可用，改取 `agy changelog` 的第一行，去掉結尾的冒號。
-
-  agy 會自動更新（本機在兩天內由 `1.4.10` 升到 `1.4.12`），因此每次執行前都要檢查版本（§7.2）。
+  - agy：早期全域 CLI 以 `agy changelog` 第一行取得；現行專案包裝器 `launchd/bin/agy` 固定驗證 `data/cli_pins/agy/1.4.12` 的 SHA-256、設 `AGY_CLI_DISABLE_AUTO_UPDATE=true`，並將 `agy changelog` 直接轉發為已驗證執行檔的 `--version`（D130）。
+  - 每次執行仍記錄版本，但三家 CLI 的已知版本號變動本身僅記為 `informational`，不再觸發重驗或停線（D143、D145、D149）。
 
 ### 5.4 模型輸出格式（`output_schema_v2`）
 
@@ -572,7 +582,7 @@ D110 的 `src/cycle_monitor.py`（`cycle_monitor_v1`）是桌面主持人啟動�
 | `reported_model_id`、`model_check` | CLI 回報的模型 ID，無法取得時為 `null`；`model_check` 為 `verified`、`unverified`、`mismatch` 或 `undetermined`（§7.7） |
 | `cli_version` | 執行當下的 CLI 版本 |
 | `prompt_version`、`schema_version`、`run_config_version` | 例如 `forecast_v2`、`output_schema_v2`、`run_config_v2` |
-| `pipeline_version` | 流程實作版本；早期 W8 為 `forecast_pipeline_v2`，現行版本已演進為 `forecast_pipeline_v8`（D121、D124），不回填或混同先前未標版本的紀錄 |
+| `pipeline_version` | 流程實作版本；早期 W8 為 `forecast_pipeline_v2`，現行版本為 `forecast_pipeline_v11`（D121、D140、D149），不回填或混同先前未標版本的紀錄 |
 | `started_at_utc`、`finished_at_utc`、`deadline_utc` | 起訖時間與該題的截止時間 |
 | `probability`、`option_probabilities` | 依題型；失敗時為 `null` |
 | `validation_status` | `valid`、`incomplete`（CLI 未正常完成）、`parse_failed`、`schema_failed`、`semantic_failed`（題號或選項不符、機率不是有限數值、超出範圍，或多選題總和不符）或 `late`（完成時已超過截止時間）；只有 `valid` 可被採用 |
@@ -587,13 +597,13 @@ D110 的 `src/cycle_monitor.py`（`cycle_monitor_v1`）是桌面主持人啟動�
 | `error_type` | `null`、`quota_exhausted`、`timeout`、`invalid_output`、`tool_denied`、`tool_scope_violation`（流程偵測到超出已驗收工具範圍）、`cli_error`、`model_mismatch`、`budget_skipped` 或 `disabled` |
 | `error` | 錯誤訊息，沒有則為 `null` |
 
-- `data/forecast_attempt_starts.jsonl`：呼叫模型 CLI 前先追加並 fsync 啟動紀錄；以 attempt ID 與 `forecasts.jsonl` 的結果對帳。重啟時只有啟動而沒有結果，因安全檢查也未知，早期 `forecast_pipeline_v2` 先停整條線並通知 Louis；該題保持 `interrupted_attempt_unresolved`，不自動重新呼叫或重新取得嘗試額度。【已由 D121 R3 fail-soft 取代：重啟遇到孤兒啟動紀錄時，先確認程序已不在執行、清除暫存目錄並記為孤兒終結，不再因此永久停整條線；現行版本為 `forecast_pipeline_v8`】只依技術證據處理停線及重新驗收，不由人類逐題看答案決定是否重跑。尚不實作自動復原未完成結果。
-- W8 的 forecast 明細另存 `tool_violations` 與 `nonfinite_fields`；無效輸出的非有限浮點值只在帳冊副本改為 `null` 並記錄欄位路徑，原始 CLI 檔案保留。安全停線寫入 `data/line_status.jsonl`，執行摘要與採用結果寫入 `data/forecast_runs.jsonl`。
+- `data/forecast_attempt_starts.jsonl`：呼叫模型 CLI 前先追加並 fsync 啟動紀錄；以 attempt ID 與 `forecasts.jsonl` 的結果對帳。重啟時只有啟動而沒有結果，因安全檢查也未知，早期 `forecast_pipeline_v2` 先停整條線並通知 Louis；該題保持 `interrupted_attempt_unresolved`，不自動重新呼叫或重新取得嘗試額度。【已由 D121 R3／D149 取代：重啟遇到孤兒啟動紀錄時，先確認程序已不在執行、清除暫存目錄並記為孤兒終結，未結案啟動紀錄不再永久停整條線；現行版本為 `forecast_pipeline_v11`】只依技術證據處理退避及紀錄，不由人類逐題看答案決定是否重跑。尚不實作自動復原未完成結果。
+- W8 的 forecast 明細另存 `tool_violations` 與 `nonfinite_fields`；無效輸出的非有限浮點值只在帳冊副本改為 `null` 並記錄欄位路徑，原始 CLI 檔案保留。限時退避／歷史停線寫入 `data/line_status.jsonl`，執行摘要與採用結果寫入 `data/forecast_runs.jsonl`。
 - `data/aggregates.jsonl`：每次整合一行，記錄題號、階段（`tier1` 或 `final`）、整合規則版本、各線採用的 attempt ID、整合結果、升級判斷、觸發條件與強度。
 - `data/audit_impacts.jsonl`：事後稽核的來源登錄與影響紀錄。`dependency_registered`、`audit_registered` 保存不可變來源 hash；`audit_impact` 以稽核事件及受影響節點建立確定的 ID，包含旗標、理由、題目映射及送出原狀態。每次重播只追加缺行，舊事件也會傳到新出現的後代；不覆寫機率、採用或送出回執。錯誤／遺漏來源、循環或損壞帳冊一律停止，詳細契約見 `docs/tasks/M2-W2.md`。
 - `data/reconciliation_inputs.jsonl`：每線每題的匿名輸入在 CLI 開始前先凍結並追加，保存輸入 ID、A／B／C 排列、prompt、快照／設定／來源／稽核事件 hash 及主程式比較基準。重試和重啟沿用同一排列與 prompt；來源失去資格或內容改變時停止，不改挑答案。作者、模型、attempt ID 與比較基準只在 host 紀錄，不注入模型摘要。
 - `data/reconciliation_runs.jsonl`：第 2 層本地執行與每次准入決定的追加紀錄；`reconciliation_pipeline_v1` 每次 CLI 呼叫（含修復／重試）皆要求排程器提供准入決定，保存 attempt ID，並追加已啟動或未啟動釋放的結果。額度查詢後再次檢查輸入資格，沒有准入政策就不呼叫模型。前後整合結果及 W2 事後影響一併留存；W3 單線完成時的混合整合標為 `status=provisional`、`submission_eligible=false`，由未來排程器判定全題完成，不能憑 `stage=final` 送出。
-- `data/submission_readbacks.jsonl`（D111，`submit_v10`）：正式送出 CLI 對已有成功回執而未讀回的操作補做 GET，僅記 ID、時間、查詢雜湊、found／unknown 與錯誤類型；已由正式狀態機對帳的成功不重查。讀回未確認不推翻已受理回執、不授權重送；local 不做查詢。只有同一 request 的 `reconciled=true` 或此帳冊 found 才作為自動讀回證據。
+- `data/submission_readbacks.jsonl`（D111，`submit_v10` 起，現行 `submit_v12`）：正式送出 CLI 對已有成功回執而未讀回的操作補做 GET，僅記 ID、時間、查詢雜湊、found／unknown 與錯誤類型；已由正式狀態機對帳的成功不重查。讀回未確認不推翻已受理回執、不授權重送；local 不做查詢。只有同一 request 的 `reconciled=true` 或此帳冊 found 才作為自動讀回證據。
 - `data/submissions.jsonl`：送出狀態機的每一步各追加一行（§3.6），記錄：
   - 送出模式，以及題目對應（`tournament_id`、post ID、question ID、選項識別）；
   - 對應的整合紀錄 ID、送出的機率、留言全文與 hash；
@@ -605,8 +615,8 @@ token 欄位的對應（D29）：
 | CLI | `input_tokens` | `output_tokens` | `reasoning_tokens` | `cached_tokens` | 只保存在原始物件 | 依據 |
 |---|---|---|---|---|---|---|
 | codex | `input_tokens` | `output_tokens` | `reasoning_output_tokens` | `cached_input_tokens` | `cache_write_input_tokens` | `turn.completed.usage`；2026-10-31 本機 0.166.0 樣本 |
-| agy | `usage.input_tokens` | `usage.output_tokens` | `usage.thinking_tokens` | `usage.cache_read_tokens` | `usage.total_tokens` | `--output-format json`；2026-10-30 本機 1.4.11 樣本 |
-| claude | 待 M1 確認 | | | | | `--output-format json` |
+| agy | `usage.input_tokens` | `usage.output_tokens` | `usage.thinking_tokens` | `usage.cache_read_tokens` | `usage.total_tokens` | `--output-format stream-json`；2026-10-30 本機 1.4.11 樣本 |
+| claude | `usage.input_tokens` | `usage.output_tokens` | `usage.output_tokens_details.thinking_tokens` | `usage.cache_read_input_tokens` | `modelUsage`、`subagent_stats`、`total_cost_usd`、`num_turns` | `--output-format stream-json --verbose`（`result` 事件，M1 確認，`adapters/claude.py`） |
 
 - 各明細欄位之間的包含關係，以及多 turn 時的累計方式，以固定的 CLI 樣本確認後再寫入 adapter；不把明細欄位加總成額外的總量。
   - agy：`total_tokens` 等於輸入加輸出；`cache_read_tokens` 大於 `input_tokens`，不包含在輸入內。
@@ -706,24 +716,25 @@ token 欄位的對應（D29）：
     - agy：`~/.gemini/GEMINI.md`、`~/.gemini/AGENTS.md`、`~/.gemini/config/`（含 rules、skills、plugins、`hooks.json`、`mcp_config.json`）、`~/.gemini/antigravity-cli/settings.json`，以及 AI credits 的使用設定與餘額（§7.7）。
     - 共同：暫存資料夾各層上層目錄中的指示檔（含 agy 會載入的 `.agents/`、`.agent/`、`_agents/`、`_agent/`），以及管理者設定。
   - 第一次建立基準時，先由人工審查內容：不得含有歷史答案、比賽資訊或可執行的 hook。接著做 §7.6 的自動載入測試，通過後才記錄雜湊值作為基準。自動載入測試要核對實際載入了哪些來源，不能只因輸出中沒有 canary 就推論沒有載入（D43）。
-  - 每次執行前，由主程式比對各線的 CLI 版本與基準雜湊。
-- **變更處理**（D21、D143、D144）：
-  - **Codex、Claude、agy 的 CLI 升版本身不會停線**（D143、D145）：已知的非空字串版本變更（`cli_version:*`）只記為 `informational`，不觸發 `reaccept`、不要求重新核准基準，也不因版本不同拒絕既有正式模型驗收證據。未知、空字串或非字串版本仍阻擋；`judge_version`、`evidence_sha256`、`code_sha256`、模型／effort、Codex 模型型錄及實際工具權限檢查照常。升版若另造成實際相容性或工具限制問題，按該問題處理，不把版本差異本身當成問題。
-  - **一般設定變動**：仍列 `general` 的來源（例如 `claude.settings` 的預設模型、介面偏好）需完成 §7.6 合成隔離驗收並限縮更新基準後恢復；D124 目前僅觀察，尚未實作自動重驗，不宣稱每五分鐘恢復器會處理此類阻擋。D143 已將 `agy.project_grants`（`~/.gemini/config/projects`）、`agy.shared_config`（`~/.gemini/config/config.json`）及 `agy.cli_settings`（`~/.gemini/antigravity-cli/settings.json`）的非內容鍵列為 `informational`；其內容鍵（`hooks`、`mcpServers`、`plugins`、`skills`、`rules`、`agents`）與目錄／JSON 讀取錯誤仍受保護。
-  - 全域指示、記憶、skills、hooks、plugins 或 MCP 的內容改變，包括設定檔中相關欄位的改變：停止該線並通知 Louis，經人工審查後再重跑驗收。自動測試只能確認這些來源會不會被載入，無法判斷新內容是否含有答案或危險指令。【D123 窄範圍例外：互動式 Claude Code 自動同步之 `~/.claude/skills/synced/` 目錄已改列為資訊性來源 `claude.skills_synced`（因無互動執行傳入 `--disable-slash-commands` 與 `--tools` 且 init 宣告 `skills=[]`，若宣告非空則由 `forecast.tool_violations` 停線）；個人 `~/.claude/skills/` 與其他內容來源仍維持停線審查】
+  - 每次執行前，由主程式比對各線的 CLI 版本與基準雜湊（自 D149 `PERSISTENT_STOPS = False` 起，基準與目錄變動僅記錄為 `warnings`，不再阻擋前檢或停線，見 §7.5；首次人工建立基準與隔離驗收時仍維持嚴格比對）。
+- **變更處理沿革與現行規則**（D21、D143、D144、D149）：
+  - **現行營運規則（D149）**：自動預測前檢只有 `players_enabled`、`submit_mode` 與第 2 層子代理開關三項手設開關會擋線；下方一般設定、受保護來源與讀取錯誤在自動執行時皆記錄於 `warnings`，不再阻擋預測或永久停線。`acceptance.py`、`claude_baseline_candidate.py` 與 `autoload_maintenance.py` 的人工維護與驗收流程仍維持精確內容綁定。
+  - **Codex、Claude、agy 的 CLI 升版本身不會停線**（D143、D145）：已知的非空字串版本變更（`cli_version:*`）只記為 `informational`，不觸發 `reaccept`、不要求重新核准基準，也不因版本不同拒絕既有正式模型驗收證據。
+  - **一般設定變動（沿革）**：D143 已將 `agy.project_grants`（`~/.gemini/config/projects`）、`agy.shared_config`（`~/.gemini/config/config.json`）及 `agy.cli_settings`（`~/.gemini/antigravity-cli/settings.json`）的非內容鍵列為 `informational`；其餘如 `claude.settings`（預設模型、介面偏好）在 D149 前曾觸發 `reaccept` 擋線，D149 起改為僅記錄 `warnings` 不擋線。
+  - **全域指示、記憶、skills、hooks、plugins 或 MCP 的內容改變（沿革）**：早期規則要求停止該線並經人工審查後重跑驗收；D123 先將 `~/.claude/skills/synced/` 列為資訊性來源 `claude.skills_synced`，D144 再將三線 13 個開發目錄列為資訊性差異，D149 起自動預測對其餘基準差異亦只記錄 `warnings` 不停線（實際工具越權仍使該次答案不納入一般整合）。
   - 既有正式 CLI pin 與關閉自動更新的 wrapper 維持原設定；每次仍記錄版本，版本號變動本身不阻擋執行（D143、D145）。
-  - D119：比賽啟動環境以專案 wrapper 固定已驗收的官方 Claude 2.1.316，核對複本 SHA-256 並設 DISABLE_AUTOUPDATER=1；全域 CLI 不降版。外掛盤點 `claude_plugin_inventory_v2` 僅將精確 synced UUID bucket 的合法 round token、etag、updated_at 值列資訊，listedFor／來源／版本／未知欄位與其餘檔案仍受內容保護；新舊格式不得自動核准。候選以固定 SHA 綁定人工接受，且必須有對應候選的新隔離驗收通過證據，才可只替換 claude.plugins 一個來源，其他已核准來源保持不變。
-- **D144 開發目錄變更不再停線**：依 Louis 於 2026-11-06 的直接指示，`baseline_v3` 將三線 skills、plugins、agents，以及 Claude commands／marketplace index／plugin state 的可讀內容新增、修改與移除改列為資訊性差異；精確 13 個來源見 `docs/tasks/D144-DEVELOPMENT-CATALOGS.md`。不因這些差異要求逐次人工接受、重驗或基準重新核准，原始雜湊與舊核准紀錄保留。這取代 D21／D119／D123／D130 對這些來源內容變動的停線要求；不是對任意來源或實際工具權限的豁免。全域指示、記憶、獨立 hooks／MCP、管理者設定、共同上層指示、其他受保護設定與讀取錯誤仍受原規則控制；來源定義（種類／路徑／歸屬）變動仍阻擋。首次有效基準、正式模型及兩層驗收證據、runtime 指紋、工具事件、暴露與額度檢查仍必須通過。Codex skills 的名稱／描述可能進入模型上下文，故不宣稱這些目錄內容完全不可見；本項明確移除目錄內容變更閘門，不賦予讀檔或執行工具。驗收中快照一致性、固定候選核准及 autoload 維護以 `catalog_drift=False` 保留精確內容綁定，不把營運放寬當作接受新證據。無已送出題重跑，無額度／截止／排程變更。
-- **D130 版本節奏**：Louis 指示有版本更新時每 3 天集中處理；正式預測環境固定已驗收版本，於維護檢查完成隔離驗收後才切換。開發用全域 CLI 更新與正式 pin 分離。此節奏不免除受保護內容的人工接受，也不代表 D124 尚未實作的自動核准已啟用。首個後續版本維護檢查登記於 UTC 2026-11-07T14:25:43.706000Z（台北11/07 22:25:43）；未部署自動升版執行器。
-- **D147 外掛快取別名相容**：`baseline_v4` 僅對 `codex.plugins` 的 `cache/<provider>/<plugin>/latest` 支援指向同層實體三段數字版本目錄的直接連結；連結記入雜湊但不遞迴跟隨，真正版本目錄照常獨立盤點。外部／跨外掛／私密／祖先／鏈式／未知格式／排除目標及憑證、讀取錯誤仍拒絕，其他來源不變；D144 資訊性差異與嚴格驗收綁定保持。不修改使用者外掛或重新核准基準，由既有排程接續尚未開始的 GPT 工作；修正、審查與實際套用結果見 `docs/tasks/D147-CODEX-CACHE-ALIAS.md`。
-- **D124 分階段落地**：D121 C 的第一批只啟用 `auto_reaccept_v1` 觀察模式；在正常週期結束後、鎖已釋放時最多觀察 120 秒。只針對 8 個 instruction／rule／skill 白名單來源記錄格式代碼與受保護指紋，沒有模型呼叫、基準核准或來源重新分類；CLI 版本變更只觀察。真正自動重驗仍待原子預算、24 小時限制、驗收與候選精確綁定等另批審查，不能把 observe 當成已實作 D21／D121 自動恢復。純文字格式篩選不能證明內容沒有比賽資訊，禁止人工介入個別預測仍適用。
+  - D119（沿革）：比賽啟動環境以專案 wrapper 固定已驗收的官方 Claude 2.1.316，核對複本 SHA-256 並設 DISABLE_AUTOUPDATER=1；全域 CLI 不降版。外掛盤點 `claude_plugin_inventory_v2` 的歷史嚴格核准機制已被 D144／D149 取代，專案 wrapper pin 保留。
+- **D144 開發目錄變更不再停線**：依 Louis 於 2026-11-06 的直接指示，`baseline_v3` 將三線 skills、plugins、agents，以及 Claude commands／marketplace index／plugin state 的可讀內容新增、修改與移除改列為資訊性差異；精確 13 個來源見 `docs/tasks/D144-DEVELOPMENT-CATALOGS.md`。不因這些差異要求逐次人工接受、重驗或基準重新核准，原始雜湊與舊核准紀錄保留。驗收中快照一致性、固定候選核准及 autoload 維護以 `catalog_drift=False` 保留精確內容綁定，不把營運放寬當作接受新證據。
+- **D130 專案 CLI pin（沿革）**：正式預測環境透過 `launchd/bin/` 包裝器固定已驗收的官方 CLI 執行檔（如 AGY 1.4.12 與 Claude 2.1.316），與開發用全域 CLI 更新分離；原訂每 3 天人工重驗節奏已隨 D143／D149 不停線規則簡化為按需維護。
+- **D147 外掛快取別名相容**：`baseline_v4` 僅對 `codex.plugins` 的 `cache/<provider>/<plugin>/latest` 支援指向同層實體三段數字版本目錄的直接連結；連結記入雜湊但不遞迴跟隨，真正版本目錄照常獨立盤點。修正、審查與實際套用結果見 `docs/tasks/D147-CODEX-CACHE-ALIAS.md`。
+- **D124 觀察器退役（D150 更新）**：原 D124 在週期尾端執行的 `auto_reaccept_v1` 僅觀察、不實際重驗或核准，且 D149 已拔除基準擋線，故 D150 已從 `launchd/run.sh` 移除每輪尾端的 `auto_reaccept.py tick` 呼叫（模組與離線測試保留）。
 - 不接續任何舊 session：不使用 claude 的 `--continue`／`--resume`、codex 的 `resume`／`fork`、agy 的 `-c`／`--continue`／`--conversation`。
 - 各線使用帳號本人以官方 CLI 在本機登入的狀態；不複製、也不解析任何 CLI 的登入憑證。
 - 環境變數的清除見 §5.3 的共同規定。
 
 ### 7.3 各 CLI 的執行模式參數
 
-**D140 有界技術恢復例外**：以完成答題為優先；單線故障不阻止其他合格線在既有決策截止整合送出。只有釘選 AGY 1.4.12 明確未執行的 ` view_file` ASCII空白拼字錯誤、完整技術證據及兩次當前前檢通過，且既有正式兩層隔離證據／基準／實體CLI／runtime均不變，才可自動追加resume；仍有時間者用原一次rerun槽補做。獨立每300秒檢查、每stop一次、24小時最多3次，原失敗答案不採用、不清稽核、不新增額度、不重開已提交題。真正越權、暴露、不明證據或環境改變仍停線。精確條件與操作契約為 `docs/tasks/D140-AUTO-RECOVERY.md` 固定政策；由line_recovery_v1實作，D124環境自動重驗仍observe。
+> **D140 自動恢復服務退役註記（D149、D150）**：原 D140 建立的 `line_recovery_v1`（每 300 秒 LaunchAgent，僅處理 AGY 1.4.12 單一 ` view_file` 拼字停線，規格見 `docs/tasks/D140-AUTO-RECOVERY.md`）因 D149 已全面拔除工具違規等永久停線，於 D150 正式卸載 LaunchAgent 並將 `config/line_recovery.json` 設為 `enabled = false`（保留 `src/line_recovery.py` 供既有重試投影與單元測試匯入）。下方 §7.3 中早期「停止該線的自動預測／停線」字句均屬歷史設計沿革，現行自動執行在工具違規時僅作廢該次嘗試、不永久停線（見 §7.5 D149）。
 
 
 - **共同原則**（D26）：沙盒限制、核准流程、模型可用的工具，三件事分別規範。核准設定（例如 `approval_policy="never"`）只控制要不要詢問，不等於禁止。通過標準是「模型無法成功行使本機讀寫、執行指令或委派的權限」，達成方式有兩種：
@@ -833,11 +844,10 @@ token 欄位的對應（D29）：
   - W8 的 `forecast_pipeline_v2` 在尚未完成 V5 重置時間格式實測前使用 30 分鐘固定退避，保存 `quota_retry_at_utc`；不在額度耗盡的同一輪立刻補跑。跨執行與跨題也套用這個暫停，到期後仍受原本最多一次補跑的限制。【已由 D121 R6/R7 fail-soft 取代：現行 `forecast_pipeline_v8` 固定額度退避改為 15 分鐘，Gemini 5 小時桶等待上限為 30 分鐘】
   - 各 CLI 額度不足的判斷方式（結束代碼與錯誤訊息）在正常授權工作中被動蒐集，已觀察樣態納入 adapter 回歸（V5、D89）。未觀察的線照實列示，不再單獨阻擋 M2；模型核對、未知錯誤拒絕、停線／退避與最多一次補跑的驗收全部保留。
 - **採用規則**：每題、每線、每層固定採用第一個 `validation_status = "valid"` 的嘗試；之後的嘗試只保留紀錄，不參與整合，也不得在多次結果中挑選。
-- **開啟 metaculus.com**（`leak_confirmed`）：保留原始輸出並標記，不重試，該答案不納入整合（§4.2）。同一條線 7 天內出現 2 次以上時，停止該線並通知 Louis。
-  - 停線後須經 Louis 明確恢復；恢復不刪除歷史。新一輪停線判定只計最近一次明確恢復之後、且仍在 7 天內的暴露，避免 resume 已記錄卻仍被同一批舊事件鎖住。錯誤模型與工具違規的停線同樣尊重這個恢復邊界。
-- **模型不符**（`model_mismatch`，§7.7）：答案無效、不納入整合；早期規則為立即停止該線並通知 Louis。【已由 D121 R1 fail-soft 取代：單次 `model_mismatch` 僅作廢該次答案並讓該線退避 60 分鐘；同一條線在 24 小時內發生 2 次以上才停線並通知 Louis，見 `docs/tasks/D121-FAIL-SOFT-BATCH1.md`】
-- **CLI 改版與設定改變**：每次記錄 CLI 版本；三家 CLI 的已知版本號改變本身只記錄、不重驗、不停線（D143、D145）。其他設定或安全來源變更依 §7.2 各自分類處理。
-- **D149 不停線與截止前必送**（2026-11-10，Louis 指示，取代上方所有「停止該線並通知 Louis」的永久停線規則）：
+- **開啟 metaculus.com**（`leak_confirmed`）：保留原始輸出並標記，不重試，該答案（含截止前保底整合）一律不納入整合（§4.2）。【早期「7 天內 2 次以上停線並待人工恢復」已由下方 D149 取代：累計暴露僅保留紀錄，不再永久停線】
+- **模型不符**（`model_mismatch`，§7.7）：答案不納入一般整合，該線進入 60 分鐘限時退避（D121 R1）；【早期「立即停線」與 D121「24 小時內 2 次以上永久停線」已由下方 D149 取代：只保留 60 分鐘限時退避，不再永久停線；若至決策截止點無一般有效答案，格式有效且具完整說明的非洩漏答案可由 `deadline_fallback_v1` 採用】
+- **CLI 改版與設定改變**：每次記錄 CLI 版本；三家 CLI 的已知版本號改變本身只記錄、不重驗、不停線（D143、D145），其他基準或設定變動依下方 D149 在自動預測時降為 `warnings`。
+- **D149 不停線與截止前必送**（2026-11-10，Louis 指示，取代上方與 §7.2／§7.3／§7.6／§7.7 所有「停止該線並通知 Louis」的永久停線規則）：
   - 前檢只有 Louis 親手設定的開關會擋線：`players_enabled`、`submit_mode`、第 2 層子代理設定（`flab/fail_soft.py` `HARD_PREFLIGHT`）；基準、驗收、CLI 版本、目錄變動等其他發現一律降為 `warnings` 照常記錄，不擋線。前檢程式本身出錯也不擋線。
   - `line_stopped` 只認仍在期限內、帶 `until` 的限時等待（額度退避、模型不符 60 分鐘退避／冷卻）；工具違規、`leak_confirmed` 累計、未結案的 CLI 開始紀錄與沒有結束時間的 `line_stop` 只作歷史，不再停線。該次違規答案仍不採用（§4.2 排除規則不變）。舊規則保留在 `FS.PERSISTENT_STOPS=True`，僅供測試與報告。
   - 不等缺線：同一題已有可採用答案時，等待超過 15 分鐘（`STRAGGLER_HOLD_S`）、趕不上決策截止或前檢被擋的線不再拖住整合，最終整合記 `lines_not_waited_for`。
@@ -895,7 +905,7 @@ token 欄位的對應（D29）：
   - CLI 回報的模型 ID（§7.7）；
   - token 用量與工具事件的欄位（§5.5）；
   - 額度用完時的錯誤樣態（若能觀察到）。
-- 任一項未通過或沒有證據，該線停止自動預測；只有第 5 項的第 2 層部分未通過時，該線第 2 層不開子代理，其餘照常。
+- 人工隔離驗收判定：任一項未通過或沒有證據，該次驗收不判 PASS；只有第 5 項的第 2 層部分未通過時，該線第 2 層不開子代理（`subagents_enabled = false`），其餘照常（自動預測前檢行為以 §7.5 D149 為準）。
 
 ### 7.7 額度與模型驗證（D41）
 
@@ -903,12 +913,12 @@ token 欄位的對應（D29）：
   - 每次執行前後，以 `agy -p "/usage" --output-format json` 查詢額度（這個查詢不消耗額度），記錄兩組額度桶的剩餘比例：
     - Argon 週額度桶（`gemini-argon-wtu-weekly`）；
     - Flash／Pro 額度桶（`gemini-weekly`、`gemini-5h`）。
-    - Google AI Ultra（2026-11-01 起，D75）沒有 Argon 專屬的桶：Argon 與 Flash／Pro 共用 `Gemini Models` 組的 `gemini-weekly` 與 `gemini-5h`。保留線改套用在 `gemini-weekly`；另外要求 5 小時桶「剩餘 − 預估 ≥ 0」，不足時等到該桶重置（`quota_5h_wait`），不算停線。結構由 `quota.argon_buckets()` 判斷（`legacy_argon`／`ultra_shared`／`unknown`），其他模組不得直接引用桶 ID；`unknown` 一律不啟動。
+    - Google AI Ultra（2026-11-01 起，D75）沒有 Argon 專屬的桶：Argon 與 Flash／Pro 共用 `Gemini Models` 組的 `gemini-weekly` 與 `gemini-5h`。保留線改套用在 `gemini-weekly`；另外要求 5 小時桶「剩餘 − 預估 ≥ 0」，不足時進入限時等待（`quota_5h_wait`，上限 30 分鐘，D121 R7）。結構由 `quota.argon_buckets()` 判斷（`legacy_argon`／`ultra_shared`／`unknown`），其他模組不得直接引用桶 ID。【早期 `/usage` 失敗或 `unknown` 直接阻擋啟動已由 D121 R8/R9/R10 改為非阻擋診斷】
     - Ultra 下用量差值無法區分模型：只有 `--log-file` 的模型解析為 verified，且 Gemini 組有一致的減少，才判為 `verified`；log 顯示不符就判為 `mismatch`；其餘為 `undetermined`。
     - D93：`quota_model_verification_v2` 針對 agy 1.4.12 實測的未使用第三方桶日期滑動作窄範圍處理；僅已知 3p-weekly／3p-5h 前後恰為 1.0、兩個 reset 都在整個樣本之後、向前移動且各自等於觀測時間 +7 天／+5 小時（容差 5 秒）時，該不相關桶的日期移動不單獨否決模型核對。Gemini 自身窗口仍須完全相同、週與五小時桶都一致下降、型號 log verified，其他資料異常／消耗／並行仍拒絕。這是操作觀測的有限推論，不是官方語意承諾；只用於未來紀錄，舊成本不重分類。
     - D96：歷史 114 筆與不耗模型的 idle 連續 12 筆讀數顯示，`/usage` 的 Gemini 桶在同一固定窗口內會回升、同一組數值會原樣重現，且不同讀數無法排出先後；單次 before／after 差值不能當作單次呼叫成本。逐次成本改列「無法以現行方法觀測」的處理與第 2 層熔斷／估計的調整，待 Louis 決定；決定前現行判定、門檻與熔斷不變。見 `docs/tasks/QUOTA-OBSERVABILITY-D96.md`。
     - D97：依 Louis 決定，Ultra 下的單次成本照實記為無法觀測；`quota_model_check` 的判定方式不變，但 Gemini 的准入估計、第 2 層限制與 M2 成本門檻都不再使用單次前後差值（§9、§10）。窗口層級估計 `quota_window_estimate_v1` 是保守的平均值（包含開發、研究與個人使用），不是單次上限。
-    - 每次查詢 `/usage` 前後，都以 `ps` 偵測本程序樹以外的 agy：另一個無互動的 `agy -p` 在執行時不啟動；互動式 `agy` 或 Antigravity 桌面 app 開著時照常執行，但該次成本記為 `undetermined`，不作為估算樣本（D75）。
+    - 每次查詢 `/usage` 前後，都以 `ps` 偵測本程序樹以外的 agy：互動式 `agy` 或 Antigravity 桌面 app 開著時照常執行，只把單次成本記為 `undetermined`（D75；早期偵測到其他 `agy -p` 即暫停已由 D121 R10 放寬）。
 
     讀取 JSON 中的浮點數欄位 `buckets[].remaining_fraction`，不解析 `response` 文字中的整數百分比；單題消耗常小於 1%，整數百分比不會變動（D52）。
   - 【以下三點為早期 Pro／專屬 Argon 桶規則，已由上方 D75 Ultra 共用桶、D96/D97 窗口估計與 D121 R8/R9/R10（移除執行前後 `/usage` 強制阻擋）取代，僅保留歷史沿革】
@@ -919,9 +929,9 @@ token 欄位的對應（D29）：
     - 同一時間 Louis 也在使用 agy 時，額度差值會混入個人使用，記為 `undetermined`。
     - 每次執行的 `--log-file` 會記錄模型名稱的解析與替換（changelog 1.1.28），作為輔助證據。
   - 實測（2026-10-31，歷史 Pro 方案數據，不可直接用於 Ultra 容量估算）：Gemini 第 4 回合審查前後，Argon 桶減少約 4.4%，Flash／Pro 桶沒有變化。
-  - 以 `--settings` 關閉 AI credits（候選鍵見 §7.3）。Louis 的帳號沒有 AI credits（`/credits` 的 `remaining_credits` 為 0），因此不另外設定帳號端的超額選項，改把「`remaining_credits` 為 0」納入全域基準（§7.2）：每次執行前檢查，數值變成大於 0 就停止該線並通知 Louis（D54）。設定值與宣告只是控制手段，是否真的生效，以 M1 的 `/config` 查詢與額度變化確認。
-  - 依據：官方文件說明，無互動模式指定的模型無法使用時會直接失敗，額度用完時會立即回報、不會重試；但沒有說明額度用完時是否會自動改用其他模型，所以須以額度差值驗證。
-- **claude**：以 `--output-format json` 回報的模型用量欄位，比對指定的模型（欄位於 M1 確認）。
+  - 以 `--settings` 關閉 AI credits（`useG1Credits: false`，見 §7.3）。Louis 的帳號沒有 AI credits（`/credits` 的 `remaining_credits` 為 0），基準亦記錄此欄位；【早期「`remaining_credits > 0` 立即停線」已由 D149 取代：改為記錄 `warnings`／歷史事件，不再永久停線】。
+  - 依據：官方文件說明，無互動模式指定的模型無法使用時會直接失敗，額度用完時會立即回報、不會重試；但沒有說明額度用完時是否會自動改用其他模型，所以須以 log 與模型檢查記錄。
+- **claude**：以 `--output-format stream-json --verbose` 回報的 `modelUsage` 欄位，比對指定的模型（M1 確認）。
 - **codex**：目前的事件中沒有模型 ID，記為 `unverified`。
   - D125：`autoload_v3` 的載入量測沿用本節的可觀測性限制，保留 `reported_model_id=null`、`model_check=unverified`。僅限 GPT tier1 profile；tier2／format_repair／acceptance 不適用。僅當結果 argv 與該次 request 的 adapter argv 自我一致、已受限模型目錄與結果及最新驗收相符、CLI／judge／runtime／正式 model+effort 驗收有效且無未結驗收時，接受此 Codex 限制，另記 `model_evidence` 與驗收 record ID；不宣稱已驗證伺服器端實際模型 ID。維護六鎖與前後基準／固定設定／CLI 雜湊／六項前檢照常。其他兩線仍須 verified；三線 mismatch 優先處理並停止量測。這是修正 v2 與本節衝突的硬編碼，不變更預測模型、effort 或 D124 名額；舊 failed 不回填 PASS，不自動核准來源或啟用 R2 enforce。詳見 `docs/tasks/D125-CODEX-AUTOLOAD-COMPATIBILITY.md`。
 
@@ -929,13 +939,13 @@ token 欄位的對應（D29）：
 
 ## 8. 人類賽輔助模式（D32）
 
-**D139 手動通用入口**：`human_advice.py list` 只盤點 `human_tournaments_v1`（初始 Cup33108），預設最急3題，篇／組／子題分開計數，附UTC／台北時間、支援及研究狀態；本人是否已手送未回報即未知。`research` 明確選 post／child／賽事，一次三線各一初始呼叫，無自動重試；跨批重複須明確更新理由，unknown先恢復。六鎖及主賽／MiniBench開放或即將開題避讓沿用；Market Pulse 有本地可執行工作、待發布、截止／重試到期或即將開題時優先，所有線皆等待額度或停線且未到截止時可讓人類研究使用受保留限制的容量。22次機器人預留、共用用量與安全停線沿用；英文報告／Gemini最後留言仍由主持人依D134完成，不自動提交或推播。原D132兩題舊入口保留。詳見D139任務單。
+**D139 手動通用入口**：`human_advice.py list` 只盤點 `human_tournaments_v1`（初始 Cup33108），預設最急3題，篇／組／子題分開計數，附UTC／台北時間、支援及研究狀態；本人是否已手送未回報即未知。`research` 明確選 post／child／賽事，一次三線各一初始呼叫，無自動重試；跨批重複須明確更新理由，unknown先恢復。六鎖及主賽／MiniBench開放或即將開題避讓沿用；Market Pulse 有本地可執行工作、待發布、截止／重試到期或即將開題時優先，所有線皆等待額度或退避且未到截止時可讓人類研究使用受保留限制的容量。22次機器人預留與共用用量沿用；英文報告／Gemini最後留言仍由主持人依D134完成，不自動提交或推播。詳見 `docs/tasks/D139-EXPANSION.md`。
 
 - **Cup 提交與研究時點（D142）**：Louis 於 2026-11-05 回報 D132 兩題（紐西蘭組閣 post 45330／question 45519、COP31 超時 post 46106／question 46343）已由本人手動提交，主持人進度改列「本人回報已提交」。回報追加至 `data/advisory/manual_submissions.jsonl`；不以回報時間充當實際提交時間，不宣稱取得平台回執，留言是否提交未回報。現行 `human_advice.py list` 尚未讀取此回報帳，其 `human_submission=unknown` 須由主持人併讀本項與回報帳解釋，不能再把這兩題列為未回報。其餘尚未研究的 Cup 題目，依 Louis「我截止前兩天再做」安排，在各題當時有效截止時間前兩天（48 小時）再研究；目前先不提前研究，接手時重查截止時間。沿用本人主動詢問的手動入口、機器人賽優先與既有預算／窗口；本項未建立定時提醒或自動研究排程。
 - **啟用條件**：當週機器人賽的第 1 層與第 2 層都已排完，而且各線仍在預算內（§9）。
-- **D132 有界首批**：Louis 本輪選擇兩道最急 Cup 題，依官方截止時間選出 post 45330／46106（question 45519／46343）。`advisory_v1` 每題三線各一次第 1 層、合計最多六次已准入嘗試；跨資料夾也不得重跑，無自動修復、第 2 層、提交、新窗口或排程。沿用已驗收的官方 CLI、隔離、模型及 prompt。單題在六把非阻塞共用鎖下開始，僅限既有 D118 MiniBench-only campaign；即時輪詢有任何 MiniBench 開放工作即讓路，兩題間釋放鎖並重查。最長持鎖為三線並行各 600 秒加既有前檢／quota 查詢，正常週期在釋放後恢復。
-- `budget_v8` 以只含 metadata 的 `data/advisory_usage.jsonl` 將人類賽用量計入原 D118／D105 延續的總額度；兩層預期新題加修復共保留每線 22 次，Gemini 同時套用既有 Argon 保留公式 `min(22 × e1, 0.05)`，保留上限 5%。v7 已預約 tier 2 的 token 評估繼續有效。原 caps、固定設定與窗口不變；未知結果保守計次並擋住該線，僅由 `advise.py --recover` 在六鎖與過期／無程序證據後對帳，不能重跑。
-- 人類答案／原始資料放在 `data/advisory/<batch>/<player>/`，報告放在 `reports/advisory/`。共用安全帳只記違規／quota／模型核對 metadata；`forecast_pipeline_v9` 保留既有退避與冷卻，單次人類賽確認洩漏即保守停線。無額外權限或個人 Metaculus 憑證。詳見 `docs/tasks/D132-CUP-ADVISORY.md`。
+- **D132 有界首批（沿革）**：Louis 當時選擇兩道最急 Cup 題（post 45330／46106，question 45519／46343），以 `advisory_v1` 每題三線各一次第 1 層完成研究（其單批限制已由上方 D139 `human_advice.py` 通用入口擴充）。
+- `budget_v8` 起以只含 metadata 的 `data/advisory_usage.jsonl` 將人類賽用量計入總額度；兩層預期新題加修復共保留每線 22 次，Gemini 同時套用保留公式 `min(22 × e1, 0.05)`，保留上限 5%。未知結果保守計次並由 `advise.py --recover` 在六鎖與過期／無程序證據後對帳，不能重跑。
+- 人類答案／原始資料放在 `data/advisory/<batch>/<player>/`，報告放在 `reports/advisory/`。共用安全帳只記違規／quota／模型核對 metadata（早期單次確認洩漏停線已隨 D149 改為僅排除該次答案、不永久停線）。無額外權限或個人 Metaculus 憑證。詳見 `docs/tasks/D132-CUP-ADVISORY.md`。
 - **流程**：
   1. Louis 指定人類賽的題號。
   2. `advise.py` 執行同一套第 1 層，必要時加上第 2 層。
@@ -958,54 +968,36 @@ token 欄位的對應（D29）：
 - 分別記錄實際模型、來源 CLI 與額度桶；agy 的 Claude 用量歸屬其獨立桶，不算成 Gemini 用量。若用於預測，仍屬 `claude` 模型線，不另加一票，也不因換 CLI 重置既有用量或放寬已登記的次數上限。
 - 正式預測接入此備援時，須依 §5.3、§7、§16 明確固定 agy 模型 ID／推理設定、升版並完成對應隔離驗收與記帳；沿用官方 CLI、無 API 計費與既有權限限制。本次登記使用規則，未實作或啟用正式預測／TG 問答的自動切換；現行 Claude 額度用盡的退避仍有效。
 
-> 【章節導讀】本節前段（D84～D95）為 M2 本地固定題集階段的沿革紀錄；現行持續輪詢與 D118 MiniBench 正式參賽採用 `continuous_v9`／`cycle_v8`／`budget_v6`／`quota_policy_v5`（每周嘗試上限 Claude 130、Gemini 200、GPT 130，見 D101、D118、D121）。
+> 【現行排程與預算摘要】正式參賽採用 `continuous_v11`／`cycle_v9`／`discovery_v1`／`budget_v10`／`quota_policy_v5` 與 `live_window_renewal_v1`（每 7 天自動續期；每週嘗試上限 Claude 130、Gemini 200、GPT 130，見 D101、D118、D137、D139、D149）。早期 M2 本地固定題集與單輪交接紀錄（D68、D81、D84、D92、D94、D95）見 §15「決策紀錄」與 `docs/tasks/`。
 
-依 D84（歷史紀錄，已由 D95／D108／D126 後續交接取代），本輪由 GPT 主持，與 Gemini 討論並推進已授權的開發、驗收及操作；Claude 預計台北 2026-11-02 00:30（UTC 2026-11-01 16:30）恢復後安排獨立複驗。開發複驗使用不含機密或預測資料的隔離副本；預測線仍遵守既有退避與安全停線。例行技術選擇由 GPT／Gemini 處理，確實需要 Louis 判斷、既定本人核准或本人操作的事項才停止並留下報告；這項授權不等同正式參賽核准，也不免除驗收門檻。
+持續輪詢與送出的共用發現器，將「須排除的輪次」與「可以送出的輪次」分開計算：MiniBench 涵蓋所有 ongoing／upcoming 輪次，每次更新以 open／upcoming 比賽索引排除同步題；ongoing 或未來開始的輪次一律列入試驗排除集合，只有已開始的 ongoing 輪次可進入 `live` 可送出候選集合；ID／別名不一致、缺漏必要欄位或無法解析時間仍拒絕（D83）。
 
-M2 已落地的本地入口為 `scheduler_v1`／`budget_v1`（D68），只接受預先固定題集與明確窗口／上限的 campaign。`m2_prepare.py` 的初始量測配置為 20 題、七天窗口、每線最多 64 次（含窗口內舊嘗試與驗收）、預期新題 0、修復保留 2 次；這是本地量測的有限預算，不是已量測的正式帳號容量。正式 `quota_policy.json` 待定上限不因此改寫。啟動前必須通過既有 baseline 與正式模型驗收，不提供 waiver；三線以逐線鎖併行，共用帳冊交易僅涵蓋短時間讀寫。持續納入新題、launchd 安裝及正式送出屬 M3。
+持續模式的預算窗口記錄於 `config/cycle_campaign.json`：初期經 `weekly_rollover_v1`（D86）與 `budget_handoff_v1`～`v3`（D118、D137、D139）單次接續，自 D149 起改由 `live_window_renewal_v1` 在 7 天 `live` 窗口到期時自動續下一個 7 天窗口（現行 `auto_20261110T0400Z`），保留相同白名單場地、機器人帳號 `311763` 與各線每週上限，不累積未用額度，已封存的快照跨週保持完成。
 
-第一個題集 `m2_1793529615987_7867f9f1` 已完成 20 題本地整合與留言；其凍結的政策與歷史量測保留。依 D81，第二個題集另外選 20 題尚未預測過、歸屬安全的主站題目，以 `m2_prepare.py --attempt-cap 130` 準備；每線 130 次仍包含同一個 2026-11-01～11-08 UTC 窗口內的既有嘗試與驗收，不因新 campaign ID 歸零。新題集凍結 D74 生效後的 `quota_policy_v3`；三線第 2 層及可信成本等量測缺口仍須完成，不將舊題集跑完宣稱為 M2 全部驗收通過。V5 依 D89 改為被動蒐證，未觀察不再單獨阻擋 M2。
-
-`m2_prepare_v4` 從主站每頁讀取最多 50 筆、最多 20 頁，首次能選滿 20 題即停止；在已查詢的合格候選中依決策截止時間、題號排序。歸屬不明、比賽歸屬、同步題、已預測、重複與時間不合格均排除，逐頁將計數及跳過原因追加至 `poll_log.jsonl`；建立題集前仍重新讀回檢查。頁數上限內不足 20 題就停止，不降低安全條件。
-
-D92（2026-11-02）：依 Louis 繼續 M2／M3 的授權，另行預登記 Gemini 第一層補充成本量測。最多 3 個從未預測／啟動或被其他題集保留、歸屬安全的新試驗題；最多 6 次實際模型呼叫（含修復、補跑），控制器連同清理最多 60 分鐘。沿用原題集的 UTC 預算窗口、設定雜湊及每線最多 130 次上限，既有停線與不確定嘗試不變；整輪一次性、開始後不得重啟，成本歸因不明即停止後續題目。只跑 Gemini 第一層，其他線不跑、不整合、不留言、不送出。新成本另報、不回填舊 21 筆、不把第一層推估成第二層，也不自動改舊 M2 驗收。新增完整 execute 耗時紀錄；舊 scheduler 耗時不含 preflight，須明列限制。覆蓋率先做事前固定假設的容量敏感度分析，不代替 M3 實機與正式容量核准。
-
-D94（2026-11-02）：Louis 新指示先進行 M2 額度確認，並請 Gemini 以長上下文和搜尋調查平台三問。D93 修正後另登記一次 Gemini 第一層量測，固定 1 個新安全試驗題、最多 2 次實際呼叫（包含修復／補跑）、控制器連清理最多 30 分鐘；只能承接已結束 D92 的同一父題集，全專案僅一次 D94。D92 不重啟，舊判定不改；原 UTC 窗口、既有用量、130 上限及第二層停線全部保留。沿用正式隔離／preflight，歸因不明即停，沒有整合或 API POST，不自動提升原 M2 驗收。Gemini 平台研究／開發審查與額度量測互斥；研究只讀技術資料，不讀實際開放題的預測。細節見 `docs/tasks/M2-VERIFY-D94.md`。
-
-D95（2026-11-02）：Louis 指示「接下來交給 claude 接手」，後續主持與整合改由 Claude 負責，GPT 完成交接後停止本輪開發。接手先讀 `docs/tasks/HANDOFF.md`、本計畫與共用進度板。D84 的 GPT 主持安排至此結束，其餘已授權工作與安全／驗收界線延續；這次交接不新增補測額度、預測／留言請求、正式參賽核准或背景程序。
-
-M2 執行時透過官方 API 發現已允許試驗場地類型的數字 ID，不改寫 `tournaments.json` 的 Louis 核准清單；MiniBench 必須涵蓋所有 ongoing／upcoming 輪次，不能只查已切到下一輪的 `minibench` 別名。每次更新以 open／upcoming 比賽索引排除同步題，核對試驗題的 post／question／project 歸屬與當前狀態。ID 對應改變即追加新快照。只記操作 metadata，不把比賽題文／社群預測寫入試驗快照。
-
-新題集準備與持續輪詢／送出的共用發現器，將「須排除的輪次」與「可以送出的輪次」分開計算：ongoing 或未來開始的輪次一律排除；只有已開始的 ongoing 輪次可進入 live 候選集合。未來輪次被提前標為 ongoing，不阻擋安全主站題的準備；ID／別名不一致、缺漏必要欄位或無法解析時間仍拒絕。固定 M2 題集的既有 `SafeSnapshots` 保持不變（D83）。
-
-持續模式另有選填的 `weekly_rollover_v1`（D86）：執行前凍結有限週數、七天 UTC 錨點、各線每週上限、場地與設定 hash，換週只登記當前窗口，不追補漏週、不累積未用額度、不重設歷史或未知嘗試。舊單窗口設定仍會到期；已封存的快照跨週保持完成（包括預算跳過），只有新題／合法新快照可使用新週容量。任何設定變動、窗口重疊或時鐘退回舊窗口均拒絕。此功能完成不代表已選定正式容量；當時（D86）尚未建立／啟用 `cycle_campaign.json`。【狀態更新：`config/cycle_campaign.json` 已於 D105（M3 試驗）與 D117／D118（MiniBench 正式參賽 `d118_minibench_20261103T0400Z`）正式建立並啟用】
-
-- **排程**（macOS launchd）：
-  - 每 10 分鐘執行一次 `poll_questions.py`，並啟動或接續 `forecast.py` 的工作佇列（D52）；執行前比對各線的 CLI 版本與全域基準（§7.2）。
-  - 每天 21:00（台北時間）抓取結算與官方分數。
-  - 每週一 21:00 產出前 7 天的定期報告（§4.5）。
+- **排程**（macOS launchd，D139、D150）：
+  - 常駐服務僅兩項：`org.forecast-lab.cycle`（每 60 秒本地 heartbeat 推進已知題工作、截止判斷與送出；全量新題搜尋由 `discovery_v1` 預設每 1800 秒執行，短窗或不足研究餘裕時縮至 300 秒，取代早期 D52 每 10 分鐘設定）與 `org.forecast-lab.telegram`（常駐手機唯讀進度與目前事項問答控制台）。
+  - 結算與官方分數／排名（`resolve.py`、`score.py`）與已關閉題目三閘門健檢（`post_close_audit.py`）目前採手動按需執行；原 `resolve`、`report` 與 D140 `line-recovery` launchd 範本及每輪尾端 `auto_reaccept.py tick` 已於 D150 退役移除。
 - **工作佇列**（D52）：
   - 跨題目排程，不逐題把第 2 層跑完才處理下一題。
-  - 每完成一個工作就重新查詢新題目。
-  - 同一優先級內，截止時間最早的先做。
-  - 並行度：三條線平行，每條線同時只執行 1 個工作（初始值，寫在 `config/quota_policy.json`；§10 M3 的模擬也採用這個設定，D53）。
-  - D109：`queue_refresh_v2` 合併同時等待刷新鎖的請求；只有等待期間已完成較新刷新、且結果年齡介於 0～30 秒（不含 30）時共用結果。稍後獨立呼叫的強制刷新仍重新查詢；任何刷新失敗立即使舊快取失效。`cycle_v6` 在週期紀錄標記刷新版本，既有 90 秒額度新鮮度與凍結窗口不變。600 秒排程先維持，尚未實機證明為最佳值；評估與證據見 `docs/tasks/LAUNCHD-INTERVAL-D108.md`。
-- **優先序**（先廣後深）：主賽第 1 層 > MiniBench 第 1 層 > 主賽第 2 層 > MiniBench 第 2 層 > 人類賽輔助。
+  - 同一優先級內，截止時間最早的先做；已有可用答案時，等待超過 15 分鐘或趕不上決策截止的慢線不再拖住最終整合（D149）。
+  - 並行度：三條線平行，每條線同時只執行 1 個工作（寫在 `config/quota_policy.json`；§10 M3 的模擬也採用這個設定，D53）。
+  - D109：`queue_refresh_v2` 合併同時等待刷新鎖的請求；只有等待期間已完成較新刷新、且結果年齡介於 0～30 秒（不含 30）時共用結果。稍後獨立呼叫的強制刷新仍重新查詢；任何刷新失敗立即使舊快取失效（評估見 `docs/tasks/LAUNCHD-INTERVAL-D108.md`）。
+- **優先序**（先廣後深，D32、D139）：主賽第 1 層 > MiniBench 第 1 層 > 主賽第 2 層 > MiniBench 第 2 層 > Market Pulse（在保留預期高優先新題兩層＋修復容量後，每子題最多一次）> 人類賽輔助（Cup 手動研究）。
   - 例外：MiniBench 題目即將截止、而主賽題目還有充足時間時，先處理 MiniBench，並記錄例外原因。
   - 因為預算而跳過的題目記為 `budget_skipped`。
   - MiniBench 的題目集中在每輪的前幾天開出，當時的額度壓力最大。
-依 D89，額度不必用完；不為取得 V5 證據或消耗剩餘額度而增加呼叫，保留 Louis 開發其他專案的需求。這取代 D74／D81 中以用完開發額度為方向的解讀；既有數值上限只是最高上限，並非消耗目標。本次不另猜保留百分比、不改已凍結政策，不解除任何既有停線或週期熔斷。
+  - 依 D89，額度不必刻意用完，保留 Louis 開發其他專案的需求；既有數值上限只是防失控最高上限，並非消耗目標。
 
-- **額度預算**（`config/quota_policy.json`；以下為初始值，試驗期量測後調整）：
-  - 准入順序：先替尚未完成第 1 層的題目、額度重置前預期會開出的新題，以及必要的格式修復保留容量，剩下的容量才給第 2 層與人類賽輔助（D52）。
+- **額度預算**（`config/quota_policy.json`）：
+  - 准入順序：先替尚未完成第 1 層的題目、額度重置前預期會開出的新題，以及必要的格式修復保留容量，剩下的容量才給第 2 層、Market Pulse 與人類賽輔助（D52、D139）。
   - agy：
-    - 依 D74，舊 M2 題集結束後個人保留線降為 0%，`weekly_cap` 為 1.0；Ultra 的實際判斷使用共用 Gemini 週桶與五小時桶（D75），仍須扣除本次預估消耗。舊題集保留原本 80%／20% 的政策雜湊與紀錄（D71）。
+    - 依 D74，個人保留線為 0%，`weekly_cap` 為 1.0；Ultra 的實際判斷使用共用 Gemini 週桶與五小時桶（D75），仍須扣除本次預估消耗。
     - D97（`quota_policy_v4`、`budget_v4`）：Louis 決定 Ultra 額度充足，Gemini 不再設額度上的限制。本次預估消耗改用窗口層級估計：同一重置窗口內所有 `/usage` 讀數的最小值推算總用量，除以窗口內 Gemini 呼叫數，乘以 3；第 2 層再乘以 `token_multiplier_cap`。窗口內呼叫少於 5 次或沒有觀測到用量時，退回 0.05；估計值一律不超過 0.05。人工隔離驗收與 autoload 的門檻同樣改為「保留線 + 這個估計」。
-    - 取消第 2 層每題 5% 的額度上限與 `weekly_tier2_argon_breaker`；agy 第 2 層改由與 claude、codex 共用的 token 熔斷限制（§5.3）。D97 前已寫入的熔斷紀錄照舊生效到原定的重置時間，不追溯解除。
-    - 保留的安全檢查：`remaining_credits` 必須為 0（避免付費額度，D54）；每次執行前以 `/usage` 檢查，週桶剩餘低於「保留線 + 本次預估消耗」就暫停該線，五小時桶不足就等到重置（§7.7）；同一線同時只執行 1 個工作。持續模式的每週次數上限對 Gemini 只作為防止程式失控的保護：D101 定為每週 200 次（`quota_policy_v5` 的 `players.gemini.weekly_attempts_cap`），登記持續題集的預算窗口時不得超過。
+    - 取消第 2 層每題 5% 的額度上限與 `weekly_tier2_argon_breaker`；agy 第 2 層改由與 claude、codex 共用的 token 熔斷限制（§5.3，超標冷卻 6 小時，D121 R4）。
+    - 額度與防失控檢查：以 `--settings` 設 `useG1Credits: false` 避免動用付費額度（基準亦記錄 `remaining_credits`，D149 起非零僅記錄警告不停線）；週桶或五小時桶不足時進入限時退避／等待（上限 30 分鐘，§7.5、§7.7）；同一線同時只執行 1 個工作。持續模式的每週次數上限對 Gemini 定為每週 200 次（D101，`quota_policy_v5` 的 `players.gemini.weekly_attempts_cap`）。
   - claude 與 codex：
-    - 在 V14 找到可靠的額度查詢方式之前，以每週嘗試次數的上限控制；嘗試次數包含兩層、格式修復、補跑與驗收。D101 依 Louis 決定設為每線每週 130 次（`quota_policy_v5`）；登記持續題集的預算窗口時，各線的 `weekly_attempt_caps` 不得超過此值。事前登記的正式覆蓋率情境 `d101_formal_c130_c130_g200_o300_n10`（D92 的 10/5～10/19 時間表、104 題／支援 67 題）支援題準時覆蓋 100%（20 次重複的第 10 百分位），第一週單線最多用到 116 次。
-    - CLI 回報額度用完時，暫停該線並記為 `quota_exhausted`，依 §7.5 退避後再試。
+    - 在 V14 找到可靠的額度查詢方式之前，以每週嘗試次數的上限控制；嘗試次數包含兩層、格式修復、補跑與驗收。D101 依 Louis 決定設為每線每週 130 次（`quota_policy_v5`）。事前登記的正式覆蓋率情境 `d101_formal_c130_c130_g200_o300_n10`（10/5～10/19 時間表、104 題／支援 67 題）支援題準時覆蓋 100%（20 次重複的第 10 百分位），第一週單線最多用到 116 次。
+    - CLI 回報額度用完時，暫停該線並記為 `quota_exhausted`，依 §7.5 限時退避後再試。
   - 三人平常的使用優先。任何人覺得額度不夠，都可以在 `config/players_enabled.json` 暫停自己的線。
 - **電源**：題目在隨機時段開出，每題只開放 3 小時（§3.1），所以電腦須全天開機、插電、不睡眠。排程包裝腳本以 `caffeinate -i` 執行；蓋上螢幕仍會睡眠。無法全天開機時，漏答會反映在覆蓋率上；替代方案（例如另一台常開的電腦）另外決定。
 - **GPT 線**：使用女友在本機以官方 CLI 登入的狀態，她已同意用於比賽（D35）。她可以隨時登出 Codex CLI，或在 `config/players_enabled.json` 停用 `gpt`；停用期間記為 `disabled`。
@@ -1014,18 +1006,7 @@ M2 執行時透過官方 API 發現已允許試驗場地類型的數字 ID，不
 
 ## 10. 里程碑
 
-**D117 最新決定（2026-11-03）：Louis 已接受 D116 條件式 M3-4／V11 並核准該七天 MiniBench 正式窗口。**以下 M3 原始完整實測標準保留；本次有限准入例外只適用此 MiniBench 窗口，不自動適用主賽或之後窗口。既有 M3 其餘驗收依 D113～D115 證據，新觀測繼續補充。授權、排程已載入、窗口開始及實際送出須分別記錄，不互相冒充。
-
-**D118 後續（2026-11-03）：Louis 要求提前，窗口改為UTC11/3 04:00～11/10 04:00；沿用同一個有限MiniBench准入與條件式依據。**保留D105用量後接續，不重置、延期或擴大場地；完整隔離2181passed、Gemini／Claude複審通過、前檢6/6ready；04:12:32正式登記接續並kickstart，第一輪已抓到2題。詳見D118報告。
-
-D117 啟用完成：三線兩層真實前檢 6/6 ready，官方 GET 核對 bot 311763；最終正式程式完整隔離 2154 passed，另補三個邊界測試後相關 19 passed，Claude／Gemini 靜態複審均 PASS。UTC 11/3 01:53:56 載入並驗證排程 `waiting`；尚未到正式窗口、尚未實際作答。舊 runtime 設定已逐位元封存，D105 登記與用量保留；新 campaign 未提前登記。具體證據見 `docs/tasks/MINIBENCH-LIVE-D117.md`。以下 D113～D116 為當時狀態。
-
-截至 2026-11-02 UTC 16:35（D113），**D105 四題的 launchd 自動端到端與 D107 A2 三情境均已完成**。是非題 41219／41418／41628、多選題 42336 的預測及私人留言各一次 POST、全部自動 found、unknown 0；A2 同題重複預測保留歷史、四階合成私人留言立即完整讀回，以及本地注入確認失敗後只補留言均通過。已回 `local`，卸載本次預測 LaunchAgent 並封存安裝副本；原凍結窗口與帳冊保留，不另補題或續期。**M3 尚未全部完成**：V11 與第四項所需的實際可見性／輪詢／修訂及 launchd 觸發重播仍有缺口；既有模擬通過只限其凍結假設。沒有 live 核准。證據與下一步見 `docs/tasks/M3-READINESS-D113.md`、`data/e2e_acceptance_checks.jsonl`、`data/a2_acceptance_checks.jsonl`。
-
-D114／D115（前輪）：新增 `metadata_observer_v1`（兩次完整盤點核對、有界 GET、全部題型、實際輪詢起訖與修訂雜湊），以及 `coverage_sim_v4` 的完成後 600 秒觸發選項；完整隔離 2089 passed。Gemini 對 transport／backoff 複審 PASS，Claude 對觀測器修正 B1 後技術複審 PASS。已事前固定 24 小時開題窗口加 4 小時收尾，觀測 `d114_20261102T231631Z` 於 UTC 11/2 23:16:31 開始、11/3 23:16:31 截止開題、11/4 03:16:31 結束；首輪完整成功（15 GET、0 POST）。後續存活、停止與缺口以程序及觀測帳冊為準，不自動重啟或續期。當時資料轉換、可見性／修訂重播與 M3 結論仍未完成；D116 已完成工具與歷史壓力重播，完整新觀測的重播結果仍待收尾，不能以工具通過代替實測通過。規格見 `docs/tasks/M3-METADATA-D114.md`。
-
-
-D116（UTC 2026-11-03）：Louis 質疑一天等待後，GPT 與 Claude／Gemini 核對 D77，確認 24h＋4h 是取樣設計而非固定准入天數；資料轉換、壓力重播與審查改為立即並行。`coverage_sim_v5` 修正送出期間背景完成／修訂可能誤判 covered，加入延遲、停機、期初／尾段工作與既有用量；`metadata_replay_v1` 保留聯集分母、完整輪詢與取樣不確定性。原 5 分鐘設定的兩個主要 Mini-only 情境 p10 僅 71.05%／65.79%；另行事前登記候選後，10 分鐘兩者均 97.37%（全題均 61.67%），採最小可行值，升為 `run_config_v3`／`escalation_v2`。停機 7.43 小時仍只有 73.68%，不掩蓋失敗；這是歷史校準，非獨立實測驗證。完整隔離 **2138 passed**。有限 Mini-only 候選窗口及設定已離線驗證，見 D116 報告，尚未登記／啟用。D114 原觀測／5 分鐘 recipe 保留，新舊情境明確分開；尚未自動通過 M3-4／V11，也沒有 live 授權。條件式證據方案與正式窗口待 Louis 決定，原 D105 預算窗口至 UTC 11/3 13:03 不變、不重疊或清零。詳見 `docs/tasks/M3-PARALLEL-D116.md`。
+> **現行里程碑狀態摘要（截至 D150）**：M0～M5、主賽 M6（D137）、Market Pulse 26Q4（D139）與人類賽輔助 MA（D132／D139）均已上線運作，`live` 窗口每 7 天自動續期（D149）。其中 M3 第四項（V11 新觀測重播）係依 Louis 於 D117／D118／D137 接受之條件式依據（D113～D116 試驗端到端、A2 三情境與 10 分鐘緩衝歷史壓力重播，`docs/tasks/M3-READINESS-D113.md`、`docs/tasks/M3-METADATA-D114.md`、`docs/tasks/M3-PARALLEL-D116.md`、`docs/tasks/MINIBENCH-EARLY-D118.md`、`docs/tasks/D137-MAIN-LAUNCH.md`）有限准入，不冒稱原 24h＋4h 獨立觀測已完整跑完；M4／M6 官方結算分數依實際結算進度以 `resolve.py`／`score.py` 累積，未滿 §4.3 樣本門檻前不做效能結論。
 
 | 階段 | 內容 | 完成標準 |
 |---|---|---|
@@ -1033,11 +1014,11 @@ D116（UTC 2026-11-03）：Louis 質疑一天等待後，GPT 與 Claude／Gemini
 | M1 | 隔離驗收與單線端到端（`local`；分工見 `docs/tasks/M1.md`） | 三條線完成 §7.2 的全域基準人工審查，並通過 §7.6 驗收；第 2 層子代理驗收沒通過的線，第 2 層不開子代理；驗收腳本可以自動重跑；claude 線對 3 題 bot testing area 或主站題目走完「抓題 → 第 1 層 → 紀錄」，不送出 |
 | M2 | 三線、整合與分層（`local`） | 對試驗場地的題目處理 20 題以上，不送出；三線第 1 層的有效率至少 90%（分母不含因預算上限而從未執行的題目；涵蓋率另外照實報告，D80）；整合、升級、第 2 層與留言都有紀錄；量出每題每層的耗時、token 與額度消耗（Gemini 的額度消耗依 D97 以重置窗口層級估計，單次成本照實列為無法觀測）；各 CLI 真實耗盡樣態改為被動蒐證，未觀察照實列示且不單獨阻擋 M2（D89），未知錯誤拒絕及停線／退避／補跑驗收仍須通過；稽核依賴圖通過離線合成事件的驗證（§3.3） |
 | M3 | 試驗期（`trial`） | 須同時完成以下各項：<br>一、Louis 建立機器人帳號（第一個即主機器人）並填寫參賽表單，經核准切換到 `trial`。<br>二、在試驗場地以 `trial` 實際完成端到端流程：由 launchd 週期無人介入地完成抓題、預測、送出、留言與讀回對帳，是非題與多選題都要有。不設固定的天數（D77；原為連續 14 天）。<br>三、送出測試通過：ID 對錯題、錯帳號、跨比賽、選項修訂、同步題與已關閉題目都被拒絕；平台已有預測時不再送出；預測與留言各自「伺服器已受理但回執遺失」、讀回失敗或延遲可見、重啟之後，都能正確對帳；留言失敗時只補送留言；停用開關有效。<br>四、覆蓋率模擬（D53）：觀察期間與分母在看結果前固定。重播主賽與 MiniBench 題目的實際開題與輪詢時間、同時開題、工作佇列、兩層與修復重試的耗時、稽核與送出餘裕、額度重置與停線，並使用 §9 的並行度。分別報告全部題目的覆蓋率與已支援題型的準時覆蓋率；90% 的門檻適用於已支援題型，`unsupported_type` 仍列在全體分母中。<br>五、額度在預算內，claude 與 gpt 的每週次數上限依 M2 量測填入；持續模式的題集能跨週運作。<br>六、完成 V11 與 V15；可靠的讀回方式確認之前，不得切換到 `live`。<br>七、MiniBench 的系列白名單與每輪 ID 的發現、核對已實作並測試（§3.6）；FutureEval／MiniBench 的規則核對（§3.7）經 Louis 核准並記錄於 §15。 |
-| 切換 | 正式參賽（`live`） | Louis 核准，記錄於 §15 |
-| M4 | 正式參賽：MiniBench | 完成一輪 MiniBench；檢查官方分數、留言與漏答。第一輪就是正式參賽，也是觀察期（D77）；單輪約 60 題的排名不足以當成效能證據 |
-| M5 | 數值題與離散題 | 另訂輸出格式與整合規則，在試驗場地驗證後加入；D122 起提前進行，驗證通過即加入目前的 MiniBench 窗口。UTC 2026-11-03 11:38 上線（v1.74） |
-| M6 | 正式參賽：主賽 | D137 已授權在複審／驗證後有限加入當季主賽，不再等 M4 分數；M5 已有驗收，M4結算與完整M3觀測限制保留。原「依M4/M5結果加入」為先前安排，不代表本次已完成統計驗收；實際啟動見D137證據。 |
-| MA（選做） | 人類賽輔助 | 機器人賽穩定後開始 |
+| 切換 | 正式參賽（`live`） | Louis 核准，記錄於 §15（D117／D118／D137／D139 已完成） |
+| M4 | 正式參賽：MiniBench | 完成一輪 MiniBench；檢查官方分數、留言與漏答。第一輪就是正式參賽，也是觀察期（D77）；單輪約 60 題的排名不足以當成效能證據（D118 起正式參賽，手動結算入口 `resolve.py`／`score.py` 已於 D127／D129 上線） |
+| M5 | 數值題與離散題 | 另訂輸出格式與整合規則，在試驗場地驗證後加入；D122 起提前進行，驗證通過即加入 MiniBench 窗口。UTC 2026-11-03 11:38 上線（v1.74） |
+| M6 | 正式參賽：主賽（及 Market Pulse 擴充） | D137 已授權在複審／驗證後有限加入當季主賽 `33121`（不再等 M4 分數），D139 再加入 Market Pulse `33131`；M5 已通過驗收，M4 結算與完整 M3 觀測限制照實保留（見 `docs/tasks/D137-MAIN-LAUNCH.md`、`docs/tasks/D139-EXPANSION.md`） |
+| MA（選做） | 人類賽輔助 | 已於 D132／D139 上線手動入口（`human_advice.py`／`advise.py`，支援 Metaculus Cup `33108`），使用機器人賽剩餘額度並由 Louis 本人判斷手動提交（§8） |
 
 ---
 
@@ -1054,15 +1035,15 @@ D116（UTC 2026-11-03）：Louis 質疑一天等待後，GPT 與 Claude／Gemini
 | 第 1 個建立的機器人不是正式帳號 | 主機器人變成測試帳號 | 第一個就建立正式帳號，只用這一個（§2） |
 | 電腦睡眠或關機 | 漏答 | `caffeinate`、覆蓋率監控（§9） |
 | 額度不足 | 漏答，或影響個人使用 | 預算與保留線、先廣後深（§9） |
-| 作答窗口短（每題 3 小時，可能同時開多題） | 第 2 層來不及完成，或漏答 | 每 10 分鐘輪詢、跨題工作佇列、決策截止點，來不及就送第 1 層（§3.4、§3.5、§9） |
-| 模型被替換（例如 agy 改用非 Argon 模型） | 預測品質改變 | `/usage` 差值與 `model_mismatch`（§7.7） |
+| 作答窗口短（每題 3 小時，可能同時開多題） | 第 2 層來不及完成，或漏答 | 60 秒排程 heartbeat ＋ 30 分鐘新題搜尋（短窗縮至 5 分鐘）、跨題工作佇列、不等超時慢線、決策截止點與截止前必送保底（§3.2、§3.4、§3.5、§7.5、§9） |
+| 模型被替換（例如 agy 改用非 Argon 模型） | 預測品質改變 | `--log-file` 模型驗證與 `model_mismatch` 60 分鐘限時退避（§7.5、§7.7） |
 | 提示詞注入（含市場頁面與第 2 層傳入的其他模型文字） | 電腦被操作，或留言被汙染 | 權限隔離（§7）；第 2 層的輸入視為資料；留言清洗並限制長度（§5.6） |
 | 汙染經第 2 層傳到其他線 | 違規來源影響最終預測 | 先稽核再傳遞，標記沿輸入依賴繼承（§3.3） |
-| 子代理漫無目的地搜尋 | 大量消耗額度 | 只在第 2 層使用；數量、時間與每題額度的上限（§5.3） |
+| 子代理漫無目的地搜尋 | 大量消耗額度 | 只在第 2 層使用；數量、時間與每題額度的上限（§5.3；目前固定關閉子代理） |
 | 整合結果過度自信 | 對數計分下大幅失分 | 截斷到 [0.02, 0.98]、不做 extremizing，依資料再調整（§4.2） |
 | 第 2 層使模型互相錨定 | 分歧題的錯誤相關性上升 | 只用於分歧題；保留第 1 層結果並比較（§3.4、§4.3） |
 | 報名費比賽的法律風險 | 可能涉及賭博 | 逐場核准，先確認結構與法規（§1.1） |
-| CLI 改版、自動更新、全域設定改變 | 權限或執行條件改變 | 基準比對與變更處理（§7.2） |
+| CLI 改版、自動更新、全域設定改變 | 權限或執行條件改變 | 專案 CLI pin 包裝器固定正式執行檔、基準比對記錄為 `warnings`，自動預測僅留手設開關擋線（§5.3、§7.2、§7.5） |
 | 全域允許規則被帶入執行 | agy 的全域允許清單含有 `command(agy)` | 單次 session 的拒絕規則、§7.6 專項測試 |
 | 樣本累積慢 | 調整依據不足 | MiniBench 結算較快；結論紀律（§4.3） |
 
@@ -1070,44 +1051,35 @@ D116（UTC 2026-11-03）：Louis 質疑一天等待後，GPT 與 Claude／Gemini
 
 ## 12. 待決與待驗證事項
 
-v0.3 的 V1～V9（狀態沿用）：
+v0.3 的 V1～V9：
 
-- **V1**（部分完成）：GPT 第 2 回合已以本機 help 與官方文件確認 `-m gpt-6-astra`、`model_reasoning_effort` 與 `--output-schema` 的寫法；端到端組合於 M1 實測。
-- **V2**（部分完成）：版本取得方式已確認；agy 權限規則的本機實測併入 §7.6。
-- **V3**（部分完成）：claude 2.1.316 的 `--restricted` 會忽略 user、project、local 的設定檔；實測中仍以訂閱登入執行成功。是否需要回合上限，於 W4 確認（目前的 help 沒有 `--max-turns`）。
-- **V4**（部分完成）：codex 與 agy 已有 token 欄位樣本；claude 的欄位，以及三條線 CLI 回報模型 ID 的來源，於 M1 確認。
-- **V5**（部分完成、被動蒐證，D89）：三個 CLI 額度用完時的結束代碼與錯誤訊息。Claude 已觀察，GPT／Gemini 尚未觀察；不刻意耗盡，未觀察不冒充通過實機測試，也不單獨阻擋 M2。報表獨立保留逐線證據，安全與預算規則保持不變。
+- **V1**（已完成，M1 實測確認）：`-m gpt-6-astra`、`model_reasoning_effort`、`--output-schema` 與 `model_catalog_json` direct 模式已於 M1 端到端確認（D59、D60）。
+- **V2**（已完成，M1 實測確認）：CLI 版本取得方式、專案 wrapper pin 與 agy 最小自訂 agent／權限規則已於 §7.3、§7.6 實測確認（D62、D130）。
+- **V3**（已完成，M1 實測確認）：claude 2.1.316 的 `--restricted` 忽略 user／project／local 設定檔並以訂閱登入執行成功，逾時由主程式程序群組強制終止（D58、D61）。
+- **V4**（已完成，M1 實測確認）：三條線 token 欄位與 CLI 回報模型 ID 來源已寫入各 adapter（§5.5、§7.7）。
+- **V5**（部分完成、被動蒐證，D89）：三個 CLI 額度用完時的結束代碼與錯誤訊息。Claude 已觀察，GPT／Gemini 尚未觀察；不刻意耗盡，未觀察不冒充通過實機測試，也不單獨阻擋參賽。報表獨立保留逐線證據，安全與預算規則保持不變。
 - **V6**：（v0.4 不再需要：已不使用社群預測快照。）
-- **V7**（已確認）：第 3 回合確認 §7.6 足以開始 M1；第 4 回合指出的子代理驗收缺項已依 D47 補齊，第 5 回合兩位審查者都確認。驗收本身仍須在 M1 實測。
-- **V8**：agy 的 `--settings` 與全域 `settings.json` 是合併還是取代，以及 `"agentMode": ""` 的實際效果（M1）。
+- **V7**（已完成，M1 實測確認）：三線兩層隔離驗收已於 M1／D68／D130／D131 完成並記錄於 `data/acceptance.jsonl`。
+- **V8**（已完成，M1 實測確認）：agy 的 `--settings`（含 `"agentMode": ""` 與路徑元件拒絕規則）已搭配最小自訂 agent 在 §7.6 實測確認（D62）。
 - **V9**（已確認，2026-10-31）：`WebFetch(domain:metaculus.com)` 只擋主網域，`WebFetch(domain:*.metaculus.com)` 只擋子網域，兩者都要加；可以與 `--tools`、`--allowedTools` 並用，拒絕優先（D58）。
 
 v0.4 新增：
 
 - **V10**（已完成）：Louis 提供了資源頁（2026-10-29 版）與正式規則（2026-10-12 版）的原文，摘要見 `docs/tournament_checks/futureeval.md`。留言長度上限併入 V15。
-- **V11**（部分完成）：資源頁說明每題開放 3 小時、同時通常不超過 5 題；實際分布由 `data/poll_log.jsonl` 量測。D113 純本地回溯盤點：33121／33132／33135 各 314 次輪詢，分別看到 2／0／26 題，最新排定窗口均 3 小時；各有 17 個超過 600 秒的空檔，最大約 7.43 小時。這不重建空檔中的實際可見性／修訂；另需事前固定的有界觀測及按實際觸發方式重播，不能把歷史排定時間表當成完整實測。見 `docs/tasks/M3-READINESS-D113.md`。 D116 已完成空檔歸因（9 安裝前、1 跨安裝、4 正常收尾、2 開發持鎖、1 A2 持鎖）與完整 converter／壓力工具；不能用此歸因補造 first-seen／修訂。10 分鐘主要壓力情境通過僅限歷史校準；Louis 已於 D117 接受這個有限 MiniBench 窗口的條件式依據，排程已載入等待。完整獨立觀測仍屬部分完成，不藉此改寫原實測狀態或擴大其他窗口的授權。
+- **V11**（部分完成，條件式准入）：資源頁說明每題開放 3 小時、同時通常不超過 5 題；實際分布由 `data/poll_log.jsonl` 量測。D113 純本地回溯盤點與 D116 空檔歸因／10 分鐘緩衝壓力工具已完成（見 `docs/tasks/M3-READINESS-D113.md`、`docs/tasks/M3-PARALLEL-D116.md`）；Louis 已於 D117／D137 接受條件式依據進入正式賽，原 24h＋4h 獨立觀測仍如實標記為部分完成。
 - **V12**（已決定）：規則允許參考公開的社群預測，但不得盲目照抄；本版不使用（D50）。
-- **V13**（部分完成）：
+- **V13**（部分完成；目前第 2 層固定關閉子代理 `subagents_enabled = false`）：
   - codex 官方文件說明子代理繼承 sandbox 與 approval 設定；agy changelog 說明自訂 agent 的 `model` 預設為 `inherit`。
-  - 完整的工具繼承、數量上限與取消行為，於 M1 實測（§7.6 第 5 項）；codex 另核對 `agents.enabled` 與 `multi_agent` feature flag 的關係。
-- **V14**：claude 與 codex 在無互動模式下查詢剩餘額度的方式。
-- **V15**（部分完成）：官方 template 顯示的 API：
+  - 若未來開放子代理，須先完成 §7.6 第 5 項完整的工具繼承、數量上限與取消行為實測。
+- **V14**（待研究）：claude 與 codex 在無互動模式下查詢剩餘額度的方式（目前以每週嘗試上限 130 次與 CLI 額度耗盡退避控制）。
+- **V15**（已完成，D85～D115、M5 實機確認）：官方 API 契約與實機驗證：
   - 預測：`POST /api/questions/forecast/`，以 question ID 送出；
   - 留言：`POST /api/comments/create/`，以 `on_post` 指定 post ID，並設定 `is_private` 與 `included_forecast`；
   - 驗證：`Authorization: Token <METACULUS_TOKEN>`。
 
-  D85 已依唯讀實機回應與釘選的官方原始碼修正讀回契約：本帳號預測為 `my_forecasts.history/latest`，預測成功可能只回 201 空物件，讀回以 question／author／start_time 三元組、送出前基準及精確機率比對；留言查詢用 `post`，完整分頁後要求唯一新匹配。無法證明結果時維持 unknown，不重送。多選題缺少可驗證的歷史選項順序時，在首次 POST 前拒絕。
-
-  D87 的 binary 元件實機測試於 UTC 18:30 完成一次預測 POST 與獨立讀回；第一個私人留言被明確拒絕；D88 的第二次留言於 18:44:30Z 回 HTTP 429，已達本筆上限，完整元件驗收未通過。沒有重送預測，試驗結束後回到 local；D78 的未來 trial 授權保留。
-  D99【已由下方 D115 `api_transport_v7` 取代：現行多選題寫入與讀回均要求有效 `all_options_ever` 歷史標籤順序，已移除 `null` 多重集合退路】：多選題在歷史順序為 null 時可送出，讀回以多重集合精確核對（`api_transport_v5`）；仍需多選題的真實 POST 與讀回實測。
-  D98：官方客戶端在每個請求前固定等 3.5 秒加最多 1 秒抖動；官方後端的留言建立流程中，我們的私人留言沒有任何會被拒的條件，第一次 4xx 很可能也是閘道限流（推論）。`api_backoff_v2` 已對正式連線的所有請求加上跨程序共用的間隔。多選題寫入以目前選項標籤為鍵即可；讀回的順序在「重新加回曾刪除選項」與寬限期時會例外，因此改用不依賴順序的核對（待實作）。`/api/questions/bulk-forecast-comment/` 可由一般 bot token 原子寫入預測加私人留言，列為候選。bot 私人留言超過 500 字元滿 30 天後只保留前 200 字元。見 `docs/tasks/PLATFORM-CLUES-D98.md`。
-  D102／D104（UTC 2026-11-02 11:27～11:49）：bot testing area 多選題的有界元件驗收**完成**。加上請求間隔後，預測 POST 1 次讀回 found（歷史選項順序為 null，以多重集合核對，順序也相符）；私人留言 POST 1 次由伺服器接受（無 429），讀回因本專案查詢缺少 `is_private=true` 而記 unknown，修正為 `api_transport_v6` 後以唯讀對帳轉為 found（留言 1250911），留言屬性（私人、作者、貼文、文字雜湊、`included_forecast` 的多選值）全部核對通過；沒有重送。這是合成元件證據，不是 launchd 端到端驗收。
-  D113（UTC 2026-11-02）：D105 四題自動端到端全部完成，兩題型的預測與私人留言均獨立 found。D107 A2 三項實測完成：同一是非題兩次合成預測皆 found，歷史筆數由基準 1 變 2、3；2000／10000／50000／150000 字元的 ASCII 合成私人留言皆立即全文長度及雜湊相符；正式 Submitter 路徑先預測 found，再在任何留言網路 I/O 前注入一次確認失敗，之後只補一次真實留言並 found，沒有重送預測。正式送出帳冊未變，未知請求 0。見 `docs/tasks/D107-A2-BTA-REUSE-PROBE.md`。
-  D115（UTC 2026-11-02）：Louis 提供 Luke 官方回信，兩條官方 CLI 已分別評估。官方確認 MC 的 `all_options_ever`／`options_history` 已解除標準帳號遮蔽，`forecast_values` 按前者對位、inactive 為 null，`options_order` 只控制顯示。`api_transport_v7` 對新 MC 寫入及讀回均要求有效歷史標籤順序，移除 D99 的 null 多重集合退路；沒有重新分類舊紀錄，unknown 不重送。正式帳冊與 probe 的未解決請求均為 0。只讀核對已確認既有 BTA post 46223／question 46450 的兩個歷史欄位非 null、向量長度相符；初次誤把 question ID 當 post ID 的 404 保留，不冒充成功。
-  官方確認私人留言上限為 **150000 Unicode code points**，超過回 400；正式 `MAX_CHARS=3000` 不變，不再探測長度邊界。實際超過 500 字元的 bot 私人留言在 30 天後封存，API 回短摘錄加全文連結、不可再編輯；這取代 D98 對現行契約「只留前 200 字元」的推定。摘錄不能當成全文 hash 相符，舊留言無法對帳仍維持 unknown。`options_history` 已觀察為 `[字串, 選項列表]` 的 pair，但時間字串未通過現有嚴格 ISO parser，尚不依它做歷史時間重建；目前精確讀回只使用 `all_options_ever`。留言尚無送出前 ID 基準，時間偏差仍可能維持 unknown。詳細來源、審查與實機限制見 `docs/tasks/PLATFORM-REPLY-D115.md`。
-  D115 同時確認 429 由 Cloudflare 按來源 IP 限流（涵蓋 `/api/*`、`/api2/*`、讀取與失敗請求）。`api_backoff_v3` 對有效正值 Retry-After 取至少 10 秒，缺漏／零／過期維持 60 秒，非 429 不變；保留跨程序 3.5～4.5 秒間隔，但它不控制同 NAT 的其他客戶端。Bulk 原子寫入／批次讀回列為後續獨立驗證的優化，不新增 M3 阻擋，不使用人類帳號或 `acting_user`。M3 其餘門檻與 Louis 的 live 核准仍適用。
+  D85～D115 與 M5 已完成是非、多選、數值與離散四種題型的預測與私人留言 POST 及獨立讀回驗證：本帳號預測以 `my_forecasts.history/latest` 對帳，多選題要求有效 `all_options_ever` 歷史標籤順序（`api_transport_v7`），數值與離散題以 `forecast_values` 201 點 CDF 對帳（M5，v1.74）；私人留言查詢帶 `is_private=true`（`api_transport_v6`），官方確認上限為 150,000 Unicode code points 且超過 500 字元的機器人私人留言滿 30 天後封存為摘錄加連結；所有正式 API 請求具跨程序 3.5～4.5 秒禮貌間隔與 Cloudflare 429 `Retry-After` 冷卻帳冊（`api_backoff_v3`）。詳細實測與官方回信見 `docs/tasks/M3-V15-SCHEMA.md`、`docs/tasks/M3-MC-PROBE-D102.md`、`docs/tasks/D107-A2-BTA-REUSE-PROBE.md` 與 `docs/tasks/PLATFORM-REPLY-D115.md`。
 - **V16**：三家個人方案條款中，與自動化、比賽獎金與帳號使用有關的條文（只記錄、不阻擋，D35）。
-- **V17**（部分完成，D96）：agy 實際生效的 AI credits 設定鍵，以及單次執行前後的 `/usage` 變化是否足以判斷使用的模型（§7.7）。D96 的離線與 idle 讀數顯示，`/usage` 讀數本身不一致，單次前後差值不足以判斷模型或成本；Ultra 共用桶下的型號只能以 `--log-file` 判斷。AI credits 設定鍵仍待確認。
+- **V17**（部分完成，D96）：agy 實際生效的 AI credits 設定鍵（`useG1Credits: false` 可接受），以及單次執行前後的 `/usage` 變化是否足以判斷使用的模型（§7.7）。D96 證實 `/usage` 讀數本身不一致，Ultra 共用桶下的型號改以 `--log-file` 判斷。
 - **V18**（已確認）：`agy models` 列出 `gemini-4-argon-high`，第 2 層直接使用這個模型 ID（§5.3）。
 - **V19**（日後候選）：免費的 AskNews 新聞搜尋。由主程式呼叫並把結果交給模型，key 不交給模型；只能用於本比賽，每個隊伍限一個帳號。
 
@@ -1126,601 +1098,9 @@ v0.4 新增：
 
 ## 14. 審查紀錄
 
-### 14.1 Gemini
-
-#### 第 1 回合審查（2026-10-30）
-
-**一、針對 §12 待決事項（Q1–Q8）之表態**
-
-- [§12 Q1 / §3.1] 建議將結算時間窗放寬為 N = 60 天，或設「45 天內優先，當符合條件之未抽樣題數不足 K 題時自動放寬至 60～90 天」的分級抽樣機制｜Metaculus 上同時滿足「開放中單一是非題 + 預測人數 ≥ 20 + 45 天內結算 + 尚未抽過」的母體不大，若死鎖 45 天，連續抽樣 1～2 週後題池極易枯竭｜non-blocking
-- [§12 Q2 / §3.1] 同意每日新題上限設為 K = 5（M1/M2 試行期可先用 K = 3）｜每日 5 題對三家 Pro 訂閱額度以及兩位人類每日填答時間（約 10～15 分鐘）最平衡；題數過多會導致人類選手疲乏與缺答率上升｜non-blocking
-- [§12 Q3 / §3.3 / §5.4] 建議在 Prompt 明確規定「忽略且不得引用新聞或二手報導中提及的任何預測市場／博彩賠率／預測平台機率」，並在輸出 Schema 新增布林欄位 `secondary_odds_seen` 供模型誠實揭露是否讀到二手賠率；惟 `secondary_odds_seen = true` 不必直接等同 `leak_flag = true` 作廢，而是納入次要敏感度分析｜主流新聞（如 Reuters、Bloomberg、NYT）報導選舉或總經事件時常順帶提及 Polymarket 或 Kalshi 數字，若讀到一般新聞就整題作廢，會造成熱門時事題大量流失（存活者偏差）｜non-blocking
-- [§12 Q4 / §3.1] 建議 v1 每題每位模型選手只跑 1 次｜跑 3 次會使每日 CLI 額度消耗與執行時間膨脹為 3 倍（5 題 × 3 次 = 每日每模型 15 次深度搜尋），容易觸發訂閱方案限流；將額度用於累積更多獨立題目樣本，對降低 Brier score 抽樣誤差的效益遠高於單題重複抽樣｜non-blocking
-- [§12 Q5 / §6] 建議移除「避免低於 3% 或高於 97%」的數字錨點，改為提醒「請審慎評估尾部風險、黑天鵝與結算條件的邊界詮釋；僅在證據極度確鑿時才給出極端機率，且數值須介於 0.01 到 0.99」｜短期（45～60 天）內結算的題目常有基準率極高或極低的事件（真實機率 < 2% 或 > 98%），硬性規定 3%～97% 會人為壓縮模型在極端區間的校準度、系統性拉差 Brier score；且 §4.1 log score 已有 [0.01, 0.99] 保護，無需再設 3%/97% 門檻｜non-blocking
-- [§12 Q6 / §5.3 / §7.3] 已於下方「二、補充 `agy` 無互動參數、輸出格式與權限設定」完整補齊｜實作 M2 的必要規格｜blocking
-- [§12 Q7 / §5.3 / §7.3] 交由 GPT（Codex）於 §14.2 補充確認；惟建議同步確認 `codex exec` 如何阻斷讀取專案目錄下的 `private/`｜確保三模型隔離強度一致｜non-blocking
-- [§12 Q8 / §8] v1 採用 CSV 足夠，但必須拆分為兩位人類各自獨立的檔案（如 `data/human_todo_<日期>_louis.csv` 與 `data/human_todo_<日期>_gf.csv`），且 CSV 內應直接附上完整題目描述與結算條件，不得放入 Metaculus 網頁連結｜見下方「三、設計漏洞」第 5 點之雙盲漏洞說明｜blocking
-
-**二、補充 §5.3 與 §7.3 中 `agy` 的無互動參數、輸出格式與權限設定（含官方文件來源）**
-
-- [§5.3] 建議將 `gemini` 的 adapter 指令骨架更新為：`agy -p "<prompt>" --model gemini-4-argon-medium --output-format json --json-schema <schema_path> --disable-slash-commands --print-timeout 10m --sandbox --settings '<permissions_json>'`，並以 `agy changelog | head -n 1` 取得 CLI 版本號（目前本機為 `1.4.11`，注意 `agy --version` 會回傳 unknown flag，本機可用模型清單由 `agy models` 查詢）｜依據本機 `agy --help` 與官方 CLI 參考文件（`https://antigravity.google/docs/cli/reference`）：(1) `-p`/`--print` 為無互動單次輸出模式；(2) `--output-format json` 會在完成時輸出單一 JSON 封包（含結果、狀態、token 用量與 `conversationId`），搭配 `--json-schema` 可強制結構化輸出符合 `output_schema_v1.json`；(3) 顯式傳入 `--model` 可避免使用者平時在互動介面切換 `~/.gemini/antigravity-cli/settings.json` 預設模型而造成實驗前後模型不一致；(4) `--disable-slash-commands` 可防止題目文字意外觸發內建指令或技能；(5) `--print-timeout 10m` 原生對應 §7.5 的 10 分鐘逾時上限｜blocking
-- [§7.3] 建議在 §7.3 明確規範 `gemini`（`agy`）執行模式的沙盒與權限鎖定參數：在空白暫存目錄啟動（不加 `--add-dir`），開啟 `--sandbox`，並透過 `--settings` 注入單次 session 權限規則（不影響全域 `settings.json`）：`--settings '{"permissions":{"allow":["search_web","read_url(*)"],"deny":["command(*)","run_command(*)","write_file(*)","edit_file(*)","read_file(/Users/*)"]}}'`，且嚴禁使用 `--dangerously-skip-permissions`｜依據官方權限與沙盒文件（`https://antigravity.google/docs/permissions`、`https://antigravity.google/docs/sandbox`）：`agy` 權限引擎遵循嚴格的 `Deny > Ask > Allow` 優先序；在無互動 `-p` 模式下，預設為 `Ask` 的工具（如外部網頁讀取）若未列入 `allow` 會因無法互動確認而失敗，而將 `command(*)`、`write_file(*)`、`edit_file(*)` 與 `read_file(/Users/*)` 列入 `deny` 則可從 CLI 層直接封鎖指令執行、寫檔，並阻斷模型跨目錄偷讀 `/Users/ucchengg/forecast-lab/private/cp_snapshots.jsonl`｜blocking
-
-**三、設計漏洞與修正建議**
-
-- [§3.1 / §5.1] 抽樣流程應明確加上「排除歷史已抽過題目（比對 `data/questions.jsonl` 中既有 `question_id`）」以及「只取單一是非題（`type == "binary"`，排除 group 子題與 conditional 題型）」的過濾條件｜§3.1 雖規定「每題每位選手只預測一次」，但未寫明每日跨日抽樣時需排除已存於 `data/questions.jsonl` 的題號；若未去重，隔天極易重複抽中同一題｜blocking
-- [§5.1 / §7.2] 建議將 `fetch_questions.py` 與 `snapshot_cp.py` 合併為單一抓題步驟（或由 `fetch_questions.py` 抓回 API payload 後，在記憶體中直接拆流），對寫入 `data/questions.jsonl` 的欄位採嚴格白名單（僅保留題號、標題、背景、結算條件、fine print、時間戳），並將社群預測欄位同步寫入 `private/cp_snapshots.jsonl`｜Metaculus API 的題目端點回傳 JSON 內直接包含當下的社群預測（Community Prediction）數值；若 `fetch_questions.py` 直接將原始或未徹底清洗的 API 回應寫入 `data/questions.jsonl`，或分兩次呼叫 API 造成時間差與欄位殘留，會造成嚴重洩漏｜blocking
-- [§3.3 / §5.4] 洩漏檢查（`leak_flag`）不應只檢查模型自填的 `sources[].url`，應同步掃描 `data/raw/` 原始輸出（含 CLI 回傳之 tool calls 紀錄）與推理文字中的禁用網域及關鍵字（如 `metaculus`, `polymarket`, `manifold`, `kalshi`, `predictit`, `community prediction`），並建議於 §3.3 禁用清單補上 `electionbettingodds.com`、`futuur.com`、`smarkets.com`、`betfair.com`｜模型可能搜尋並讀取了預測平台卻未將該網址列入最終 JSON 的 `sources` 陣列，僅檢查 `sources` 容易漏網｜blocking
-- [§4.1 / §4.2] 建議在 §4.3 補上「模糊結算（`ambiguous`）與取消（`annulled`）題目皆不計分，僅對明確結算為 `yes` (1) 或 `no` (0) 的題目計分」，並在 §4.2 將計分板拆為「模型核心榜（三模型 + 社群皆有預測之交集，對應 RQ1–RQ3）」與「人類對照榜（含人類選手之交集或成對配對，對應 RQ4）」｜Metaculus 除了 `annulled` 外還有 `ambiguous` 結算狀態；此外人類選手在日常忙碌時缺答率通常高於自動化模型，若所有分析都強制取「5 位選手全員到齊」的交集，會因人類缺答而平白丟棄大量模型已完成的樣本｜blocking
-- [§8 / §3.2] 人類填答表必須移除 Metaculus 題目連結，改為在填答表（或隨附的本地題目卷 Markdown/CSV）中直接呈現離線抓取的題目標題、背景、結算條件與 fine print，且兩位人類須各自填寫獨立檔案｜Metaculus 題目網頁正中央會直接顯示社群預測機率，若依 §8 原文在 CSV 附上題目連結供人類點閱，人類一看題目就會直接看到社群基準線，且兩人共用同一個 CSV 會看到對方的填答，直接破壞 §3.2 雙盲原則｜blocking
-- [§5.5] 建議在 `data/forecasts.jsonl` 中一併保存解析後的結構化欄位（`reasoning_summary`、`key_factors`、`base_rate`、`sources`、`injection_notice`）｜§5.4 要求模型輸出這些欄位，但 §5.5 的紀錄格式表卻只存了 `probability`，若一併寫入 `forecasts.jsonl` 將大幅簡化後續的錯誤歸因、洩漏掃描與提示詞注入稽核｜non-blocking
-- [§7.4] 建議將 `private/cp_snapshots.jsonl` 中的機率數值以簡單 Base64 或欄位混淆儲存（讀取計分時才解碼），並在每日預測後自動掃描 `data/raw/` 是否出現 `/Users/` 或 `forecast-lab` 等本機路徑字串｜即使 CLI 權限設定偶有疏漏，混淆儲存可確保模型就算讀到檔案也無法直接看出社群機率數字，搭配原始輸出稽核可達雙重保險｜non-blocking
-- [§9] 建議確認女友的 Codex CLI 登入狀態如何在同一台排程主機上共存，並在 `launchd` 呼叫的包裝腳本中使用 `caffeinate -i` 防止執行期間系統休眠｜若由單一 Mac 跑 `launchd`，需確認該 macOS 使用者帳號下同時具備三家 CLI 的有效憑證，且 `caffeinate -i` 可確保長達數十分鐘的預測不會因螢幕保護或閒置而中斷｜non-blocking
-
-#### 第 2 回合審查（2026-10-30）
-
-**一、第 1 回合意見整合確認（對照 §15 D7～D20 與 §16 v0.2 變更紀錄）及對未採納項目之表態**
-
-- [§15 D7, D10, D12, D15, D16, D18 / §16] 確認第 1 回合獲採納之意見（每日題數上限與試行值、每題單次預測與唯一採用規則、移除 3%／97% 錨點並將範圍定為 0.001～0.999、人類分檔獨立 CSV 且附凍結題目與移除平台連結、歷史題號去重與單一是非題過濾、單次抓取記憶體拆流與欄位白名單、擴充 4 個禁用網域、`ambiguous`/`annulled` 不計分、主榜與人類對照榜分離、`forecasts.jsonl` 保留結構化欄位、`caffeinate -i` 防休眠與 GPT 線停用開關）均已完整且正確整合至 v0.2 正文，無需再修改｜核對 §3～§11、§15 與 §16 確認無遺漏｜non-blocking
-- [§12 Q1 / §3.1 / §15 D8] 同意未採納「自動放寬時間窗至 60～90 天」，維持 N = 45 天、題池不足時少抽並記錄每日篩選漏斗（`data/sampling_log.jsonl`），放寬須經決定並升版｜在缺乏實際篩選漏斗數據前，若由程式動態放寬結算天數，會使同一執行設定版本（`run_config_v1`）內混入不同時間跨度與難度的題目；先記錄漏斗再人工決定升版更符合實驗控制原則｜non-blocking
-- [§12 Q3 / §3.3 / §15 D9] 同意未採納「將 `secondary_odds_seen = true` 留在主要分析」，改為主要分析（「獨立估計」）排除 `leak_confirmed` 與 `secondary_exposure`，並另報包含全部紀錄的敏感度分析與各類排除比例｜既然報告強制並陳「含全部紀錄的敏感度分析」與「各類排除比例」，既可確保主要分析不受二手機率錨定與共模失效污染，也能讓讀者直接檢視排除熱門時事題是否造成存活者偏差，兼顧兩方顧慮｜non-blocking
-- [§3.3 / §15 D9] 同意未採納「關鍵字命中直接視為確認洩漏」，改採三級稽核（`leak_confirmed` 以解析後 hostname 比對禁用網域與子網域、`secondary_exposure`、`suspected_leak` 排除 prompt 回顯後交人工判讀）且發現禁用來源保留原輸出不重試｜模型在推理摘要中寫「依規定不查看 Metaculus」若直接判為洩漏會造成假陽性，而違規後重試則會洗掉洩漏紀錄；v0.2 的三級分流設計更嚴謹｜non-blocking
-- [§7.4 / §15 D11] 同意未採納「以 Base64 或欄位混淆儲存 `private/cp_snapshots.jsonl`」，完全以環境與 CLI 權限限制做事前隔離｜可逆編碼對具備推理能力的模型不具實質機密性；只要落實下方 §7.3 與 §7.6 的讀檔硬性封鎖，即無需依賴混淆｜non-blocking
-
-**二、確認 §12 V2（`agy` 權限規則名稱、優先序、`--mode`、`--effort` 與版本取得方式，附本機輸出與官方文件來源）**
-
-- [§12 V2 / §7.3] 建議將 §7.3 中 `gemini`（`agy`）的 `--settings` 權限 JSON 修正為標準 `action(target)` 名稱、將 `read_file(/Users/*)` 改為全面封鎖 `read_file(*)`，並將 `execute_url(*)`、`mcp(*)` 與 §3.3 的 10 個禁用預測平台網域一併列入 `deny`：`{"agentMode":"","permissions":{"allow":["read_url(*)"],"deny":["command(*)","write_file(*)","read_file(*)","execute_url(*)","mcp(*)","read_url(metaculus.com)","read_url(manifold.markets)","read_url(polymarket.com)","read_url(kalshi.com)","read_url(predictit.org)","read_url(goodjudgment.com)","read_url(electionbettingodds.com)","read_url(futuur.com)","read_url(smarkets.com)","read_url(betfair.com)"]}}`｜依據官方權限文件（`https://antigravity.google/docs/permissions`）：(1) `agy` 權限引擎支援的標準 action 名稱為 `read_file`、`write_file`（同時涵蓋新增與 `edit_file` 修改檔案）、`read_url`、`execute_url`、`command`（管轄 `run_command` 終端機指令）與 `mcp` 共 6 類，原 §7.3 寫的 `run_command(*)`、`edit_file(*)` 與不帶括號的 `search_web` 並非標準 `action(target)` 語法；(2) 官方文件明載 `read_file` 與 `write_file` 的預設 fallback 在**工作區與系統暫存目錄（temp directories）為 Allow**，而在 macOS 上 `/tmp` 指向 `/private/tmp`（不在 `/Users/*` 下），若只擋 `read_file(/Users/*)`，模型仍可跨目錄偷讀 `/tmp` 下其他選手的暫存檔或系統暫存檔，故必須設為 `read_file(*)` 與 `write_file(*)`；(3) 權限引擎嚴格遵循 `Deny > Ask > Allow`，且 `read_url(domain)` 原生比對 hostname 與所有子網域（忽略路徑），將 10 個禁用網域放入 `deny` 可在模型開啟網頁前由 CLI 直接硬性攔截（Hard block），將事後稽核提升為事前阻斷｜blocking
-- [§12 V2 / §5.3 / §7.3] 建議在 §5.3 移除 `gemini` 指令骨架中的 `--mode <驗收時固定>` 旗標，改於 `--settings` 的單次 session JSON 中固定注入 `"agentMode": ""`（即標準 `default` 模式）｜依據本機 `agy --help`（`--mode Set the agent execution mode for this session (accept-edits, auto, plan)`）與官方文件（`https://antigravity.google/docs/cli/reference`、`https://antigravity.google/schemas/v1/settings.json`）：CLI 的 `--mode` 旗標僅接受 `accept-edits`（自動允許改檔）、`auto`（自動允許改檔與沙盒指令）與 `plan`（自動前置 `/plan` 施工規劃指示），三者皆不適合預測執行模式；而在 `--settings` 設定 `"agentMode": ""` 則可強制覆寫使用者全域 `settings.json` 可能設定的 `auto`/`accept-edits`，回到最保守的 `default` 模式，且在 `-p` 無互動模式下任何落入 `Ask` 的操作都會被自動 soft-deny｜blocking
-- [§12 V2 / §5.3 / §7.5] 確認 `--model gemini-4-argon-medium` 與 `--effort medium` 可安全並用；CLI 版本號以 `agy changelog` 第一行去除尾端冒號取得（本機已升為 `1.4.11`）；並建議在 `gemini` adapter 解析 `--output-format json` 時檢查 `1.4.11` 新增的 `finished_reason` 欄位｜依據本機實測 `agy models`、`agy --help`、`agy changelog | head -n 5` 與官方文件（`https://antigravity.google/docs/cli/reference`）：(1) `gemini-4-argon-medium` 搭配 `--effort medium` 為官方支援語法，可防止全域設定覆寫推理強度；(2) 本機 `agy changelog | head -n 1` 輸出為 `1.4.11:`（去除 `:` 即得 `"1.4.11"`）；(3) 本機 `1.4.11` 更新紀錄明載 `--output-format json` 新增 `finished_reason` 欄位（正常完成時省略，逾時為 `"print_timeout"`、中斷為 `"interrupted"`、錯誤為 `"error"`），adapter 必須檢查該欄位，若存在則不得將截斷的半成品當作有效答案｜non-blocking
-
-<details>
-<summary>附錄：本機 <code>agy</code> 實測輸出摘要與官方文件來源（2026-10-30）</summary>
-
-1. **本機 `agy --help` 關鍵旗標輸出**：
-   ```text
-   --disable-slash-commands        Disable slash command and skill expansion in print mode
-   --effort                        Reasoning effort for the current CLI session (low|medium|high|xhigh|max)
-   --json-schema                   Optional JSON schema string or path to a schema file to enforce structured output (for stream-json, only applicable to the final result)
-   --mode                          Set the agent execution mode for this session (accept-edits, auto, plan)
-   --model                         Model for the current CLI session
-   --output-format                 Output format for print mode (text, json, stream-json) (default text)
-   -p, --print                     Run a single prompt non-interactively and print the response
-   --print-timeout                 Optional time limit for print mode; 0 waits until the turn completes (default 0s)
-   --sandbox                       Run in a sandbox with terminal restrictions enabled
-   --settings                      Settings for this session only, never saved: a JSON object of settings.json keys, inline or as a file path
-   ```
-2. **本機 `agy models`（Gemini 模型部分）**：
-   `gemini-4-argon-medium`、`gemini-4-argon-high`、`gemini-4-argon-low`、`gemini-3.8-flash-high`、`gemini-3.8-flash-medium`、`gemini-3.8-flash-low`（另含非 Gemini 模型，故必須顯式指定 `--model`）。
-3. **本機 `agy changelog | head -n 5`**：
-   首行為 `1.4.11:`，並記載 `--output-format json` 新增 `finished_reason`（`print_timeout` / `interrupted` / `error`）。
-4. **官方文件來源**：
-   - CLI 參考與設定 Schema：`https://antigravity.google/docs/cli/reference`、`https://antigravity.google/schemas/v1/settings.json`
-   - 權限引擎（6 大 Action 語法、`Deny > Ask > Allow`、`-p` 模式對未授權 `Ask` 的 soft-deny 行為）：`https://antigravity.google/docs/permissions`
-   - 終端機沙盒：`https://antigravity.google/docs/sandbox`
-</details>
-
-**三、審查 §4.5 定期報告與 §7.6 隔離驗收的設計漏洞**
-
-- [§4.5 / §3.2 / §3.5 / §9] 建議在 §4.5 與 §4.2 明定「凡距離該題抽樣時間 `t0` 未滿 24 小時（人類作答時間窗尚未結束）的題目，即使已在 24 小時內提前結算，`score.py` 與 `report.py` 一律不得揭露其機率，亦不得將其納入已結算準確度指標（Brier、BSS、方向正確率）計算」｜§9 排定每晚 21:00 更新計分板、每週一 21:00 產出定期報告（且支援手動指定任意期間），此時距離當日 09:00（`t0`）僅 12 小時；若某短期題目在當日 `t0 + 12h` 內提前結算，依目前 §4.5「定期報告只呈現已結算題目的機率與成績」，會在人類 24 小時作答窗口結束前直接洩露模型答案（或讓人在單題結算時由 Brier 分數反推機率 p），違反 §3.2 與 §3.5 的雙盲保護｜blocking
-- [§4.5 / §3.3 / §4.2] 建議在 §4.5 第 2 點（作答狀況）增列「洩漏排除數（`leak_confirmed` / `secondary_exposure`）與待判讀 `suspected_leak` 數」，並在第 4 點（準確度）明定必須排除確認洩漏與二手暴露紀錄，且同時呈現「三模型共同有效題集（供同期間跨模型比較）」與「該選手個別有效題集（供同模型跨設定／跨期比較）」｜目前 §4.5 未說明定期報告的 Brier 與 BSS 是否套用 §3.3 的洩漏排除規則，也未規定跨模型同一張表是否使用共同題集；若某模型因額度不足或逾時而在高難度題目缺答，直接拿各自不同的有效題集並列比較 Brier/BSS，會產生選擇偏差並誤導推理強度調整決策｜blocking
-- [§4.5 / §5.5 / §7.5] 建議在 §4.5 明確區分「題目層級（question-level，依 §7.5 採用規則之最終狀態）」與「嘗試層級（attempt-level，含 `format_repair` 與 `rerun`）」的統計口徑：作答狀況以題目最終狀態統計（使 `應答題數 = 最終有效答案數 + 最終缺答數`），另設「期間曾觸發額度用完／重試次數（含補跑後成功者）」欄位；消耗的「期間總和」加總全部嘗試，而「每題 token 與耗時中位數」僅對解析成功的有效預測計算（排除因額度用完或錯誤瞬間中止的 0 token 失敗紀錄）｜若不拆分題目最終狀態與嘗試層級，09:00 因 `quota_exhausted` 失敗但 14:00 `rerun` 成功的題目，不是造成「有效數 + 缺答數 > 應答題數」，就是掩蓋了早上額度用完的預警訊號；且將失敗嘗試（0 token）混入中位數會嚴重低估單題實際消耗｜blocking
-- [§7.6 / §7.2 / §7.3] 建議在 §7.6 補強三項測試與隔離要求：(1) 讀寫檔測試須涵蓋「讀取專案目錄（含 `private/`）、家目錄與 `/tmp` 下其他目錄皆失敗」以及「在當前工作資料夾『內』與『外』寫檔／改檔皆失敗」；(2) 將各 CLI 的子代理與背景排程工具（如 `agy` 的 `invoke_subagent`、`define_subagent`、`schedule`）納入封鎖或驗收範圍；(3) 各選手平行執行的空白暫存資料夾改以隨機獨立目錄（權限 `0700`）建立，避免可預測的同層路徑 `/tmp/forecast-run/<run_id>/<player>/`｜許多 CLI 在當前工作資料夾與 `/tmp` 預設允許讀寫，且子代理（subagents）若未繼承限制或可另外掛載寫檔／MCP 權限，會成為繞過主代理限制的破口｜blocking
-- [§7.6 / §3.3] 建議在 §7.6 新增第 5 項驗收測試：「嘗試開啟 §3.3 禁用網域（如 `https://www.metaculus.com`），確認 (a) 支援網域封鎖之 CLI（如 `agy` 的 `read_url` deny 規則）能直接阻斷，且 (b) 三條線的原始輸出或工具事件（`data/raw/`）確實有記錄嘗試開啟的目標 URL，使 `audit.py` 能穩定檢出 `leak_confirmed`」，並同時驗收無互動執行全程不會彈出桌面瀏覽器視窗或 GUI 權限對話框｜若不在 M1 的 §7.6 實測驗證 CLI 輸出事件是否真的包含開啟的網址，§3.3 的「由 CLI 工具事件中實際開啟的網址判定 `leak_confirmed`」可能因欄位缺失而失效；且排程背景執行若彈出桌面瀏覽器會干擾使用者並導致程序卡死｜blocking
-- [§7.2 / §7.6] 建議將 §7.2 與 §7.6 中 `gemini`（`agy`）的全域設定檢查基準路徑擴充為：`~/.gemini/GEMINI.md`、`~/.gemini/AGENTS.md`、`~/.gemini/config/`（含全域 rules、skills、plugins、`hooks.json`、`mcp_config.json`）以及 `~/.gemini/antigravity-cli/settings.json`（由外部 Python 主程式於啟動前計算並比對雜湊值），並規定執行時不得傳入 `-c`/`--continue`/`--conversation`｜依據本機內建 `agy-customizations` 文件，`agy` 的本機全域客製化與 Lifecycle Hooks 位於 `~/.gemini/config/`（特別是 `hooks.json` 可在工具呼叫前後直接執行 shell 指令），全域 CLI 設定則位於 `~/.gemini/antigravity-cli/settings.json`，僅檢查 `~/.gemini/GEMINI.md` 不足以涵蓋全域注入來源｜blocking
-- [§7.3 / §7.6] 建議將 §7.3 與 §7.6「以實際提供給模型的工具清單驗收，只能剩下搜尋與讀網頁」的通過判準，修正為「以 (1) CLI 支援時從工具宣告清單移除非必要工具（如 `claude --tools`），或 (2) 由 CLI 權限引擎／沙盒層硬性拒絕（Hard block，如 `agy` 的 `permissions.deny`），且於 §7.6 第 1～3 項實測觸發時由 CLI 層直接回傳權限拒絕紀錄（而非僅靠模型自述不呼叫）作為通過標準」｜`agy` 並無類似 `claude --tools` 從 system prompt 移除內建工具宣告的旗標，而是透過權限引擎在呼叫時硬性攔截（回傳 `Permission denied`）；若字面要求模型的工具宣告清單只能有搜尋與讀網頁，`gemini` 線將因架構差異而無法通過 M1 驗收｜blocking
-
-#### 第 3 回合審查（2026-10-31）
-
-**一、第 2 回合意見整合確認（對照 §15 D21～D30 與 §16 v0.3 變更紀錄）及對未採納項目之表態**
-
-- [§15 D21, D23, D25, D27, D28, D29, D30 / §16] 確認第 2 回合獲採納之意見（公開時間閘門對所有題目固定適用且含提前結算、定期報告納入洩漏排除與共同題集並附個別有效題集作描述、題目層級排程帳冊與嘗試層級消耗分離、`agy` 移除 `--mode` 並以 `--settings` 設定 `"agentMode": ""` 及 6 類標準動作與 10 個禁用網域 `read_url(...)` 拒絕規則、檢查 `finished_reason` 與 `denied_actions`、`agy` 全域自動載入基準路徑擴充與版本／內容變更處理、子代理與排程工具封鎖驗收、不彈出桌面瀏覽器或 GUI 對話框、token 欄位對應表與 commit 規則）均已完整且正確整合至 v0.3 正文，無需再修改｜逐項核對 §3～§13、§15 與 §16 確認無遺漏｜non-blocking
-- [§4.5 / §15 D24 / §16] 同意未採納「僅以成功預測的中位數作為唯一消耗指標」，改為先將每題所有嘗試（含格式修復與補跑）合計為該題成本，再分「全體、成功、失敗」三組並列中位數與總和｜三組並列既保留了「成功」組視角（避免 0 token 失敗嘗試拉低成功單題中位數），同時也完整呈現失敗與重試消耗的額度成本，更能支持 D17 的推理強度調整決策，無異議｜non-blocking
-- [§3.3 / §7.6 / §15 D22 / §16] 同意未採納「將被 CLI 層擋下的禁用網址嘗試直接判為 `leak_confirmed`」，改將網址狀態細分為 `attempted`、`blocked`、`opened`、`unknown`，凡在 CLI 層被硬性拒絕（`blocked`）且無其他暴露證據者記為 `blocked_attempt` 並留在主要分析（於報告另列違規嘗試數），僅實際開啟（`opened`）或模型回報於 `sources` 者列 `leak_confirmed` 排除｜被 CLI 層硬性攔截代表模型並未讀到該頁面內容，區分 `blocked_attempt` 與 `leak_confirmed` 可避免假陽性與無謂流失樣本，無異議｜non-blocking
-- [§7.2 / §7.3 / §15 D26 / §16] 同意未採納「以隨機 `0700` 暫存資料夾作為三選手隔離證據」及「以一般唯讀沙盒替代工具移除」，改將每次嘗試新建隨機 `0700` 暫存資料夾定位為避免殘留狀態的衛生措施，並以「模型無法成功行使本機讀寫、執行指令或委派權限（靠工具移除或 CLI 層硬性拒絕達成，唯讀沙盒不算等價）」作為通過標準｜三條線以同一 macOS 使用者（同 UID）執行，目錄權限在 OS 層無法阻擋同 UID 程序互讀，且一般唯讀沙盒仍可讀檔與執行指令；v0.3 的定性與判準更嚴謹，無異議｜non-blocking
-
-**二、確認 §7.3 的 `agy` 規格與 §12 的 V8（`--settings` 與全域設定之合併／取代、`"agentMode": ""` 的效果，附本機輸出與官方文件來源）**
-
-- [§7.3 / §12 V8] 確認 §7.3 的 `agy` 規格完整可行，同意將 V8 保留於 §12 並在 M1 的 `acceptance.py` 實測驗證；建議在 M1 實作 `acceptance.py` 時，除了執行 §7.6 第 4 項的 `agy --help` 遞迴呼叫阻斷測試外，可一併利用 `agy` 內建不消耗額度的唯讀斜線指令輸出（`agy -p "/config" --output-format json --settings '...'` 與 `agy -p "/permissions" --output-format json --settings '...'`）直接檢視合併後的生效設定，若實測發現 Go 結構體合併時將空字串 `"agentMode": ""` 視為未指定而保留全域 `"auto"`，則於 `--settings` 改傳 `"agentMode": "default"`｜依據本機 `agy --help`、`agy changelog`（1.0.5、1.0.12、1.1.0、1.1.5、1.1.12、1.1.27、1.1.28、1.4.4）與官方文件（`https://antigravity.google/docs/cli/reference`、`https://antigravity.google/docs/permissions`）：(1) **合併與優先序（Merge vs. Override）**：`agy` 的設定採分層合併（CLI 旗標與 `--settings` 單次 session 覆寫 > 專案設定 `~/.gemini/config/projects/` > 共享設定 `~/.gemini/config/config.json` > 全域 CLI 設定 `~/.gemini/antigravity-cli/settings.json`）；權限清單（`permissions.allow`、`ask`、`deny`）跨層合併後，統一由權限引擎依嚴格的 **`Deny > Ask > Allow`** 優先序裁決，因此即便全域 `settings.json` 的 `allow` 含有 `command(agy)`，單次 session `--settings` 中的 `deny: ["command(*)"]` 依 `Deny > Allow` 仍具最高優先權並會硬性攔截（且於 1.1.27 起在 JSON 輸出的 `denied_actions` 回報被拒動作）；(2) **`"agentMode": ""` 的效果**：在 `settings.json` 中預設模式（`default` / `Agent` request-review 模式）對應空字串 `""` 或 `"default"`（1.1.0、1.4.4 changelog），用於覆寫全域 `settings.json` 的 `"auto"` 或 `"accept-edits"`，惟 `--settings` 在執行期反序列化合併時對空字串 `""` 與 `"default"` 的處理細節，以及合併後的最終權限表，直接於 M1 以 §7.6 實測與 `-p "/config"`／`-p "/permissions"` 驗證最為穩妥；(3) **搜尋與讀網頁工具名稱**：內建網路搜尋工具名稱為 `search_web`（預設允許，不需額外列於 `permissions.allow`），網頁讀取工具 `read_url_content` 則受權限規則 `read_url(...)` 管轄（1.1.28 起預設由 Allow 改為 Ask，故須在 `--settings` 列入 `"allow": ["read_url(*)"]` 並將 10 個禁用網域列入 `deny`）｜non-blocking
-
-<details>
-<summary>附錄：本機 <code>agy</code> 查證輸出摘要與官方文件來源（2026-10-31）</summary>
-
-1. **本機 `agy --help` 關於 `--settings` 與 `--mode` 之輸出**：
-   ```text
-   --mode      Set the agent execution mode for this session (accept-edits, auto, plan)
-   --settings  Settings for this session only, never saved: a JSON object of settings.json keys, inline or as a file path
-   ```
-2. **本機 `agy changelog` 關於設定合併、權限優先序、無互動斜線查詢與拒絕回報之紀錄**：
-   - `1.0.5`：`Integrated the permissioning system with the rest of Antigravity. CLI permissions now merges project level permissions, permissions from user settings shared with Antigravity, and permissions from the CLI settings.json.`
-   - `1.0.12`：`Improved permission config merging priorities by ensuring project-specific configurations (located in ~/.gemini/config/projects/) take precedence over global settings in ~/.gemini/antigravity-cli/settings.json.`
-   - `1.1.0`：`Added an Agent Mode option to the /settings panel so users can set and persist a default execution mode (default, accept-edits, plan) without manually editing settings.json or passing --mode on startup...`
-   - `1.1.3`：`Fixed headless (-p) runs hanging or silently auto-approving tools that require a permission confirmation, so the CLI now soft-denies such tools and prints a stderr notice naming the allow-rule needed to permit them.`
-   - `1.1.5`：`Fixed headless (-p / --print) runs so they now honor persisted settings.json policies, including permissions, file access, sandbox mode, auto-execution, and artifact review.`
-   - `1.1.12`：`Added non-interactive answers for more read-only slash commands in print mode, so -p "/permissions", /hooks, /help, /changelog and /config each emit one tab-separated record per line — or a structured payload under --output-format json and stream-json — without starting an agent turn, spending quota or leaving a conversation behind...`
-   - `1.1.27`：`Fixed headless runs with -p silently skipping tool actions they were not permitted to take, which now end with a notice naming the refused actions and report them as denied_actions in the JSON output.`
-   - `1.1.28`：`Changed the default permission for fetching URLs from always allowed to asking first, so the agent now requests approval before reading a URL unless you have granted access.`
-   - `1.4.11`：`Added a finished_reason field to the result of --output-format json and stream-json runs that says why a turn ended early...`
-3. **官方文件來源**：
-   - CLI 參考與設定層級覆寫：`https://antigravity.google/docs/cli/reference`、`https://antigravity.google/schemas/v1/settings.json`
-   - 權限引擎（`action(target)` 語法、跨層規則合併與 `Deny > Ask > Allow` 優先序）：`https://antigravity.google/docs/permissions`
-</details>
-
-**三、審查 §7.6 隔離驗收是否足以讓 M1 開始**
-
-- [§7.6 / §10 / §12 V7] 確認 §7.6 的隔離驗收規格（7 項負向測試、正向搜尋與開頁 canary 測試、工具清單與 CLI 層拒絕紀錄判準、不彈窗要求、模型 ID／token／工具事件欄位核對，以及未通過即停線的規定）已完整涵蓋本機讀寫、替代入口（`file://`、localhost、重新導向、符號連結）、指令執行（含 `agy` 遞迴呼叫）、子代理／排程／hooks 委派、禁用網域攔截與全域自動載入，足以作為進入 M1 的驗收標準；另提供一項 M1 實作備註：若 §7.6 第 5 項實測時發現 `agy` 內建的 `invoke_subagent`、`define_subagent`、`schedule` 不受 `permissions.deny` 管轄，可在 M1 改用最小自訂 agent（`--agent` 搭配 `excludeDefaultComponents: true`，見 changelog `1.2.1`）或 `PreToolUse` hook 將其硬性阻斷｜§7.3 與 §7.6 已明定子代理與排程工具須確認不可用、任一項無證據或未通過即停線，設計上已無漏洞，實作細節於 M1 驗收腳本落實即可｜non-blocking
-
-本回合沒有 blocking 意見。
-
-#### 第 4 回合審查（2026-10-31）
-
-**一、從提高比賽分數的角度，審查 §3.4 分層流程、§4.2 整合規則與 §6 Prompt 要點**
-
-- [§3.4] 建議在 §3.4 第 5 點「升級判斷」的是非題條件中，改為「先將各線機率截斷至 `[0.02, 0.98]` 再計算 log-odds 最大差距 ≥ 1.0，或同時要求絕對機率最大差距 ≥ 0.08（即 `log_odds_range >= 1.0 and prob_range >= 0.08`）」；多選題升級條件則建議補充「與 `match = exact` 市場價格之單一選項最大機率差 ≥ 0.15（或總變差距離 Total Variation Distance $\frac{1}{2}\sum |p_i - q_i| \ge 0.25$）」｜目前是非題直接對原始機率（範圍 `0.001`～`0.999`）計算 log-odds 差，當三條線都高度共識認為事件極不可能發生（例如分別給出 `0.005` 與 `0.015`）時，log-odds 差距達 `1.11 >= 1.0` 會觸發昂貴的第 2 層深度研究，但依 §4.2 整合規則，兩者在 `[0.02, 0.98]` 截斷後都會變成 `0.02`，升級完全不會改變送出結果卻白白消耗第 2 層額度；加上截斷後計算或絕對機率差距下限，可將有限的第 2 層額度集中於真正影響比賽分數的中間分歧題｜non-blocking
-- [§3.4 / §4.2 / §4.3] 建議在 §4.2 與 §4.3 的候選整合規則（`agg_v2`）中，將「第 1 層獨立整合與第 2 層協調整合的加權混合（例如在升級題目對第 1 層與第 2 層整合之 log-odds 取 $w \cdot \text{Tier1} + (1-w) \cdot \text{Tier2}$）」以及「當兩條線以上回報同一個高流動性且 `match = exact` 的預測市場時，將市場價格作為第 4 個錨點納入 log-odds 池」列為預定比較的候選規則｜群體預測文獻（Delphi 法與 LLM 多代理辯論研究）顯示，讓模型在第 2 層看到彼此理由雖能糾正事實遺漏，但也容易引發從眾錨定（herding）而折損獨立誤差抵銷紅利，保留部分第 1 層獨立權重常優於 100% 採用第 2 層；同時，實證預測研究一致顯示高交易量且結算條件完全一致（`exact`）的真錢市場價格蘊含即時套利資訊，在模型無確鑿反證時將其納入整合池可顯著提升對數分數｜non-blocking
-- [§4.2] 建議將多選題的下限平滑規則改為與選項數 $K$ 成比例的線性混合平滑：$p'_i = (1 - \epsilon) p_i + \frac{\epsilon}{K}$（例如取 $\epsilon = 0.02$，或下限設為 $\min(0.01, \frac{0.05}{K})$），取代「先把每個選項提高到至少 0.01，然後再正規化一次」｜目前「先 `max(p_i, 0.01)` 再除以總和」有兩個問題：(1) 第二次正規化會使分母大於 1，導致原本被拉到 `0.01` 的選項在正規化後又掉回 `< 0.01`；(2) 當多選題選項數較多（例如 $K = 8 \sim 12$）時，固定 `0.01` 下限會抽走近 10% 的機率質量，過度稀釋高把握選項的對數得分；改用 $(1-\epsilon)p_i + \epsilon/K$ 在數學上一次完成正規化，且對不同選項數 $K$ 具備尺度不變性｜non-blocking
-- [§6.1 / §6.2] 建議在 §6.1（`forecast_v2`）與 §6.2（`reconcile_v1`）補強三項提高對數分數的明確指示：(1) **剩餘時間窗口換算（Time-to-deadline hazard scaling）**：於 §6.1 步驟 1～2 要求模型明確算出「今日（UTC）距離題目關閉／結算日的剩餘天數」，並將歷史基準率按剩餘天數與截至目前已未發生的條件（survival conditioning）換算，避免直接套用年度基準率而高估短期內發生的機率；(2) **事前驗屍（Pre-mortem）**：於 §6.1 步驟 5～6 要求模型回答「若本預測最終大錯特錯，最可能忽略的結算條件細節（fine print trap）或單一催化事件為何」，以抑制單一敘事下的尾部過度自信；(3) **第 2 層無新證據不移動原則（No movement without new evidence）**：於 §6.2 明確指示「除非查核到第 1 層未涵蓋的具體新事實、連結證據，或指出某份摘要在結算條件／算術上的具體錯誤，否則不得單純因其他預測者機率不同而向平均折衷靠攏」｜在 Metaculus 對數計分（spot peer score）下，最常見的失分來源正是「忽略剩餘天數已短而給出過高基準率」、「漏看 fine print 邊界條件導致極端錯誤」以及「第 2 層盲目向同儕平均妥協」，這三條 prompt 約束不增加額外工具呼叫成本，卻能直接改善校準與區辨力｜non-blocking
-
-**二、確認 §5.3、§7.3 與 §7.7 中 `agy` 的第 2 層子代理設定、`useG1Credits` 與 `/usage` 額度驗證之可行性（附本機 help、changelog、本機查詢樣本與官方文件來源）**
-
-- [§5.3 / §7.3 / §7.6 / §12 V13、V18] 確認 `agy` 的第 2 層設定與最小自訂 agent 子代理架構可行，並對 V13、V18 提供具體設定建議：(1) **V18（模型 ID 與 `--effort high`）**：本機 `agy models` 同時列出 `gemini-4-argon-medium`、`gemini-4-argon-high` 與 `gemini-4-argon-low`，雖 changelog `1.1.5`、`1.1.28`、`1.3.4` 支援以 `--effort` 切換同家族變體，仍建議在 `config/run_config_v2.json` 將 `gemini` 第 2 層的模型 ID 直接設為 `gemini-4-argon-high`（搭配 `--effort high`），免除依賴 CLI 內部別名解析的隱式轉換；(2) **V13（第 2 層子代理限制與模型控制）**：依據 changelog `1.1.5`、`1.1.6`、`1.1.14`、`1.1.27`、`1.2.1`、`1.2.5`、`1.2.7`、`1.3.1`，可在第 2 層透過 `--agent` 指定 Markdown 自訂主代理，於 YAML frontmatter 設定 `excludeDefaultComponents: true`、`inheritCustomizations: false`、`inheritMcp: false`、`tools: [search_web, read_url_content, invoke_subagent]`，並以 `agents: [./tier2_researcher.md]` 明確宣告唯一可呼叫的受限子代理（該子代理同樣設定 `excludeDefaultComponents: true`、`subagent: true`、`model: inherit`、`tools: [search_web, read_url_content]`），即可在架構上同時確保「不開放 `define_subagent`／`schedule`／本機讀寫工具」、「子代理強制繼承父代理的 Argon 模型（`model: inherit`）而非改用 Flash／Pro」以及「子代理同樣受 session 的 `permissions.deny`（含 `read_url(metaculus.com)`）約束」；(3) **子代理數量與可觀測性**：`agy` 無限制單次呼叫子代理數量的 CLI 旗標，須依 §5.3 由 prompt 限制最多 3 個並以 `--print-timeout 20m` 與事後額度上限管控；adapter 若需精確統計 `subagent_count` 與工具事件，可在解析時搭配 `--log-file <raw_dir>/agy_cli.log`（或於驗收確認 `--output-format json`／`stream-json` 的 `subagent_info` 欄位，見 changelog `1.1.8`）｜基於本機 `agy --help`、`agy models` 與 `1.4.12` changelog 實證核對；將子代理也設為自訂 `model: inherit` 還能大幅簡化 §7.7 的額度桶檢查（無需擔心子代理合法消耗 Flash／Pro 桶而干擾 `model_mismatch` 判定）｜non-blocking
-- [§7.3 / §7.7 / §12 V17] 確認 `useG1Credits` 與 `/usage` 額度驗證完全可行，並補充兩項關鍵實作細節：(1) **AI Credits 超額防護（`useG1Credits` 與 `/credits`）**：本機 2026-10-31 的 `agy -p "/credits" --output-format json` 實測樣本顯示，目前帳號的 `command.data.remaining_credits` 為 `0`；且依 changelog `1.2.15`，當方案額度用完而 AI credits 餘額不足時，CLI 會立即停止並回報 `"Your AI credits balance is too low to continue."`（不重試）。此外，由於 changelog 在 `1.0.3` 稱 `UseG1Credits`、在 `1.0.8` 稱 `use_ai_credits`，而 `1.0.7` 明載 `settings.json` 合併時會保留未識別欄位，建議在 `--settings` 同時傳入 `"useG1Credits": false, "use_ai_credits": false` 雙鍵，並於 M1 以 `agy -p "/config" --output-format json` 核對；(2) **`/usage` 額度桶欄位解析（必讀浮點數 `remaining_fraction`）**：本機 2026-10-31 的 `agy -p "/usage" --output-format json` 實測樣本確認該查詢不消耗額度（`duration_seconds: 0`、`total_tokens: 0`），且 `command.data.groups` 內明確包含 §7.7 指定的三個桶 ID：`gemini-argon-wtu-weekly`、`gemini-weekly` 與 `gemini-5h`；**惟 `quota.py` 實作時必須讀取 JSON 中雙精度浮點數欄位 `buckets[].remaining_fraction`（例如樣本中 Argon 為 `0.8763402700424194`、`gemini-weekly` 為 `0.9995706677436829`），不可解析頂層 `response` 字串中的整數百分比（`88%`、`100%`）**，否則單題消耗小於 `1%` 時整數百分比不會跳動，會誤觸 §7.7「Argon 桶沒有減少」之判斷；另建議 `gemini` adapter 傳入 `--log-file <raw_dir>/agy_cli.log`，利用 changelog `1.1.28`「CLI log 記錄模型名稱解析與替換」作為 `model_mismatch` 的直接證據｜本機 `review_inputs/agy_slash_usage.json` 與 `review_inputs/agy_slash_credits.json` 直接證實了 JSON 結構與精確度差異：例如 `gemini-weekly` 實際已消耗 `0.000429`（約 0.043%），在 `response` 文字顯示為 `100%`，唯有讀取 `remaining_fraction` 浮點數才能偵測單題微幅消耗｜non-blocking
-
-<details>
-<summary>附錄：本機 <code>agy</code>（1.4.12）唯讀輸出、<code>/usage</code> 與 <code>/credits</code> 樣本及官方文件來源（2026-10-31）</summary>
-
-1. **本機 CLI 版本與 `agy --help`、`agy models` 查證**：
-   - `review_inputs/agy_changelog.txt` 首行為 `1.4.12:`（本機已自動由 `1.4.11` 升至 `1.4.12`，印證 §5.3 與 §7.2 每次執行前檢查版本之必要性）。
-   - `agy --help` 支援 `--agent`、`--effort (low|medium|high|xhigh|max)`、`--json-schema`、`--log-file`、`--model`、`--output-format (text, json, stream-json)`、`-p`/`--print`、`--print-timeout`、`--sandbox`、`--settings`。
-   - `agy models` 列出之 Gemini 模型：`gemini-4-argon-medium`、`gemini-4-argon-high`、`gemini-4-argon-low`、`gemini-3.8-flash-high`、`gemini-3.8-flash-medium`、`gemini-3.8-flash-low`（另含 `claude-opus-5-5-*`、`claude-sonnet-5-5-*`、`gpt-oss-120b-medium`）。
-2. **本機 `agy -p "/usage" --output-format json` 實測樣本（`review_inputs/agy_slash_usage.json`）關鍵結構**：
-   ```json
-   {
-     "status": "SUCCESS",
-     "duration_seconds": 0,
-     "num_turns": 0,
-     "usage": {"input_tokens": 0, "output_tokens": 0, "thinking_tokens": 0, "cache_read_tokens": 0, "total_tokens": 0},
-     "command": {
-       "name": "usage",
-       "data": {
-         "groups": [
-           {
-             "name": "Gemini Models",
-             "buckets": [
-               {"id": "gemini-weekly", "window": "weekly", "remaining_fraction": 0.9995706677436829, "reset_time": "2026-11-06T14:08:50Z"},
-               {"id": "gemini-5h", "window": "5h", "remaining_fraction": 1, "reset_time": "2026-10-31T09:47:34Z"}
-             ]
-           },
-           {
-             "name": "Claude and GPT models",
-             "buckets": [
-               {"id": "3p-weekly", "window": "weekly", "remaining_fraction": 1, "reset_time": "2026-11-07T04:47:34Z"},
-               {"id": "3p-5h", "window": "5h", "remaining_fraction": 1, "reset_time": "2026-10-31T09:47:34Z"}
-             ]
-           },
-           {
-             "name": "Gemini 4 Argon",
-             "buckets": [
-               {"id": "gemini-argon-wtu-weekly", "window": "weekly", "remaining_fraction": 0.8763402700424194, "reset_time": "2026-11-06T12:03:52Z"}
-             ]
-           }
-         ]
-       }
-     }
-   }
-   ```
-3. **本機 `agy -p "/credits" --output-format json` 實測樣本（`review_inputs/agy_slash_credits.json`）**：
-   ```json
-   {
-     "status": "SUCCESS",
-     "duration_seconds": 0,
-     "num_turns": 0,
-     "command": {"name": "credits", "data": {"remaining_credits": 0, "upgrade_uri": "https://antigravity.google/g1-upgrade"}}
-   }
-   ```
-4. **本機 `agy changelog`（`review_inputs/agy_changelog.txt`）對應條目**：
-   - **額度查詢與 AI Credits**：`1.0.1`（`/usage` 與 `/quota` 強制即時重載配額）、`1.0.3`（新增 G1 credits 與 `UseG1Credits` 設定及 `/credits`）、`1.0.8`（啟動時繼承全域 `use_ai_credits` 設定）、`1.1.11`（`-p "/usage"`、`/quota`、`/credits`、`/model`、`/effort`、`/skills` 支援 `--output-format json` 無互動查詢且不耗額度）、`1.2.15`（方案額度用完且 AI credits 不足時立即回報 `"Your AI credits balance is too low to continue."`；`-p "/usage"` 在 `--json` 下維持 UTC 時間戳）、`1.3.3`（達到個人配額上限時立即回報不重試）。
-   - **模型與推理強度解析**：`1.1.5`（新增 `--effort` 與自訂 agent frontmatter `model` 選項，預設 `inherit`）、`1.1.10`（修正 `-p` 模式下 `--model` 與 `--effort` 套用順序）、`1.1.28`（CLI log 記錄指定模型解析為其他模型、別名或 `--effort` 變體之紀錄）、`1.3.4`（`--model` 接受基礎模型名稱搭配 `--effort`）。
-   - **自訂 Agent 與子代理控制**：`1.1.1`（新增 `--agent`）、`1.1.6`（Markdown 自訂 agent 支援 `mainAgent`、`subagent`、`hidden`、`inheritMcp`、`commandExecutionPolicy`）、`1.1.8`（結構化輸出含 `tool_info` 與 `subagent_info`）、`1.1.14`（新增單一開關 `inheritCustomizations` 控制是否繼承 skills、rules、plugins、subagents 與 MCP）、`1.1.27`與`1.3.1`（frontmatter `agents` 清單支援相對路徑宣告可呼叫之子代理）、`1.2.1`（新增 `excludeDefaultComponents: true` 排除預設提示詞與內建工具）、`1.2.5`與`1.2.7`（在 `tools` 明確列出 `invoke_subagent` 與所需工具）、`1.3.4`（`-p` 模式下 `--agent` 找不到指定名稱時以 exit code 1 退出，不再退回預設 agent）。
-5. **官方文件與內建技能參考**：
-   - CLI 參考與設定：`https://antigravity.google/docs/cli/reference`、`https://antigravity.google/schemas/v1/settings.json`
-   - 權限與沙盒：`https://antigravity.google/docs/permissions`、`https://antigravity.google/docs/sandbox`
-   - 內建客製化規範（Custom Agents frontmatter 與工具繼承）：本機內建技能 `agy-customizations`、`antigravity-guide`
-</details>
-
-**三、檢查 §3.6 送出規則、§3.7 規則核對與 §11 風險清單是否遺漏失去比賽資格或送出錯誤的風險**
-
-- [§3.6 / §5.6 / §11] 建議在 §3.6 與 §11 補上「預測送出與推理留言的原子性／退避重試與不一致告警」及「第 2 層變動極小時免重複送出門檻」：(1) Metaculus API 的「送出預測」與「張貼留言」為兩次獨立 API 呼叫，若第 2 層更新預測成功、但隨後張貼留言因網路瞬斷或 HTTP 429 失敗，平台上會出現「最新預測為第 2 層機率，但最新留言仍為第 1 層機率與理由」的不一致，可能違反比賽「留言須如實反映最終預測」之規定；`submit.py` 對留言應有獨立的指數退避重試，若最終仍失敗須在 `submissions.jsonl` 標記 `comment_failed` 並立即通知 Louis；(2) 若第 2 層最終整合機率與已送出的第 1 層保底機率完全相同（或絕對差距 `< 0.002`），可明定不重複送出相同機率或僅在變動超過門檻時更新，避免在平台留下無實質差異的重複預測與雙份留言｜降低 API 部分失敗導致違規的風險，並減少無謂的 API 請求｜non-blocking
-- [§3.2 / §3.6 / §11] 建議在 §3.2 與 §11 補充「題目中途修訂（Question revision / Fine print update）或關閉時間提前之偵測」：目前 §3.2 規定 `poll_questions.py`「只處理尚未預測過的題目」，但 Metaculus 在開題初期偶有管理員修正結算條件（fine print）、選項文字或提前關閉時間的情況；建議 `poll_questions.py` 對開放中且已預測過的題目一併比對白名單欄位的 `content_hash` 與 `close_time`，若結算條件或標題發生實質變更，應寫入新快照並通知 Louis（或依預定規則重新執行 1 次預測更新）｜避免題目結算條件在 t0 後被平台修訂，機器人卻因「只處理未預測題目」而抱著針對舊條件的預測與留言直到結算失分｜non-blocking
-- [§3.6 / §4.2 / §5.4] 建議在 §3.6 與 §4.2 明確規定：`submit.py` 送出多選題前，須對正規化後的各選項機率做「精確十進位總和修正（Exact decimal sum-to-one rounding，例如將前 $K-1$ 個選項四捨五入至小數點後 6 位，最大或最後一個選項設為 $1 - \sum_{j \neq m} p_j$，並再次確認所有選項皆落在平台允許區間內）」｜IEEE 754 雙精度浮點數除法在 JSON 序列化或平台端驗證時，常因尾數捨入產生總和 `0.9999999` 或 `1.000001` 而遭 Metaculus API 以 `400 Bad Request` 拒絕送出｜non-blocking
-- [§3.7 / §5.6 / §11] 建議在 §3.7「比賽規則核對」與 §11「風險清單」補充兩項資格保護檢查：(1) **單一機器人身分註記與測試隔離**：核對正式機器人帳號已在 Metaculus 個人設定完成官方 Bot 標記與賽季報名表單，且嚴格確保測試帳號、Louis 本人帳號與女友帳號不會對同一場機器人賽送出任何預測（防範被誤判為多重帳號刷榜 Sybil participation 而取消領獎資格）；(2) **公開留言的惡意連結與語法清洗**：在 §5.6 明定 `comment.py` 組裝留言時，除了純文字與 1,500 字元限制外，應剝除或轉義 Markdown 圖片語法（`![...](...)`）、HTML 標籤及非 `http/https` 網址，防止外部網頁透過 `sources[].title` 或 `market_title` 夾帶追蹤像素、釣魚連結或垃圾訊息文字，導致機器人帳號在 Metaculus 留言區被檢舉停權｜這兩項皆涉及平台層級的帳號信譽與參賽資格，在 M3 規則核對與 `comment.py` 實作時一併落實成本極低、保護效果高｜non-blocking
-
-本回合沒有 blocking 意見。
-
-#### 第 5 回合審查（2026-10-31）
-
-**一、第 4 回合意見整合確認（對照 §15 D44～D52 與 §16 v0.5 變更紀錄）及對分歧裁決之表態**
-
-- [§15 D44～D52 / §16 v0.5] 確認第 4 回合獲採納之意見（是非題升級分歧先截斷至 `[0.02, 0.98]` 再算 log-odds 差、多選題升級檢查完整且同義之市場分布、多選題平滑改用 $p'_i = (1-\epsilon)p_i + \epsilon/K$ 且 $\epsilon = 0.02$、送出前精確十進位總和修正、事前驗屍 prompt 指示、送出狀態機與留言指數退避重試、題目修訂與關閉時間比對、單一主機器人帳號與試驗場地隔離、留言清洗剝除圖片／HTML／非 `http(s)` 連結、`gemini` 第 2 層採用 `gemini-4-argon-high` 與最小自訂 agent、`--log-file` 輔助驗證、AI credits 雙鍵候選，以及讀取 `/usage` 浮點數 `buckets[].remaining_fraction`）均已完整且正確整合至 v0.5 正文，無遺漏｜逐項核對 §2～§12、§15 與 §16 v0.5 確認一致｜non-blocking
-- [§3.4 / §5.4 / §15 D52 / §16 v0.5] 同意分歧裁決一（極端機率的升級）：以截斷到 `[0.02, 0.98]` 後的機率計算 log-odds 分歧，不另加 `prob_range >= 0.08` 條件，並保留 `escalation_flags`（`resolution_ambiguity`、`evidence_conflict`）的升級路徑｜先截斷至 `[0.02, 0.98]` 已解決「各線均 `< 0.02` 卻因原始 log-odds 差觸發無效升級」的問題，而在 `[0.02, 0.98]` 內 `log-odds >= 1.0` 本身即具實質機率差距；同時保留 `escalation_flags` 可讓模型在發現尾部結算陷阱或關鍵證據衝突時仍能申請第 2 層深研，兼顧額度效率與尾部風險防護，無異議｜non-blocking
-- [§6.1 / §6.2 / §15 D52 / §16 v0.5] 同意分歧裁決二與三（剩餘時間換算與第 2 層改答案條件）：(1) 基準率時間換算明定依「結算條件規定的事件發生期間」，分開標示預測關閉時間、事件發生期間與預計結算時間，且已發生但尚未正式確認的事件不按存活條件換算；(2) 第 2 層允許模型因重新比較既有證據可信度、或發現第 1 層摘要在結算條件／計算上的錯誤而修改答案（須於 `change_reason` 說明具體理由），同時明文禁止單純因數字不同或為求一致而向平均靠攏｜這兩項修正比原提議更嚴密：區分事件窗口與行政結算日可避免錯用時間尺度，而允許修正第 1 層推理／算術錯誤同時禁止盲目折衷，既能攔截從眾效應（herding）又不阻礙有效糾錯，無異議｜non-blocking
-- [§3.4 / §3.6 / §4.2 / §7.3 / §7.7 / §15 D44、D47、D52 / §16 v0.5] 同意分歧裁決四至六：(1) 第 1／2 層加權混合與 `exact` 市場作為額外一票列為 `agg_v2` 預先登記候選，待累積已結算留出樣本後比較；(2) 因 D44 已改為「白名單比賽每題只送一次」，原「第 2 層變動 `< 0.002` 不重送」自然無須保留；(3) `agy` 的最小自訂 agent、AI credits 雙鍵與 `/usage` 額度驗證採納寫入規格，並標示為待 M1（§7.6 與 `/config`）實測驗收｜符合實驗統計紀律與 §7.6「未經本機實測不視為已確認可行」的共同原則，無異議｜non-blocking
-
-**二、確認 §7.3 中 `agy` 第 2 層的最小自訂 agent 規格與 §7.7 的額度判斷是否與本機 help、changelog 一致（附來源）**
-
-- [§7.3 / §7.6 / §12 V7、V13] 確認 §7.3 中 `agy` 第 2 層最小自訂 agent 規格與 §7.6 第 5 項的子代理驗收要求（含 D47 補齊之子代理再次委派阻斷、父／子排程與 hooks 拒絕、各 agent 類型工具與自動載入盤點、正向測試，以及逾時／中斷後無殘留背景子工作）與本機 `agy --help` 及 `1.4.12` changelog 完全一致，同意於 M1 實測驗證｜核對本機唯讀輸出與 `review_inputs/agy_changelog.txt`：(1) `agy --help` 確認支援 `--agent`（`Agent for the current CLI session`）；(2) changelog `1.1.6` 支援 Markdown 自訂 agent（YAML frontmatter 含 `mainAgent`、`subagent`、`hidden`、`inheritMcp`、`commandExecutionPolicy`）；(3) `1.1.14` 新增單一開關 `inheritCustomizations` 控制是否繼承 skills、rules、plugins、subagents 與 MCP；(4) `1.2.1` 新增 `excludeDefaultComponents: true` 以排除預設提示詞與內建工具；(5) `1.1.27` 與 `1.3.1` 支援於 frontmatter `agents` 清單以相對路徑宣告唯一可呼叫之子代理；(6) `1.2.5` 與 `1.2.7` 確認主代理 `tools` 列入 `invoke_subagent`、`search_web`、`read_url_content` 即可委派所宣告之子代理，而子代理 `tools` 僅列 `search_web`、`read_url_content`（不列 `invoke_subagent`、`define_subagent`、`schedule`）則從工具宣告層阻斷再次委派與排程；(7) `1.1.5` 確認子代理 frontmatter 的 `model` 欄位支援 `inherit`（預設值）以沿用父代理模型；(8) `1.3.4` 確認 `-p` 模式下 `--agent` 名稱不符時以 exit code 1 退出，不會退回預設 agent｜non-blocking
-- [§7.7 / §5.3 / §12 V17、V18] 確認 §7.7 的 `agy` 額度查詢、浮點數 `remaining_fraction` 解析、`model_mismatch`／`unverified`／`undetermined` 判定邏輯、`--log-file` 輔助證據與 AI credits 雙鍵關閉設定，與本機 `agy --help`、`agy models`、`1.4.12` changelog 及 `review_inputs/` 實測樣本完全一致｜核對本機唯讀輸出與 `review_inputs/` 樣本：(1) 本機 `agy models` 確認同時提供 `gemini-4-argon-medium` 與 `gemini-4-argon-high`；(2) changelog `1.1.11` 與 `1.2.15` 確認 `agy -p "/usage" --output-format json` 為不消耗額度的無互動唯讀查詢且維持 UTC 時間戳；(3) `review_inputs/agy_slash_usage.json` 確認 `command.data.groups[].buckets[]` 含 `gemini-argon-wtu-weekly`、`gemini-weekly`、`gemini-5h` 三個桶 ID 及雙精度浮點數 `remaining_fraction`（樣本中 `gemini-weekly` 的 `remaining_fraction` 為 `0.9995706677436829`，而 `response` 文字顯示 `100%`，證實必讀浮點數欄位）；(4) changelog `1.0.3`（`UseG1Credits`）、`1.0.8`（`use_ai_credits`）、`1.2.15`（配額用完且 credits 不足時立即回報 `"Your AI credits balance is too low to continue."`）與 `1.3.3`（達到個人配額上限立即回報不重試）支持 §7.3／§7.7 的超額防護設計；(5) `agy --help` 的 `--log-file` 與 changelog `1.1.28`（CLI log 記錄指定模型解析為其他模型、別名或 `--effort` 變體）支持將 `agy_cli.log` 作為模型替換的輔助證據，且 §7.7 將額度未變、多桶同變或與個人使用重疊時記為 `unverified`／`undetermined`，邏輯嚴密｜non-blocking
-
-<details>
-<summary>附錄：第 5 回合本機 <code>agy</code> 唯讀查證與 <code>review_inputs/</code> 來源對照（2026-10-31）</summary>
-
-1. **本機 `agy --help` 與 `agy models` 查證**：
-   - 支援旗標：`--agent`、`--disable-slash-commands`、`--effort (low|medium|high|xhigh|max)`、`--json-schema`、`--log-file`、`--model`、`--output-format (text, json, stream-json)`、`-p`/`--print`、`--print-timeout`、`--sandbox`、`--settings`。
-   - 可用 Gemini 模型：`gemini-4-argon-medium`、`gemini-4-argon-high`、`gemini-4-argon-low`、`gemini-3.8-flash-high`、`gemini-3.8-flash-medium`、`gemini-3.8-flash-low`。
-2. **`review_inputs/agy_slash_usage.json` 與 `review_inputs/agy_slash_credits.json` 欄位核對**：
-   - `/usage`：`status: "SUCCESS"`、`duration_seconds: 0`、`usage.total_tokens: 0`；`command.data.groups` 內含 `gemini-argon-wtu-weekly`（`remaining_fraction: 0.8763402700424194`）、`gemini-weekly`（`remaining_fraction: 0.9995706677436829`）、`gemini-5h`（`remaining_fraction: 1`）。
-   - `/credits`：`command.data.remaining_credits: 0`。
-3. **`review_inputs/agy_changelog.txt`（首行 `1.4.12:`）對應版本條目**：
-   - §7.3 最小自訂 agent：`1.1.1`（`--agent`）、`1.1.5`（frontmatter `model` 預設 `inherit`）、`1.1.6`（Markdown agent frontmatter `mainAgent`、`subagent`、`inheritMcp`）、`1.1.8`（`tool_info`、`subagent_info`）、`1.1.14`（`inheritCustomizations`）、`1.1.27` 與 `1.3.1`（frontmatter `agents` 相對路徑子代理清單）、`1.2.1`（`excludeDefaultComponents: true`）、`1.2.5` 與 `1.2.7`（`tools` 明列 `invoke_subagent` 與工具清單）、`1.3.4`（`-p` 下 `--agent` 找不到時以 exit code 1 退出）。
-   - §7.7 額度與模型驗證：`1.0.1`、`1.0.3`（`UseG1Credits`）、`1.0.8`（`use_ai_credits`）、`1.1.11`（`-p "/usage"`、`/credits`、`--output-format json` 不耗額度）、`1.1.28`（CLI log 記錄模型名稱解析與替換）、`1.2.15`（credits 餘額不足立即停止回報、`/usage` JSON 維持 UTC 時間）、`1.3.3`（個人配額用完立即回報不重試）。
-</details>
-
-**三、對照 `docs/tournament_checks/futureeval.md` 規則摘要，檢查 §3.4～§3.6 送出流程與試驗期設計是否仍有違規路徑**
-
-- [§3.1 / §3.2 / §3.4 / §3.6 / §10] 經逐條核對 `docs/tournament_checks/futureeval.md`，確認 §3.4～§3.6 的送出流程與試驗期設計已完整封堵所有違反比賽規則的路徑（無 blocking 問題）：(1) **每題只送一次**：§3.4 第 4、9 點與 §3.6 已明定第 1 層結果先存本地，白名單比賽每題只送出一次預測與一則留言，逾時先讀回對帳、留言失敗只補送留言、題目送出後再修訂亦不重送；(2) **不得預覽開放／即將開放題目後修改機器人，且不得因不喜歡答案而重跑**：§3.1、§3.2、§3.6 與 §10 已明定 `local`（M1、M2）與 `trial`（M3）期間只在試驗場地（`bot-testing-area`、Metaculus Cup 與主站題目）作答，主賽與 MiniBench 題目在試驗期只抓時間與題型中繼資料以模擬覆蓋率、絕不交給模型作答；`live` 正式參賽後，定期報告與任何介面只呈現已關閉題目的答案（§4.5），人工判讀僅作事後追加紀錄、不在送出前人工放行（§3.3），且機器人調整只依據已關閉題目或試驗場地；(3) **留言與帳號合規**：預測以 `question_id` 送出、留言以 `post_id` 送出並設 `is_private=true` 與 `included_forecast=true`（§3.6），內容由 `comment.py` 依實際採用的結構化輸出組裝（§5.6），且全專案只建立並使用唯一一個主機器人帳號（§2）。另提供兩項實作層級的雙重保險建議（non-blocking）：(a) `docs/tournament_checks/futureeval.md` 註明主賽「部分題目會同步到主站，以便與社群預測比較」，建議 `poll_questions.py` 在選取「主站題目」作為試驗場地或開發測試題時，自動排除與當季主賽／MiniBench 開放中題目共用相同 `question_id`、`post_id` 或相同標題的同步題，避免在主站試驗時無意間預覽到同步開放的主賽題目；(b) 建議 `submit.py` 在 `live` 模式的送出前檢查（§3.6 送出契約）中，除核對本地 `data/submissions.jsonl` 無已送出紀錄外，一併檢查平台回傳的題目資料中本機器人帳號是否已有既有預測（欄位細節併入 V15 確認），若平台端已存在預測則拒絕送出，從平台與本地雙向確保「每題只送一次」｜現行 §3.4～§3.6 設計已完全符合 `futureeval.md` 規則摘要；補充主站同步題去重與平台端既有預測檢查，可在實作時進一步消除邊界競態｜non-blocking
-
-本回合沒有 blocking 意見。
-
-### 14.2 GPT
-
-#### 第 1 回合審查（2026-10-30）
-
-本輪已閱讀全部四份專案 Markdown 與 Gemini 第 1 回合意見。以下為待 Louis 決定的建議，尚未修改正文或核准進入 M1。Codex 核對範圍：本機 `codex-cli 0.166.0` 的 `--help`、`exec --help`、`features list`，以及下列官方文件；未啟動任何模型預測，也尚未完成權限隔離實測。
-
-**一、針對 §12 待決事項（Q1–Q8）之表態**
-
-- [§12 Q1 / §3.1] 建議試行先維持 N = 45 天，記錄每天各篩選步驟剩餘題數；不足 K 就少抽，經 Louis 決定後再升版放寬到 60 天｜不同意現在直接採用 Gemini 的自動放寬至 60～90 天：題池是否不足尚無量測，動態時間窗也會改變樣本難度；若採分級抽樣，需預先固定規則並記錄每題所屬時間窗｜non-blocking
-- [§12 Q2 / §9] 同意 K = 5 作為上限，M1/M2 先採 K = 3，依實測耗時、缺答率與訂閱額度決定是否增加｜同意 Gemini 的漸進試行，但目前不能保證每日五題符合任一家帳號額度，也不能假設人類查證只需 10～15 分鐘｜non-blocking
-- [§12 Q3 / §3.3] 同意禁止主動搜尋或使用新聞轉述的市場機率，新增 `secondary_odds_seen`、暴露來源與時間；建議主要「獨立估計」分析排除已知直接或二手機率暴露，另報包含全部紀錄的敏感度分析及各類排除比例｜不同意 Gemini 將已知二手暴露直接留在主要盲估分析：看到數字後無法驗證模型是否真正忽略；排除亦可能產生選擇偏差，因此兩組結果都要揭露，不能宣稱完全雙盲｜blocking
-- [§12 Q4 / §3.1 / §7.5] 同意每題每模型一次；純格式修復與重新搜尋作答需分開記錄，禁止選擇多次結果中看起來較合理的一次｜同意 Gemini 把額度優先用於更多題目；若重試可重新估值，實際上已不是單次預測，需預先固定採用規則｜non-blocking
-- [§12 Q5 / §4.1 / §5.4 / §6] 同意移除 3%／97% 數字錨點，改成要求機率忠於證據並考慮尾部風險；另建議保存原始 p ∈ [0,1] 供 Brier 評分，僅計算 log loss 時裁切至 [0.01,0.99]｜原文是軟性提醒而非 Gemini 所稱的硬門檻，但仍可能錨定；若輸出本身限制於 [0.01,0.99]，Brier 也會量到這項人為限制，應與僅防止 log(0) 的處理區分｜non-blocking
-- [§12 Q6 / §5.3 / §7.3] 由 Gemini 負責 agy 規格；建議整合前附上本機 help 摘要、固定版本與工具拒絕測試，尤其驗證允許清單以外是否確實不能執行指令、讀檔或寫檔｜本輪未獨立驗證 §14.1 的 agy 參數與模型名稱，不把其他模型的陳述視為測試證據；完成同一組隔離驗收是三條線共同的進場條件｜blocking
-- [§12 Q7 / §5.3 / §7.3] 確認本機支援 `--output-schema <FILE>`；即時搜尋使用 `-c 'web_search="live"'`，官方也列出頂層 `--search`；權限規格需依下方第二部分補強｜本機 help 與官方 [CLI 參考](https://learn.chatgpt.com/docs/developer-commands?surface=cli)、[設定參考](https://learn.chatgpt.com/docs/config-file/config-reference) 支持這些設定，但現有 `read-only` 骨架不足以落實禁止指令執行｜blocking
-- [§12 Q8 / §8] 同意 CSV 足以做 v1，採兩人獨立檔案，附完整凍結題目、背景、結算條件與 fine print，移除預測平台連結；匯入時驗證 player、qid、機率、填答時間與重複答案｜同意 Gemini 的修正；只提供摘要會讓人類與模型收到不同結算資訊，共用檔案則會暴露彼此答案｜blocking
-
-**二、Codex 參數與隔離規格**
-
-- [§5.3 / §5.4] 建議 GPT adapter 採用以下「待隔離驗收的骨架」：`codex exec --ignore-user-config --strict-config -s read-only -c 'approval_policy="never"' -c 'web_search="live"' --disable shell_tool -m <固定模型ID> --skip-git-repo-check -C <空白暫存目錄絕對路徑> --ephemeral --json --output-schema <schema絕對路徑> --output-last-message <本次最終輸出絕對路徑> -`；由 Python 以參數陣列及 stdin 傳入 prompt，不組合 shell 字串。固定模型與推理設定由 Louis 選定並記錄｜本機 help 確認上述旗標，`features list` 列有 `shell_tool`；`--json` 是事件 JSONL，`--output-schema` 約束最後答案，兩者不可混為同一個 JSON。官方 [非互動模式](https://learn.chatgpt.com/docs/non-interactive-mode) 說明 stdin、事件輸出與 schema；此骨架尚不代表已停用所有外掛工具｜blocking
-- [§7.1 / §7.3 / §7.4] 必須將「沙盒唯讀」、「不要求人工核准」及「不提供執行工具」分別規範：保留 `-s read-only`，以 `--disable shell_tool` 關閉指令工具，再逐一停用或隔離 MCP、Apps、plugins、hooks、電腦操作、其他本機讀寫工具及子代理；以實際提供給模型的工具清單驗收，只能剩搜尋與讀網頁。無法確認時停止該線自動預測｜官方 [設定參考](https://learn.chatgpt.com/docs/config-file/config-reference) 將 `shell_tool` 定義為指令工具開關；[CLI 參考](https://learn.chatgpt.com/docs/developer-commands?surface=cli) 說明 sandbox 限制模型產生的 shell 指令，`never` 只控制核准流程，兩者都不等於禁止指令。事後稽核不能取代 AGENTS.md 第 5 條的事前限制｜blocking
-- [§7.2 / §6] 建議改寫「暫存目錄確保三模型 prompt 完全一致」為「提供相同的版本化使用者 prompt，另外記錄各 CLI 的系統提示、設定與工具差異」；使用由帳號本人經官方 CLI 登入的乾淨專用執行環境，檢查全域指示、記憶、skills 與外掛載入，不能複製或解析登入憑證交給其他程式｜官方 [AGENTS.md 載入規則](https://learn.chatgpt.com/docs/agent-configuration/agents-md) 明載 Codex 會載入全域指示；切換工作目錄不會消除這層資訊。`--ignore-user-config` 只聲明忽略 config.toml，不能推論它停用了其他全部來源｜blocking
-- [§7.3 / §7.5 / §10] 在 M1 前加入三條線共用的隔離驗收：以人工建立的假資料測試工作目錄外讀檔、執行無害指令及寫檔均不可用，搜尋與開啟一般網頁仍可用；保存工具清單及拒絕紀錄，CLI 升版後重驗。主程式負責逾時終止整個子程序群、收集 stdout/stderr 與追加日誌｜只靠模型自述「沒有權限」不算驗收；CLI 自身輸出檔與主程式寫入應與模型可呼叫的寫檔工具明確區分，否則 §7.1 的「不寫檔」與 §5 的輸出保存會有歧義｜blocking
-
-**三、設計漏洞、對 Gemini 意見的補充與異議**
-
-- [§3.2 / §3.4 / §4.2 / §7.5 / §8] 建議預先固定短作答窗口，逾時模型補答與人類延後填答另列分析；保存每位選手開始／提交時間及對應時點的社群快照。若仍允許 24 小時，人類榜須明示資訊時差，不能當成同時點能力比較；所有答案在兩位人類都提交或截止前不得揭露｜目前人類及額度恢復後的模型可以使用 t0 之後的新消息，卻與 t0 社群比較；單純配對同題不能消除時間優勢，較早填完的人也可能把已揭露結果傳給尚未作答者｜blocking
-- [§3.1 / §5.1 / §5.5] 同意 Gemini 的歷史題號去重與公開欄位白名單；另保存候選題號集合、篩選設定版本、排序方式、seed、抽樣時間、題目內容 hash 與快照 ID，預測、社群與結算紀錄都引用明確 ID｜只有 seed 無法重現每天變動的題庫；只用 qid 無法辨認題目修訂或同題不同時間快照，會使事後稽核無法追溯實際看過的資訊｜blocking
-- [§3.3 / §5.4 / §7.5] 同意利用可取得的工具事件輔助洩漏稽核，但不要把 Gemini 建議的關鍵字命中直接視為確定洩漏；拆成 `suspected_leak`、確認暴露與稽核理由，網址以解析後 hostname 比對精確網域及子網域。發現禁用來源應保留原輸出並標記，不要因 sources 驗證失敗就重試到「乾淨」｜prompt 自己含禁用網域，模型也可能說「未使用 Metaculus」，字串掃描會誤判；反覆重試可能洗掉洩漏證據。事件 JSONL 亦未必保存所有網頁內容，無法保證偵測全部暴露｜blocking
-- [§7.4] 不採納 Gemini 所提 Base64／欄位混淆作為隔離保護；應以模型無法存取的環境及工具限制隔離社群快照、其他答案、歷史紀錄與憑證｜Base64 是可逆編碼，模型可能直接辨識數值；讀到檔案後再搜尋原始輸出中的路徑，也不能證明未洩漏｜blocking
-- [§4.1 / §4.2 / §4.3] 建議將目標寫成比較「機率預測準確度與校準」，將平均 ensemble 定為主要方法、中位數為次要；主要模型榜採三模型與社群皆有效的共同題集，成對比較另附樣本數、缺答／排除數。BSS 的選手與社群必須用同一題集，社群 BS = 0 時回報未定義；常數殘差的 Pearson 相關亦回報未定義｜Brier 同時反映校準與區辨能力，不能單憑 Brier 宣稱校準最佳；不同交集的分數不能直接排總名次。這補充 Gemini 分榜建議，並避免除以零及事後選 ensemble 方法｜blocking
-- [§4.2 / §4.3] 建議 bootstrap 以同一批題目索引同步重抽所有選手，預先標記同一事件的相關題群並做群組重抽敏感度分析；移除「100 題以上就能討論誰更好」的保證語氣，報告效應量、信賴區間與適用範圍，將同資料挑出的最佳單模型比較標為探索性｜同一事件多題不等於獨立樣本；樣本門檻不能保證區分能力，先挑最佳者再比較也有選擇偏差。v1 可先做描述，但統計結論必須反映這些限制｜non-blocking
-- [§5.5 / §6 / §7.5] 建議追加 `run_id`、`attempt_id`、前次 attempt ID、schema／設定版本、請求模型 ID、CLI 回報模型 ID（無法取得則 null）與最終採用原因；每次失敗／重試均追加保存，固定採用第一個在窗口內有效且符合資格的結果，洩漏後不可再靠重試回到主要盲估樣本；不以模型自述當作模型身分證據｜目前只記 prompt 與 CLI 版本不足以重現執行設定；重試、排程重跑或人類重複匯入可能造成同題多筆被重複計分，必須把歷史紀錄與唯一有效答案的選取規則分開｜blocking
-- [§4.3 / §5.1] 同意 Gemini 將模糊與取消結算排除；另要求只接受可明確映射到 0／1 的正式結算值，保存原始狀態、抓取時間與來源；結算修訂以追加事件記錄，報告註明採用的結算版本與分析截止時間｜不可把尚未結算或未知字串默認成 no；追加寫入制度也需要明確規則選出目前有效結算，才能處理平台更正並重現舊報告｜blocking
-
-本輪結論：尚有 blocking 意見，建議由 Louis 決定採納範圍後交 Claude 整合，再進行下一輪審查；本輪未修改 §15／§16 或版本號。
-
-#### 第 2 回合審查（2026-10-31）
-
-已完整閱讀 AGENTS.md、PLAN.md（含 Gemini 第 2 回合新增意見），並對照 §15 D7～D20、§16 v0.2 與 README.md。以下只新增審查意見；已解決的第 1 回合問題不再列為 blocking。本次只做唯讀 CLI 查證與官方文件查閱，未執行模型呼叫、未讀取憑證、未完成 §7.6 實測；協調者本次審查的工具設定不視為預測執行設定的驗收證據。
-
-**一、第 1 回合整合核對**
-
-- [§3～§10 / §15 D7～D12、D15、D16、D18、D20 / §16] 確認並保留已整合項目：人類選填與主榜獨立、N = 45 且不自動放寬、K = 5／試行 3、單次預測、三級稽核與已知暴露排除、hostname 比對、移除數字錨點、拒絕 Base64、單次抓取拆流、抽樣去重與可重現資訊、人類獨立完整題卷、共同題集與 BSS 邊界、ensemble 主次、bootstrap／題群敏感度、探索性結論、正式結算與追加更正、attempt 識別碼及模型身分欄位、程序群逾時終止、CLI 升版重驗及停用方式。D10 的 0.001～0.999 是 Louis 採用的折衷，雖不同於我原提 [0,1]，接受且不再阻擋；README 與 AGENTS.md 已同步 D7｜逐項對照正文與 v0.2 紀錄後，這些原問題已處理；剩餘的採用資格、稽核繼承與驗收細節另列於下方，不能把 D18 解讀成所有邊界情況都已關閉｜non-blocking
-- [§3.4～§3.5 / §5.3 / §7.3 / §15 D13、D14、D17、D19 / §16] 保留固定模型／medium、6 小時模型窗口、24 小時人類窗口、定期報告與清除 API 計費環境變數的決策；D19 的 Claude 修正已寫入骨架及權限章節，本輪不冒稱已獨立實測 Claude。D14 是可接受的營運折衷，但報告也應註明模型補跑相對 t0 最多 6 小時的資訊優勢；D12 的人類快照應區分提交與匯入時間，延後匯入時不能把匯入時的 CP 稱為提交時的 CP｜固定時間窗縮小而未消除資訊時差；§16 對這些新增項目的記載與正文一致，實測工作仍屬 M1～M3｜non-blocking
-- [§3.1 / §4.4 / §5.5 / §15 D18] 建議補上可追溯的 CP snapshot ID、resolution event ID、audit event ID 與計分採用原因；每份報告保存採用的題號／attempt／版本清單、稽核與結算截止點，並明定只取截止點以前的最新事件｜前輪要求的題目快照與 attempt 欄位已加入，但 CP、結算與最終採用原因尚未完整落到資料契約；可由計分階段推導，不必修改既有預測紀錄｜non-blocking
-
-**二、V1、V4：Codex 查證結果與證據界線**
-
-- [§12 V1 / §5.3～§5.4] 確認保留 `-m gpt-6-astra -c 'model_reasoning_effort="medium"'` 與 `--output-schema <FILE>`：本機 bundled catalog 列出該模型及 medium；官方 [Models](https://learn.chatgpt.com/docs/models) 列出 Codex 的 Astra 指令，[Configuration Reference](https://learn.chatgpt.com/docs/config-file/config-reference) 確認設定鍵。`--output-schema` 描述最後答案形狀，`--json` 則輸出事件流；§5.4 現為範例物件，實作時須另製作正式 JSON Schema 並由主程式驗證。V1 可標為「參數與文件已確認，固定模型＋正式 schema＋搜尋的端到端組合待 M1」｜本機 help 不是一次成功的模型呼叫，bundled catalog 也不是帳號即時可用性的證明；官方 [Non-interactive mode](https://learn.chatgpt.com/docs/non-interactive-mode) 支持 schema 用法，但本輪依指令未呼叫 `codex exec`，不能聲稱已驗證 schema 保證成功或帳號權限｜non-blocking
-- [§12 V4 / §5.5] 建議 GPT adapter 讀取 `turn.completed.usage`，將 `input_tokens`、`output_tokens` 原名保存，`cached_input_tokens` 映射為 `cached_tokens`，`reasoning_output_tokens` 映射為 `reasoning_tokens`；保存原物件，缺欄位或中途失敗無 usage 時為 null。勿把快取／推理明細再加到 input＋output 當成額外總 token；解析器應以固定 CLI 樣本確認包含關係與多 turn 累計方式｜官方 [Non-interactive mode](https://learn.chatgpt.com/docs/non-interactive-mode) 的範例明列四欄；本機 help 只證實 JSONL，沒有提供 usage schema。本輪確認的是官方事件契約，尚無本機 0.166.0 預測樣本供解析器回歸驗證｜non-blocking
-- [§12 V4 / §3.3 / §5.5 / §7.6] 工具事件至少依頂層 `type`（`item.started`／`item.updated`／`item.completed`）與 `item.id`、`item.type` 分流，同一 item 生命週期只計一次；官方 [Web search](https://learn.chatgpt.com/docs/web-search) 確認搜尋為 `web_search` item。對「搜尋、開頁、頁內搜尋、實際 URL」的細分須在 M1 保留原始事件並查核該版是否提供可用 action／URL 欄位，不能以 query 字串、引用數或三種生命週期事件數冒充讀頁次數。CLI 未提供時細分計數為 null，另列可觀測 item 數與稽核覆蓋限制；`reported_model_id` 亦不可用 requested ID 或 bundled catalog 填補｜已查閱的官方 exec 文件未承諾完整開頁 URL 與 resolved model 欄位，不能直接套用 Responses API 或 App Server 的不同事件格式。§5.5 容許 null，但 §7.6 要求模型 ID 一致，應明定「取得則比對，缺失則記未驗證並依預定政策處理」，避免以假資料通過驗收｜non-blocking
-
-<details>
-<summary>本機唯讀輸出摘要（2026-10-31）</summary>
-
-`codex --version`：`codex-cli 0.166.0`。
-
-`codex exec --help` 的旗標與說明摘要：
-
-```text
--m, --model <MODEL>
--c, --config <key=value>       （值依 TOML 解析）
---output-schema <FILE>         （指定最後回應的 JSON Schema）
---json                        Print events to stdout as JSONL
--o, --output-last-message <FILE>
---ignore-user-config          （不載入 $CODEX_HOME/config.toml；登入仍使用 CODEX_HOME）
-```
-
-`codex debug models --help` 說明 `--bundled` 不刷新、只列隨 binary 附帶的目錄；實際執行 `codex debug models --bundled` 後僅擷取 Astra 的相關欄位：
-
-```json
-{"slug":"gpt-6-astra","default_reasoning_level":"low","supported_reasoning_levels":["low","medium","high","xhigh","max","ultra"],"supported_in_api":true}
-```
-
-上列 `supported_reasoning_levels` 為由原始物件陣列抽取 `effort` 的摘要；目錄預設 low，因此明確指定 medium 有必要。`codex features list` 實際列出 `shell_tool`、`unified_exec`、`apps`、`browser_use`、`computer_use`、`hooks`、`multi_agent`、`plugins`、`view_image` 均為 `stable true`；這是該唯讀查詢的有效值，不等於預測命令的工具清單或所有環境的預設值。CLI 另輸出無法建立 PATH aliases 的沙箱警告，未影響上述查詢。曾嘗試把 `--ignore-user-config` 放在頂層查詢命令前，CLI 拒絕該旗標；後改用以上支援的唯讀語法，並未修改設定。
-
-</details>
-
-**三、定期報告與採用規則：仍成立的問題**
-
-- [§4.5 / §3.2～§3.5 / §9] 同意 Gemini：對所有報告與計分板統一加上「報告產生時已過 t0＋24 小時」的公開資格，提前結算也不能先公布機率、逐題分數或能反推答案的彙總。此公開延遲應對所有題目固定套用，不因有無人類填答而改變主榜｜§4.5 的「已結算即可呈現」仍可能繞過 §3.5；固定延遲可同時維持 D7 的人類紀錄不影響主榜｜blocking
-- [§4.5 / §4.2 / §3.3] 建議明文沿用共同題集、洩漏排除、全部紀錄敏感度分析及排除／待判讀數；每個版本分段的期間值與累計值均列題數，零題為無法計算。同意 Gemini 增列個別有效題集作描述，但不同設定／不同週的個別題集不得用來宣稱推理強度改善；只改一條線時也要固定整組設定版本的分段規則｜正文已有一般計分規則，這是補明 §4.5 的引用與呈現，不另把同一問題重複標為 blocking；跨期題目難度及結算速度不同，BSS 也不能消除全部混淆｜non-blocking
-- [§4.5 / §5.5 / §7.5 / §9] 同意區分題目與 attempt，但不採納 Gemini「每題中位數僅對成功有效預測計算」作為唯一消耗指標。建議應答題數由抽樣題目×各線的排程帳冊計算，停用／額度後跳過／尚未完成窗口均留下狀態；以 t0 所屬期間及報告截止點決定題目狀態，未截止者列 pending。消耗另以明定的 attempt 起始時間歸入半開區間 [start,end)，總和包含所有嘗試；每題成本先合計該題全部嘗試，再分全體／成功／失敗呈現，成功題的補跑與格式修復亦計入。null 不當 0，總和須附已知用量的覆蓋率；缺答原因保留原始 quota／timeout 與最終 window_expired，另列曾遇額度不足及補跑後成功數｜目前「執行時間」沒有固定起訖與跨期口徑，沒有啟動的題也可能從分母消失；直接按每行計數會重複算題，僅看成功者則漏掉無效但昂貴的嘗試，無法支持 D17 的額度與推理強度決策｜blocking
-- [§7.5 / §5.4～§5.5 / §3.3] 採用條件應由「解析成功」改為「正常完成、通過 schema 與語意驗證、題號吻合、有限且範圍內的機率、於窗口內完成」，並保存驗證狀態。格式修復僅能保留原機率與來源證據；沿 `prev_attempt_id` 繼承原始輸出及全部前序嘗試的洩漏／二手暴露標記，禁止藉修復或錯誤補跑取得乾淨資格。已確定暴露後是否容許無工具格式整理可另定，但不能恢復主要分析資格｜目前 `parsed` 僅表示解析成功，合法 JSON 不等於有效預測，逾時前輸出的 JSON 也不能自動採用；原始回應暴露後格式修復可能刪掉 sources 或把布林值改成 false，僅稽核最後一筆會洗掉前輪要求保留的證據｜blocking
-- [§4.4～§4.5 / §16] 建議報告檔名加入產生時間或 report ID，固定 UTC 期間邊界，分別記錄平台結算時間、首次觀測時間與更正事件；明定延遲抓取／更正後如何重算歷史週，並保留舊報告及稽核截止版本｜目前同起迄日重跑會覆寫檔名，且「期間內結算」未區分平台時間與抓取時間；結算或人工稽核更正後僅靠目前最新資料無法重現舊結果｜non-blocking
-
-**四、隔離驗收與對 Gemini 第 2 回合的異議**
-
-- [§7.2～§7.6 / §12 V7] 同意 Gemini 擴大讀寫、子代理、背景排程及 hooks 的驗收範圍；另須測試工作目錄內讀檔、相鄰選手目錄、絕對／相對／符號連結路徑，以及讀網頁工具對 `file://`、localhost／loopback 與重新導向的處理（只用合成假資料），確認不能透過替代工具取得本機資料。每個測試保存實際工具宣告、主程式產生但未放入 prompt 的隨機 canary、呼叫／拒絕事件與檔案前後狀態；「檔案不存在」、「網路故障」或模型選擇不呼叫不能算權限阻斷。搜尋與開頁正向測試也須驗證取得測試頁內容｜原 §7.6 只測目錄外讀檔及籠統寫檔，未涵蓋所有本機讀取與替代入口；功能旗標清單本身不能證明工具不可用。本機另有 `browser_use`、`view_image` 等候選入口，應納入盤點，不把審查環境已停用視為預測環境已停用｜blocking
-- [§7.3 / §7.6 / §14.1 第 2 回合] 有條件同意 Gemini 以 CLI 層不可覆寫的硬性拒絕作為移除工具宣告的替代；建議把判準寫成「模型無法成功行使本機讀寫、執行或委派權限」，保留完整工具清單並逐路徑證明阻斷，未覆蓋或無證據時停線。不同意把一般 read-only 沙盒也一概列為等價替代；若工具已移除，可用工具宣告及載入設定證據驗收，毋須要求不存在的工具產生拒絕事件｜AGENTS.md 禁止的是能力，硬性拒絕符合目的，但唯讀通常仍可讀檔及執行指令；也不能因模型沒有嘗試就推論 CLI 已拒絕。這修正我前輪過度限定「工具清單只能剩兩類」的表述｜non-blocking
-- [§7.2 / §7.6 / §14.1 第 2 回合] 同意隨機獨立暫存目錄與 0700 作為衛生措施，但不同意將其視為三選手隔離證據；同一 OS UID 的程序仍有權讀取彼此目錄。應以工具移除／硬性拒絕或真正不同的 OS 權限邊界達成隔離，驗收使用已知相鄰路徑測試；目錄應每題每次 attempt 建立，避免同日多題共用殘留狀態｜原範例只含 run_id/player，未明定是否逐題清空；隨機路徑不能取代存取控制。此為隔離測試的補充，不把 0700 自身列為進入 M1 的必要修正｜non-blocking
-- [§7.2 / §7.6] 全域設定基準必須先通過內容審查與假資料驗收，再做雜湊比對；列明實際載入的全域／父目錄指示、skills、記憶、MCP、plugins、hooks 與管理設定，禁止恢復舊 session。以假全域指示／記憶 canary 測試自動載入；格式修復也須套用隔離，且工具全關。設定改變時停線重驗，不能把當下檔案直接當成安全基準｜目前只要求保存與比對基準，會把原已含歷史答案或可執行 hook 的環境永久接受；自動載入不需要模型發起讀檔，因此一般讀檔拒絕測試無法抓到。空白 cwd 也不保證其父目錄沒有指示｜blocking
-- [§3.3 / §7.6 / §14.1 第 2 回合] 不同意 Gemini 把「被拒絕的禁用 URL 嘗試」穩定判成 `leak_confirmed`；建議區分 attempted／blocked／opened／結果未知，已硬性拒絕且沒有內容暴露者只留違規嘗試紀錄，實際成功開啟或已知內容暴露才按 D9 排除。用離線事件樣本涵蓋成功／拒絕、子網域、相似網域與重新導向，搜尋摘要暴露另測；無 URL 可觀測性則揭露稽核缺口，不捏造成功開頁。GUI 不彈窗測試可保留｜這項建議若原樣採納會造成假陽性，且硬封開頁不會自動封鎖搜尋摘要或二手轉述；§7.4 已接受不完美稽核，不應把取得每一頁 URL 當成三條線共同的絕對進場條件。官方 [Web search](https://learn.chatgpt.com/docs/web-search) 亦說明 Codex hosted search 與本機 sandbox 網路限制分開｜non-blocking
-
-本輪結論：前輪主要設計已正確整合，仍有 5 項 blocking：公開時間閘門、報告題目／嘗試口徑、採用資格及稽核繼承、隔離測試覆蓋、全域基準安全性。V1 與 V4 已附本機或官方證據，未實測的組合與欄位明確保留到 M1；不因本次禁止模型呼叫而把「尚未實測」本身新增成 M0 blocker。請整合者依 Louis 決定修改正文與決策／版本紀錄；本輪未修改其他章節或執行 git add、commit、push。
-
-#### 第 3 回合審查（2026-10-31）
-
-已完整閱讀 AGENTS.md 與 PLAN.md（含 Gemini 第 3 回合），對照 D21～D30 與 v0.3 變更紀錄。本輪以本機唯讀 help／features 輸出、協調者指定的第 2 回合事件檔及官方 OpenAI 文件查證；未啟動模型呼叫、未讀取憑證、未實測預測隔離。本次審查環境的停用設定不作為 §5.3 預測骨架的驗收證據。
-
-**一、第 2 回合整合核對與對 Gemini 的意見**
-
-- [§7.2～§7.6 / §15 D21、D26、D27 / §16 v0.3] 確認前輪「隔離測試覆蓋」與「全域基準安全性」兩項 blocking 已在規格上解決：涵蓋工作目錄內外、相鄰目錄、符號連結、讀網頁替代入口、委派與 hooks；要求工具宣告或硬性拒絕證據、正向 canary、先人工審查再建立基準、禁止舊 session。接受 D21 對一般設定／CLI 升版自動重驗、內容變更停線人工審查的折衷；保留逐來源盤點及無證據即停線，不把隨機 0700 或唯讀沙盒當作隔離證明｜正文與決策、變更紀錄一致，未再沿用前輪指出的不安全替代判準；實作是否達標由 M1 證明｜non-blocking
-- [§3.3～§3.5 / §4.4～§4.5 / §5.5 / §7.5 / §15 D22～D25、D29 / §16 v0.3] 確認前輪另三項 blocking 已整合：D23 統一固定 24 小時公開閘門；D24 區分排程題目帳冊與全部嘗試消耗、保留缺答原始原因、null 覆蓋率及三組成本；D25 採用 valid 並繼承前序稽核。D22 正確區分 blocked_attempt 與實際暴露。D29 已加入 CP／結算／稽核 ID、報告採用清單與截止點、模型補跑資訊時差、人類提交與匯入時間分列、token 對應與事件去重，建議保留｜與我第 2 回合的要求及 §16 所列採納／未採納理由一致；同意 Gemini 本輪接受上述折衷，不重開已解決問題｜non-blocking
-- [§5.3 / §7.3 / §13 / §15 D28、D30 / §16 v0.3] 確認 D28 的 codex 停用清單與 prompt 工具限制已加入，agy 與 claude 變更也如實記為待驗收骨架；D30 已明定審查者不執行 commit。接受 §16 不引用我第 2 回合「頂層 --ignore-user-config 曾被拒」的敘述，後續只引用本輪可重現的 exec help｜沒有事件證據的歷史敘述不應當成實測結果；agy／claude 的生效行為仍由各線 M1 驗收確認，本輪不冒稱獨立驗證｜non-blocking
-- [§7.2～§7.3 / §7.6 / §14.1 第 3 回合] 同意 Gemini 將 agy 的設定合併、空字串覆寫與委派阻斷留在 M1 實測；但不採納其以可執行 PreToolUse hook 作為直接替代的備案，也不將「規格完整可行」「設計上已無漏洞」視為實證結論。若採最小自訂 agent，須重新盤點工具及完成同一套驗收；若工具仍無法阻斷，依正文停線｜§7.2 現行基準明文不得含可執行 hook，新增此路徑需要另作設計決策，不能由實作備註默默豁免。這是對尚未採納建議的異議，正文已有停線保護，因此不構成本輪 blocker｜non-blocking
-
-**二、Codex 停用清單、token 與工具事件查證**
-
-- [§5.3 / §7.3 / §12 V1、V7] 確認 §7.3 列出的 13 個功能名稱均存在於本機 codex-cli 0.166.0；exec help 明載 --disable 可重複且等價於 features.<name>=false，adapter 應逐項傳入旗標。保留 MCP／skills 個別盤點與實際工具清單驗收，勿把 features list 的有效值當成預測命令已停用的證明；本版另列 code_mode_host、in_app_local_automation、multi_agent_v2 等功能，M1 應逐一判斷是否暴露額外入口，而非僅按名稱猜測其能力｜停用清單是已核對名稱的最低清單，並非完備安全證明；§7.3 已要求新功能盤點及 §7.6 失敗即停線。官方 [CLI 參考](https://learn.chatgpt.com/docs/developer-commands?surface=cli) 與下列本機輸出支持旗標語法｜non-blocking
-- [§5.5 / §12 V4 / §15 D29] 確認 codex token 對應正確：從 turn.completed.usage 讀 input_tokens／output_tokens，reasoning_output_tokens → reasoning_tokens，cached_input_tokens → cached_tokens，cache_write_input_tokens 留在原始物件。缺欄位仍為 null，且不得把明細再加到 input＋output；保留 M1 驗證包含關係及多 turn 累計語意的要求｜指定事件檔第 55 行直接支持五個欄位，官方 [Non-interactive mode](https://learn.chatgpt.com/docs/non-interactive-mode) 的 JSONL 範例亦列出前四個原始欄位；單一樣本中 cached 小於 input 只能支持初步觀察，不能證明所有用量的包含關係｜non-blocking
-- [§3.3 / §5.5 / §7.6 / §15 D22、D29] 確認樣本存在 search、open_page、find_in_page 與結果 URL，但建議補明「依 item ID 去重的是可觀測工具事件／批次數，不保證等於查詢數或實際開頁數」。解析器須合併同一 item 的生命週期資料，掃描 action 及全部 results 的 URL；不能只取 action.url，也不能把 search results 的 URL 一律標成 opened。未能證明開啟成功、拒絕或批次細分的情況，維持 unknown／null｜第 8 行開始事件的 action 是 other，第 9 行完成時才是含 2 個 queries 的 search；第 13 行單一 open_page 的 action.url 只列一頁，但 results 有 4 個網頁結果；第 34 行 find_in_page 沒有 action.url，卻有結果 URL。這些是可觀測性限制，§3.3 已允許 unknown 與 suspected_leak、§5.5 已允許缺值，應在 M1 固定樣本解析中落實，不能把 D22 的「精準稽核」擴張為所有 URL／成功狀態皆完整可見｜non-blocking
-
-<details>
-<summary>本輪唯讀查證摘要與原始樣本位置</summary>
-
-2026-10-31 執行 `codex --version`、`codex --help`、`codex exec --help`、`codex features list`。CLI 回報無法建立 PATH aliases 的沙箱警告，但查詢成功；未執行 features enable／disable 等設定變更指令。
-
-```text
-codex-cli 0.166.0
---disable <FEATURE>
-    Disable a feature (repeatable). Equivalent to `-c features.<name>=false`
---ignore-user-config
-    Do not load `$CODEX_HOME/config.toml`; auth still uses `CODEX_HOME`
---json
-    Print events to stdout as JSONL
---output-schema <FILE>
-    Path to a JSON Schema file describing the model's final response shape
-```
-
-`codex features list` 的相關原始列（空白對齊略）：
-
-```text
-apps                  stable true
-browser_use           stable true
-browser_use_external  stable true
-computer_use          stable true
-hooks                 stable true
-image_generation      stable true
-in_app_browser        stable true
-multi_agent           stable true
-plugins               stable true
-remote_plugin         stable true
-shell_tool            stable true
-unified_exec          stable true
-view_image            stable true
-```
-
-以上 true 是這次獨立查詢的有效值，不代表預測骨架或本次審查 session 的工具權限。
-
-唯讀事件來源：`/private/tmp/claude-501/-Users-ucchengg-forecast-lab/fdce1ec4-5ac2-4896-873c-35dfd4f98b06/scratchpad/gpt_r2.jsonl`。這是第 2 回合審查紀錄，並非預測骨架的端到端樣本；第 55 行原始事件為：
-
-```json
-{"type":"turn.completed","usage":{"input_tokens":842112,"cached_input_tokens":761088,"cache_write_input_tokens":0,"output_tokens":7457,"reasoning_output_tokens":317}}
-```
-
-同檔第 8／9 行共用 item ID，開始／完成只計一次；完成的 web_search item 共 7 個：search 2、open_page 4、find_in_page 1。這是事件數，不能報成「總共讀了 4 頁」。官方文件只作為對照，版本特有的 results 與批次形狀以上述本機原始事件為依據。
-
-</details>
-
-**三、定期報告、採用規則與 M1 進場判斷**
-
-- [§4.5 / §5.1～§5.2] 前輪報告的主要漏洞已修正；建議實作時明定排程帳冊的追加儲存位置，以及每題成本採「t0 落在期間內之題目、截至資料截止點的全部嘗試」口徑，與「開始時間落在期間內的嘗試總和」分欄呈現。pending 題目不先歸入失敗組；有任何嘗試用量缺失的每題合計標成不完整，完整成本中位數另附題目覆蓋率｜例如題目在週末 23:59 抽出、下週 00:10 補跑，兩種合法口徑的總和本來就不同；§4.5 已規定題目／嘗試分離與 null 不當 0，這是實作須固定的跨期與缺值細節，不推翻 D24，也不重列前輪 blocker｜non-blocking
-- [§7.5 / §5.4～§5.5] 有效答案、固定第一個 valid、修復不改估計與來源、前序暴露繼承、不因洩漏重試等規則已足以關閉前輪採用漏洞；建議 adapter 以明確狀態轉移落實「1 次格式修復」與「最多 1 次 rerun」，避免修復自身再觸發修復。修復後仍須由程式驗證機率及來源未被更改；題號錯誤、超範圍或無唯一可辨識機率，不可藉補填新估計變成 valid。逾時／中斷原嘗試仍是 incomplete，若允許整理其已有答案，必須另留 format_repair 紀錄並再次驗證窗口與繼承｜合法 JSON 本身不再具有採用資格；這些是 §7.5 既有約束的具體驗收案例，並非放寬規則或新增補答機會｜non-blocking
-- [§7.2～§7.6 / §10 / §12 V7] 同意目前規格足以在 Louis 核准後開始 M1 的隔離驗收與實作；尚不能宣稱三條線已可無人值守預測。建議驗收產物分別綁定預測與全工具關閉的格式修復設定，並記錄每個測項的工具未提供／CLI 拒絕證據。自動載入測試亦應核對實際載入來源，不能僅因最終答案未輸出 canary 就推論未載入；CLI 升版若改變載入來源，按 D27 重新盤點及審查｜§7.6 已涵蓋前輪要求的路徑、正負向測試與無證據停線，足以作為驗收規格；它不能保證不存在未知入口。M1 完成仍須三條線實際通過，而非以 help、其他審查者的判斷或本輪設定取代｜non-blocking
-
-本輪判斷：第 2 回合的五項 blocking 均已在 v0.3 規格中處理；上述補充屬 M1～M4 實作與驗收的明確化。只新增本小節，未修改正文、決策紀錄或版本號，未執行 git add、commit、push。
-
-本回合沒有 blocking 意見。
-
-#### 第 4 回合審查（2026-10-31）
-
-已完整閱讀 AGENTS.md 與 PLAN.md（含 Gemini 第 4 回合），並以 git diff／HEAD 的 v0.3 對照安全要求。本輪使用 OpenAI Docs skill 查閱官方文件，執行本機唯讀 help／features 查詢；沒有啟動模型預測、讀取憑證或進行隔離實測。本次審查 session 的權限不作為預測設定通過驗收的證據。以下區分會影響設計正確性的 blocking 與可在實作、影子期調整的 non-blocking。
-
-**一、送出與參賽資格：已有官方證據的問題**
-
-- [§3.4 / §3.6 / §10 M3 / §12 V10、V15] 改為「第 1 層結果先保存本地；不升級者直接送出，升級者在預定決策截止點採用已完成且合格的最終整合，失敗或來不及則回退本地第 1 層；每題只送出一次預測」。送出後不得再因第 2 層完成而更新；測試區的更新測試不能代表正式賽允許更新。重新送出是否覆蓋舊值與是否允許重送須分開核對｜本輪已成功讀取 [官方資源頁](https://www.metaculus.com/notebooks/38928/futureeval-resources-page/)（頁面標示 2026-10-29 更新）：主賽與 MiniBench 每題只應提交一次；同頁雖說 spot score 計最後一次預測，這不是重送許可。故目前兩次送出的主流程與已取得的規則衝突，不能只留 V15 待確認。不同意 Gemini 僅用 `< 0.002` 門檻減少第 2 層更新：機率差距大小都不能解除此限制｜blocking
-- [§3.6 / §3.7 / §7.2 / §8 / §10 M1～M3] 把不得人為介入的範圍延伸至正式參賽前的影子測試：人類不得先看目標賽開放中／即將開放題目的輸出，再據此改 prompt、設定、權重、全域指示或挑選啟用線。開發調整使用合成資料、已關閉題目或賽外題目；連續影子排程可以量測開放題的耗時與成功率，但答案與理由須隔離至關閉後才供開發回饋，並排除已因預覽而調整過的題目。人工稽核只追加事後紀錄，不作當題送出前人工放行；停用線與緊急停送保留，但記錄原因與生效範圍，不以對個別機率的喜好操作｜[官方規則](https://www.metaculus.com/notebooks/28751/q1-ai-forecasting-benchmark-rules/)（頁面標示 2026-10-12 更新）將「預覽開放／即將開放題的輸出後修改機器人」明列為人類介入。目前 §3.6 只寫「正式參賽後」，§10 M1 卻以開放中的比賽題做開發，且 §5.1 仍有人工判讀；單純升版或不重跑同題不足以排除此路徑｜blocking
-- [§3.2 / §3.6 / §5.5 / §5.6] 題目快照與送出契約須分列 `tournament_id`、`post_id`、`question_id`、選項識別／標籤與 `question_snapshot_id`，由抓題資料建立不可混用的映射。送出前由主程式核對帳號身分等於核准的 bot ID、最新平台資料的比賽歸屬／開放狀態／截止時間／題型／選項與快照相符；送出目標不得取自模型文字或 URL。M3 加入 post ID 與 question ID 故意不同、錯帳號、跨比賽、修訂選項與已關閉的拒絕案例｜[官方無框架範例](https://github.com/Metaculus/metac-bot-template/blob/main/main_with_no_framework.py) 的 `post_question_prediction` 使用 question ID，`post_question_comment` 使用 post ID（`on_post`），兩者不是同一契約。現有只有「題號」的模型／送出紀錄及與本地整合一致檢查，可能讓錯誤映射在本地自洽，卻把機率或留言送到另一題。這是自動寫入新增的具體風險｜blocking
-- [§3.6 / §5.5 / §5.6 / §10 M3] 同意 Gemini 要處理預測與留言部分成功，但應落實為可恢復的送出狀態機：先追加固定 payload／aggregate ID／comment hash 的送出意圖，再分別保存預測與留言回執、遠端 ID 及時間；逾時記為結果未知，先查證再決定是否重試，不把網路逾時直接當作未送出。留言失敗只補同一份留言，不重新跑模型或重送已成功預測。每次寫入前重查 live／白名單／STOP；未開始的請求停止，已送出的請求須對帳，不能承諾撤回。M3 測試「伺服器已受理但本機尚未記錄便中斷」｜官方範例顯示預測和留言為分開的 API 呼叫，沒有跨兩者的原子交易；鎖檔只能避免重疊執行，不能處理重啟後重送。正文已有 M3 送出測試，此為必要測試案例的具體化，API 的讀回與去重能力仍由 V15 驗證｜non-blocking
-- [§5.6 / §3.7] 留言模板須保留真正支持機率的 `reasoning_summary` 與第 2 層 `change_reason`，標明缺線、各線實際層級、幾何／log-odds 整合與裁切，不把分歧理由去重成「三者一致」。先保留最終機率與決策理由，再按固定規則縮減來源和細節；無法在 1,500 字元內如實說明時應採核准的較長模板，不從尾端硬切。來源保留實際用到的網址，純文字輸出仍須按平台的 Markdown 顯示方式轉義。留言設為規則要求的私人留言並保存送出全文｜目前生成欄位列出因素與基準率，卻沒有明列摘要／改變原因，單純拼接資料不保證能解釋最終決定；多選題加三線結果尤其容易超長。[官方資源頁](https://www.metaculus.com/notebooks/38928/futureeval-resources-page/) 要求私人留言，之後可能公開；不能以私人為由省略語法清洗。同意 Gemini 的清洗方向，這是既有「如實」要求的實作補強｜non-blocking
-
-**二、提高分數與有效使用額度**
-
-- [§3.4 / §3.5 / §9] 把「先廣後深」實作成跨題佇列，不逐題跑完第 2 層才抓下一題；同一優先級依最早截止排序，每個工作完成後重查新題。可保留主賽優先，但增加預先固定的緊急期限規則：當 MiniBench 即將截止、主賽尚有充足時間時先保住前者，記錄例外原因。第 2 層啟動估時用同線同層的高分位耗時或保守上限，納入等待、驗證、稽核、留言及送出時間；所有工作強制在決策截止點停止等待並採用合格回退，不只依每次 20 分鐘上限｜[官方資源頁](https://www.metaculus.com/notebooks/38928/futureeval-resources-page/) 說兩種賽題通常開放 3 小時且可同時開多題；30 分鐘輪詢再扣 30 分鐘餘裕，批次排隊會顯著吃掉可用時間。近期中位數不是可靠的按時完成保障。「先廣」須以保住可送題數衡量，且要配合上方每題單次送出的流程；參數可由 M2／V11 校正｜non-blocking
-- [§3.4 / §5.3 / §7.5 / §9] 補明各線第 2 層的獨立預算與准入條件，先替本輪未完成第 1 層、額度重置前預期新題與必要修復保留容量，再從剩餘容量排深研及人類賽。額度耗盡後按 reset 時間或固定退避恢復，不在每 30 分鐘輪詢時重啟同題，且跨排程遵守最多一次 rerun。嘗試次數上限須含兩層、修復、補跑及驗收成本；有子代理時記全樹用量是否完整，不能把未知當零。agy 啟動前除保留線外加預估單次消耗餘裕，超額停升級的重置點對齊真正額度週期｜§3.4 引用「§9 的第 2 層額度預算」，但 §9 目前只有總額度與優先序；佇列此刻空了不代表本週後續沒有新題，事後超額再停也保不住個人保留額度。一次用量異常便停整週是保守熔斷，可先保留，但不應被誤認為已具備事前成本上限｜non-blocking
-- [§3.4 / §5.4 / §4.3] 把升級條件明定為「進入候選佇列」而非保證三線全跑；缺線時僅使用合格摘要，不要求湊齊三份。市場觸發先驗證 finite、非 null、有效時間及事件／選項對應；二元市場的 0／1 僅在計算 logit 時用明定 epsilon，原始價格另存。多選市場在 schema 增加對應選項或完整分布，只有完整且同義的分布才算 TV distance；無市場不視為沒有研究價值。記錄觸發強度、是否完成、成本及分數增益，逐步調整門檻｜目前單一 `market_refs.probability` 無法判斷多選題在比較哪個選項，亦可能是 null；而市場價差與模型分歧只是有用訊號，不等於正的研究收益。有限預算下應比較完成機率與可改善幅度，不能把單一模型自稱 exact 當成充分理由｜non-blocking
-- [§3.4 / §4.2 / §14.1 第 4 回合] 接受 Gemini 把極端區間重複深研列為節流候選，但不接受「0.005 與 0.015 經裁切都成 0.02，所以升級完全不會改變結果」的推論：深研可能找到新證據並移出裁切區，且正文是先整合再裁切，並非先裁每條線。`prob_range >= 0.08` 也可能漏掉尾部風險的關鍵分歧。建議以裁切後的結果敏感度作排序訊號、保留結算條件／重大證據衝突的升級路徑，將門檻候選預先登記後比較｜這是待量測的成本與失分權衡；不能從第 1 層裁切結果推定第 2 層沒有價值。同樣不把外部市場加入第 4 票預設為改善：第 1 層已參考市場，再加權可能重複計入同一來源｜non-blocking
-- [§4.1～§4.3 / §14.1 第 4 回合] 同意 Gemini 指出多選題 `max(p, 0.01)` 再正規化不能維持 0.01 下限；選定其均勻混合平滑或可行的 simplex 下限投影並記錄版本，不同時聲稱兩種保障。保留等權、不 extremize 作初版，但在少量預定候選中納入算術平均、現行幾何平均與第 1／2 層混合，使用按時間留出的題目驗證；不要把 log-odds 平均或資訊獨立性描述成必然較佳的充分條件。多選 log score 應明定取結果選項的最終送出機率，不逐項裁切出總和不為 1 的分布；另報實際送出機率的未額外裁切 log score，與 D10 診斷分數分開｜若平滑給正確選項 0.002，本地再裁成 0.01 會掩蓋實際尾部損失。同步成對／題群 bootstrap 已保留；再補每單位增量額度的分數改善、升級失敗率及錯過其他題目的成本，才能支持 D31。只比較成功完成深研的題目會高估策略效益｜non-blocking
-- [§6.1 / §6.2 / §14.1 第 4 回合] 部分同意 Gemini 的剩餘時間與反例檢查：時間換算須用「結算條件規定的事件發生窗口」，分開標示預測關閉、事件截止及預計行政結算時間，不能一律以題目關閉／結算日做 hazard scaling；已發生但尚未確定的事件也不能按存活條件處理。第 2 層可以因既有證據的重新解讀、可信度比較或先前推理錯誤而修正，只須具體說明，不必強制每次找到新 URL｜這些 prompt 可改善推理，但統一錯用時間窗口或禁止合理再評估反而會壓低分數；也不保證增加提示詞不增加推理與輸出成本｜non-blocking
-
-**三、Codex 子代理權限與 §7.6 驗收**
-
-- [§5.3 / §7.3 / §12 V13] 官方文件可確認子代理繼承父 turn 的 sandbox 與 approval 設定，自訂 agent 不能覆寫這兩者；但這不等於本機 0.166.0 已證明完整 `--disable` 清單逐項繼承。第 2 層應顯式啟用 `multi_agent` 並保留其他停用項，盤點父／子實際工具及載入設定；一般唯讀沙盒仍不符合禁止讀檔、執行指令的標準。把全域／專案自訂 agent 定義也納入基準盤點。並行數上限與「整題最多建立三個子代理」分別記錄，不將並行上限冒充總次數上限｜[OpenAI 官方 Subagents 文件](https://learn.chatgpt.com/docs/agent-configuration/subagents) 的 Approvals and sandbox controls 支持權限繼承；同頁列出 `agents.max_concurrent_threads_per_session`（舊別名 `agents.max_threads`）及自訂 agent 來源，這些設定在固定版本仍須 V13 驗證。本機 help 只證實旗標語法，沒有子代理工具繼承契約；保留未驗收便不開子代理的設計，因此不把缺少本輪實測本身列為 blocker｜non-blocking
-- [§7.3 / §7.6 / §5.3] 第 2 層驗收須補齊：父代理只允許建立已核准的第一層子代理，父／子排程與 hooks 均拒絕；子代理再次委派須有工具未提供或 CLI 硬拒絕證據；每個可選 agent 類型／自訂定義均盤點工具與自動載入來源，並測子代理正向搜尋／開頁。時間上限測試須確認父代理正常結束、逾時及中斷後皆無殘留背景子工作；若遠端／共享服務的子工作不隨程序群終止，必須有取消證據，否則不開子代理。第 6 項對 codex 應驗「可觀測事件及稽核分類」，不要誤寫成所有開頁必須失敗｜§7.3 已要求子代理不能再次委派，§7.6 第 5 項卻只重測第 1～4、6 項，沒有再次委派、父／子背景工作與子代理自動載入的驗收，可能讓未覆蓋路徑取得通過資格；v0.3 全禁委派時的測項不能原樣涵蓋新增權限。此 blocker 限於新增的子代理驗收規格；可先以不開子代理的第 2 層繼續實作｜blocking
-
-<details>
-<summary>本機唯讀查證摘要（2026-10-31）</summary>
-
-實際執行 `codex --version`、`codex --help`、`codex exec --help`、`codex features list`；沒有執行預測、登入、登出或修改功能設定。CLI 有無法建立 PATH aliases 的沙箱警告，但查詢成功。
-
-```text
-codex-cli 0.166.0
---disable <FEATURE>
-    Disable a feature (repeatable). Equivalent to `-c features.<name>=false`
---enable <FEATURE>
-    Enable a feature (repeatable). Equivalent to `-c features.<name>=true`
---ignore-user-config
-    Do not load `$CODEX_HOME/config.toml`; auth still uses `CODEX_HOME`
-multi_agent       stable true
-multi_agent_v2    stable false
-shell_tool        stable true
-unified_exec      stable true
-```
-
-上述 true／false 是獨立 features 查詢的有效值，不是預測命令或本輪審查 session 的權限證據。官方文件可確認 sandbox／approval 繼承，完整功能旗標與工具面仍須固定版本實測；本輪未把其他 Codex API 的 multi-agent 契約套用為 CLI 保證。
-
-</details>
-
-**四、v0.3 安全要求的延續與新資料流**
-
-- [§3.3 / §3.4 / §4.2 / §5.5 / §6.2 / §7.5] 在補跑、整合、升級判斷、跨線摘要傳遞及送出之前完成自動稽核，輸入只允許 `valid` 且符合採用資格的答案；排除 `leak_confirmed`／`model_mismatch` 的摘要、機率與來源，不僅排除其最終票數。保存第 2 層全部輸入 attempt ID、匿名排列及子代理來源關係，讓稽核標記沿「輸入依賴」與重試鏈共同繼承。任何已接觸確認禁用資料的後代結果不得重新變乾淨；後來發現問題時追加受影響整合／送出清單，不人為挑答案補送｜v0.3 §3.4 明列每次嘗試執行稽核、§7.5 明列補跑前稽核；v0.4 流程只說驗證便整合並立即送出，又要求第 2 層收到三線摘要。即使整合移除 A 的票，A 的違規來源仍可能透過摘要影響 B、C，而 `prev_attempt_id` 不能表達三個輸入。這是 D25 原已解決的「不能洗掉暴露資格」在新增資料流中的實質缺口｜blocking
-- [§3.3 / §5.4～§5.5 / §7.6 / §15 D22、D25、D27、D40、D43] 保留 v0.3 的有效答案驗證、修復保留原估計／來源、全域內容先審查再雜湊、禁止舊 session、參數陣列／stdin、清除計費與機密環境變數、工具硬限制、未知 URL 不冒充已開啟、版本變動重驗及追加歷史紀錄。補回搜尋摘要暴露測試、`audit_event_id`／理由及排除 prompt 回顯的分類細節；`sources` 自報禁用來源的處理亦明寫，避免「確認開啟」被實作成只有 open 事件才算。停用 CP 快照／人類盲測／24 小時公開閘門符合 D40，不要求恢復原研究目的；上方針對開放賽題開發預覽的限制是另一個目的｜差異核對顯示這些主要安全控制仍在，不能整批重列舊 blocker；但 §3.3 目前只引用「沿用 v0.3」，§7.6 刪去搜尋摘要專項，應把仍適用的契約保留在現版，方便實作。依 [官方規則](https://www.metaculus.com/notebooks/28751/q1-ai-forecasting-benchmark-rules/) 公開 CP 並非全面禁止，但不得盲抄；可交 V12 評估後由 Louis 決定是否調整 D34，本輪仍按現行封鎖政策審查｜non-blocking
-- [§7.7 / §12 V17、V18 / §14.1 第 4 回合] 同意 Gemini 以浮點額度欄位取代顯示百分比及使用模型解析 log 的方向；但「餘額目前為零」「設定檔保留兩個 false 鍵」「model: inherit 的宣告」均不足以證明超額計費、模型替換與子代理權限已受控制。額度未變、不同桶同時變或數據延遲時依證據記 `unverified`／`undetermined`，不要憑差值為零反推模型。雙鍵設定只能是待驗證候選，須確認真正生效的欄位與優先序｜不同意將 Gemini 的「完全可行」當作 M1 驗收結論；其樣本與 changelog 提供實作線索，本輪未獨立重跑 agy。正文仍保留驗收與停線條件，故不新增 blocker｜non-blocking
-
-本輪仍有 5 項 blocking：正式賽每題單次送出、影子／開發期的人為介入邊界、post／question／bot 身分映射、子代理驗收缺項，以及跨層跨線稽核繼承。其餘為效益優化或驗收細化；不將未實測的 CLI 能力或已由 D40 明確停用的盲測要求重列為 blocking。請整合者依 Louis 決定修改正文與決策／版本紀錄；本輪只新增 §14.2 本小節，未修改其他章節，未執行 git add、commit 或 push。
-
-#### 第 5 回合審查（2026-10-31）
-
-已完整閱讀 PLAN.md、AGENTS.md 與 `docs/tournament_checks/futureeval.md`，對照 §15 D44～D52、§16 v0.5 及工作目錄中 Gemini 第 5 回合的未提交意見。本輪使用 OpenAI Docs 技能查閱官方文件，並執行唯讀 Codex help／features 查詢；未執行模型呼叫、隔離實測、登入登出或讀取憑證。本次審查 session 的功能停用設定不作為預測執行設定的驗收證據。比賽規則核對依 Louis 提供的摘要，本輪未另行取得 Metaculus 原文。
-
-**一、第 4 回合五項 blocking 的逐項結案與 non-blocking 整合確認**
-
-- [§3.4～§3.6 / §15 D44 / §16 v0.5] 確認「正式賽每題單次送出」已在規格上解決，建議保留第 1 層先存本地、升級後只送最終選定結果、逾時回退第 1 層與送出後不再更新的規則｜正文已移除先送保底再更新的違規流程；與規則摘要的每題一次一致，計分取最後一次不能被當作重送許可｜non-blocking
-- [§3.1～§3.2 / §3.6 / §4.5 / §10 / §15 D45] 確認「影子／開發期人為介入邊界」已在規格上解決，建議保留 local／trial 只在試驗場地作答、賽題只取中繼資料，以及正式參賽後不得預覽後修改、人工稽核不在送出前放行的規定｜D45 比原影子期方案更直接地排除開發預覽；AGENTS.md 硬性規則 2 已同步。下方同步題排除是落實此禁令的實作要求，不是恢復舊盲測流程｜non-blocking
-- [§3.2 / §3.6 / §5.5 / §10 M3 / §15 D46] 確認「post／question／bot 身分映射」已在規格上解決，建議保留由抓題資料建立映射、送出前重查平台與核准 bot ID、預測用 question ID／留言用 post ID，以及 M3 的錯帳號、錯題、跨比賽、選項修訂與關閉題拒絕案例｜不再允許模型輸出的題號或網址決定寫入目標；先記意圖、分別保存回執與逾時對帳也已納入，V15 保留讀回能力的實測責任｜non-blocking
-- [§7.3 / §7.6 / §12 V7、V13 / §15 D47] 確認「子代理驗收缺項」已在規格上解決，建議依新增測項實作驗收：再次委派、父／子排程與 hooks、各 agent 類型與載入來源、子代理搜尋／開頁正向測試，以及父代理正常結束、逾時、中斷後的背景工作清理｜前輪缺漏均已補入；遠端子工作須有取消成功證據，只有子代理部分未通過時退回無子代理第 2 層，無須因此阻止 M1 開始｜non-blocking
-- [§3.3～§3.4 / §5.5 / §6.2 / §7.5 / §15 D48] 確認「跨層跨線稽核繼承」已在規格上解決，建議保留先稽核再補跑／整合／傳遞、排除不合格答案的全部摘要與來源、沿重試鏈與輸入依賴繼承，以及事後追加受影響清單而不補送｜第 2 層不再僅移除受汙染線的票數，`input_attempt_ids`、匿名排列及子代理來源關係足以建立追溯圖；實作須讓祖先事後新增的稽核事件也能傳播到全部後代，不能只讀 attempt 建立時的靜態旗標｜non-blocking
-- [§3～§9 / §15 D46、D49～D52 / §16 v0.5] 確認前輪 non-blocking 的主要要求已整合，建議保留：跨題佇列與緊急期限例外、預算准入及額度退避、升級候選與缺線處理、市場有效性檢查與 `escalation_flags`、第 90 百分位估時、全樹用量缺值揭露、多選平滑與送出總和修正、實際送出 log score 與診斷裁切分列、全部升級題的效益評估、留出驗證、留言理由與清洗、搜尋摘要稽核，以及 agy 浮點額度與不確定狀態。接受 D49 的 5% 初始熔斷與 M5 順序、D50 不用社群預測、D51 協助者定位及資料不進公開版本控制｜正文與決策及變更紀錄大致一致；5% 是事後熔斷而非硬性成本保證。多選市場比較與修訂回退尚有下列需明確化的細節，因此不沿用 Gemini「無遺漏」的概括結論｜non-blocking
-- [§3.4 / §4.2 / §6.1～§6.2 / §7.3 / §7.7 / §16 v0.5 / §14.1 第 5 回合] 同意 §16 的六項分歧裁決：裁切後分歧且保留旗標路徑、不加 0.08 絕對差門檻；允許有理由地重評既有證據；時間換算依事件期間；市場加票與兩層混合只列候選；單次送出取代小變動免重送；agy 設定仍待 M1 驗證。建議 Gemini 將「無效升級」「完全一致」「完整封堵所有違規路徑」改為有限度的規格判斷｜裁切只減少觸發，不證明深研不會找到新證據；help／changelog 與零 credits 樣本也不能證明權限、取消及計費控制已實際生效。本輪未獨立驗證 agy，接受其查證作實作線索，不當作驗收完成｜non-blocking
-
-**二、Codex 第 2 層設定與子代理驗收：本機及官方證據**
-
-- [§5.3 / §7.3 / §12 V13] 確認本機 codex-cli 0.166.0 支援 `--enable multi_agent`；第 2 層須從停用清單移除 `multi_agent` 再明確啟用，其餘停用項照常逐項傳入，第 1 層與格式修復仍禁止委派。建議保存各層實際 argv 與工具宣告，並依 §7.3 盤點新功能，不以查詢中的 true／false 判定預測權限｜本輪 `codex --help`、`codex exec --help` 明載 enable／disable 為可重複旗標、分別對應 `features.<name>=true/false`；`codex features list` 列有 multi_agent。這僅確認名稱與語法，並未執行啟用後的模型工作｜non-blocking
-- [§5.3 / §7.2～§7.3 / §7.6 / §12 V13] 確認官方 [Subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents) 的 Approvals and sandbox controls 支持「子代理繼承父 turn 的 sandbox／approval，自訂 agent 不能取代」；保留完整停用項繼承、各工具入口、再次委派與取消行為須在固定版本實測的要求。官方同頁列出個人／專案 agent 定義、繼承的 MCP／skills，以及並行執行緒上限；建議把這些來源及內建 agent 類型全部納入驗收｜權限繼承不等於禁用本機工具，也不等於最多建立三個子代理；並行上限與整題總次數須分開。官方現行頁還列 `agents.enabled`，其與本機 feature flag 的關係應由 V13 核對，不能以新版文件逕改固定版本骨架｜non-blocking
-
-<details>
-<summary>本輪唯讀查證摘要（2026-10-31）</summary>
-
-實際執行 `codex --version`、`codex --help`、`codex exec --help`、`codex features list`。查詢成功，CLI 另回報無法建立 PATH aliases 的沙箱警告；未執行 features enable／disable 或任何模型呼叫。
-
-```text
-codex-cli 0.166.0
---enable <FEATURE>
-    Enable a feature (repeatable). Equivalent to `-c features.<name>=true`
---disable <FEATURE>
-    Disable a feature (repeatable). Equivalent to `-c features.<name>=false`
---ignore-user-config
-    Do not load `$CODEX_HOME/config.toml`; auth still uses `CODEX_HOME`
-multi_agent                 stable true
-multi_agent_v2              stable false
-shell_tool                  stable true
-unified_exec                stable true
-code_mode_host              stable true
-in_app_local_automation     stable true
-view_image                  stable true
-```
-
-以上為獨立查詢的有效值，不是本輪或預測執行的工具清單。官方來源：[Subagents](https://learn.chatgpt.com/docs/agent-configuration/subagents)（本輪實際開啟；`https://developers.openai.com/codex/multi-agent/` 重新導向至此）。未把 Agents API 或 Responses API 的 multi-agent 契約當作 CLI 的保證。
-
-</details>
-
-**三、送出、稽核與 M3 的實作補充及 M1 進場判斷**
-
-- [§3.1～§3.2 / §3.6 / §10 / §14.1 第 5 回合] 同意 Gemini 補充主站同步題排除與平台既有預測檢查；建議明定試驗准入採「目標賽開放中／即將開放題目排除優先於主站場地允許」，以平台 ID／歸屬映射為主，標題相同只作疑似重複訊號，不把標題不同當作安全證據。身份無法釐清就選其他試驗題；送出單次性按 bot ID＋question ID 跨比賽去重｜規則摘要已指出部分賽題同步到主站，單一 `tournament_id` 不能代表互斥歸屬；這是 D45「不在比賽題目作答」及 D44「每題一次」的必要落實，現有禁令已成立，可於 M1 抓題過濾與 M3 驗收落實，非新增 M0 blocker｜non-blocking
-- [§3.6 / §5.5 / §10 M3 / §12 V15] 建議把結果未知的恢復規則具體化：先重建既有 intent，預測與留言分別對帳；API 暫時查無資料不能逕當作未受理，無法確認時維持 unknown 並停止該筆寫入。只有確認未成功才重試原 payload，留言逾時亦同。M3 加入預測及留言各自的「已受理但回執遺失」、讀回失敗／延遲可見、重啟與既有遠端預測案例｜現有狀態機已採先記意圖、未知先對帳、留言獨立重試與每次寫入前重查開關，設計方向足夠；不能把第 4 步「留言失敗」誤套到第 3 步仍未知的留言。V15 未確認可靠讀回前不得宣稱 M3 完成或進 live，但不阻擋 local 的 M1｜non-blocking
-- [§3.2 / §3.5～§3.6 / §10 M3] 建議釐清「修訂後來不及就照原結果送出」仍受送出契約約束：選項、題型或截止時間不符時拒絕；僅文字修訂的舊答案若仍准送，須預先固定政策並保存舊快照與修訂標記，不能把舊答案換掛新快照。新快照重跑應明確取消／淘汰舊快照的待採用結果；每次預測寫入也檢查本地送出截止時間｜目前 §3.6 的任一不符即拒絕可保住安全邊界，但 §3.2 的回退用語太廣；這是拒絕優先與快照選取的明確化，不要求在 M1 前完成送出程式｜non-blocking
-- [§3.4 / §5.4 / §15 D52] 建議補完多選市場觸發的公式，例如經完整同義選項映射後以逐選項 logit 差的最大值比較 0.7，或另選 TV distance 並固定門檻；同時明定 [0.02, 0.98] 截斷只用於是非題 log-odds 分歧，若也用於多選差距須明說不重正規化｜前輪要求的 finite、時間、完整分布及 0／1 epsilon 已加入，但「整合結果與市場價格的 log-odds 差距」對多選向量仍無唯一計算定義。這是 D52 尚未完全落實的 non-blocking 細節，應在 M2 的升級判斷實作前固定並留邊界案例｜non-blocking
-- [§3.3 / §5.5 / §7.5 / §10 M2～M3] 建議以離線合成事件驗證稽核依賴圖：A 已確認洩漏時，其摘要不進 B／C；A 先疑似、事後確認時，所有修復、重試、跨線第 2 層及整合／送出後代都追加影響紀錄；不重新選答案或補送。模型不符也不得只剔除原票而保留受其摘要影響的結果｜D48 已給出充分資料契約與先後順序，這些案例用來證明實作遵守規格；`suspected_leak` 仍按既定政策使用，不擴張成所有未知都停送｜non-blocking
-- [§4.5 / §9 / §10 M3] 建議 M3 模擬預先固定觀察期間、分母及資源限制：分別報全部賽題覆蓋率與已支援題型的按時覆蓋率，`unsupported_type` 不得從全體分母消失；90% 門檻對應哪一組須在看結果前決定。模擬應重播實際開題／輪詢時間、同時開題與佇列、兩層與修復／重試耗時、稽核與送出餘裕、額度重置及停線；同一線並行度須明定，不可假設無限並行｜現有 M3 已含 14 天試驗、送出錯誤／中斷測試、預算、V11／V15 及 Louis 的 live 核准，足以作分階段驗收框架；但 M5 才加數值／離散題，若不釐清分母，90% 可能不可達或被錯報。此項須在 M3 判定前補定，不阻擋 M1｜non-blocking
-- [§7.6 / §10 / §12 V7 / §13] 建議在 Louis 依 §13 核准凍結後開始 M1 的 local 實作與隔離驗收；不得把本輪文件審查當作 M1 完成或 trial／live 核准。三線仍須通過全域內容審查及實測，子代理不合格就不啟用，送出與覆蓋模擬則按 M3 門檻完成｜第 4 回合五項 blocking 已在 v0.5 規格中解決；剩餘為既有禁令的實作細化、可觀測性查證及效益參數，沒有仍需阻止 M1 開始的設計問題｜non-blocking
-
-本回合沒有 blocking 意見。
-
-#### Telegram 營運介面交接（GPT，2026-11-01）
-
-- [§4.5 / §5.1 / §5.2] 依使用者本輪要求已新增 `telegram_ops_v1`：私人帳號配對、彙總營運報告、狀態查詢及每日／每週通知排程；建議整合者將 `src/telegram_bot.py`、`src/flab/ops_report.py`、`data/telegram_events.jsonl` 與 `launchd/org.forecast-lab.telegram.plist` 納入架構，並於 §15／§16 記錄。設定與限制詳見 `docs/telegram.md`；完整結算分數報告仍待後續實作｜手機可讀取進度，通知設定與歷史採 UTC JSONL 追加；介面不呼叫模型、不修改預測行為，所有題目均不顯示答案、理由或原始輸出，符合既有資訊限制；本輪不代替 Claude 修改正文或升版｜non-blocking
-
-- [§5.1 / §5.2 / §7 / §9] 使用者續要求 Telegram 開發模式，已新增 `telegram_ops_v2`／`telegram_dev_v1` 的私人任務佇列、補充續作、停止與進度／完成通知；建議整合者納入 `src/flab/dev_tasks.py`、`src/flab/dev_runner.py` 與 `data/telegram_dev/events.jsonl`，將開發與無人值守預測的權限及額度口徑分開記錄。詳見 `docs/telegram.md` 與 `docs/tasks/TELEGRAM-DEV.md`｜開發使用獨立程式副本與官方 Codex CLI、命名檔案權限及離線測試；不讀正式資料、報告或憑證，不自動套回主專案／提交／部署；沿用既有 Telegram 服務，啟用前避開模型隔離驗收的 LaunchAgents 觀測窗口；實作由 Claude 獨立審查，GPT 不修改正文｜non-blocking
-
-#### Market Pulse 與 Cup 參賽準備（GPT，2026-11-01）
-
-- [§3.1 / §3.2 / §3.6 / §3.7 / §9 / §10] Louis 本輪表示希望參加 Market Pulse，建議整合者將 `market-pulse-26q4`（官方 ID 33131）的參賽方向納入 §15／§16，先完成數值題組及賽事專屬提交契約，再依既有門檻開啟白名單；規則摘要與可執行工作切分見 `docs/tournament_checks/market-pulse-26q4.md`、`docs/tasks/EXPAND-TOURNAMENTS.md`｜本季只允許人類或機器人擇一參賽，已向 Louis 詢問是否有既有人類預測；現有管線排除題組且不支援數值題，不能只增加比賽 ID；本項阻擋新增 Market Pulse 的正式送出，不阻擋既有 M2 量測｜blocking
-- [§8 / §9 / §5.2] Louis 同時接受 AI 協助、本人判斷並手動提交的 Cup 人類賽方向；建議依 §8 落地獨立 advisory 管線與私人 Telegram 入口，報告可含人類賽參考機率，但先排除機器人獎金賽 open/upcoming 同步題並維持額度優先序；核對記錄在 `docs/tournament_checks/metaculus-cup-fall-2026.md`，實作範圍在 `docs/tasks/EXPAND-TOURNAMENTS.md`｜官方允許 AI 輔助人類預測，現有 Telegram 營運報告尚無此功能；通用單次參賽規則與 §8 同季 bot 試驗的相容性仍須核對；本輪只記錄方向與準備，不把尚未實作的指令宣稱為可用｜non-blocking
-
-- [§3.1 / §3.7 / §15] 2026-11-01T13:12:22Z 補記 Louis 回覆：「我新辦的帳號沒有在那邊參加過預測」；請整合者將 Market Pulse 26Q4 採機器人身分、尚無既有人類預測的確認一併納入決策紀錄｜前項關於人類／機器人身分衝突的待答問題已解決；數值題組、完整規則核對及既有上線門檻仍按工作說明完成，不將此回覆誤記為已有平台報名或送出紀錄｜non-blocking
-
-#### MiniBench 提早參賽決定（GPT，2026-11-01T13:28:24Z）
-
-- [§3.6 / §10 M3～M4 / §15 / §16] Louis 在確認 MiniBench 每輪獨立計分後，要求記錄新決定供 Claude 整合：取消 M3「先在試驗場地連續跑滿 14 天」的固定日數門檻，改為必要技術驗收通過後就進入 MiniBench，第一輪同時取得正式賽回饋及爭取獎金；請整合者修改正文、決策與變更紀錄、版本號，並同步 `docs/tasks/M3.md` 的 W5，不另加未經決定的 48／72 小時等待期｜14 天是專案自訂的穩定性觀察期，不是官方參賽資格；官方以每輪題目計分，上一輪負分不會帶到下一輪，MiniBench 本就用於快速取得回饋；本次是 Louis 確認的門檻調整，不再重問是否取消 14 天｜non-blocking
-- [§3.6 / §7 / §9 / §10 M1～M3 / §12 V11、V15] 此決定只取消固定等待天數，其餘必要條件保留：M1／M2 有效驗收、試驗場地的真實送出與讀回、每題單次提交及未知結果對帳、留言補送、停用開關、排程與跨週預算、V11／V15、預先固定期間與分母的覆蓋率模擬及既有 90% 已支援題型門檻。Claude 應列明各項證據與剩餘工作，依既有授權及 §3.6 將具體比賽白名單、機器人身分與切換依據記入 §15 後再啟用；本輪只更新文件，未切換 `live`｜截至本次讀取，`submit.py` 預設仍為 `OfflineTransport`、`continuous.py` 窗口最長七天、模式仍為 `local`；移除 14 天不能代替端到端驗證，也不會自動解決跨週運作；本項僅阻擋證據不足時的正式送出，不阻擋既有 M2 量測｜blocking
-- [§3.6 / §4.3 / §4.5 / §10 M4～M6 / §15 D49] 第一輪 MiniBench 是正式參賽，仍每題只送一次；不得預覽 open/upcoming 題目輸出後改機器人或因不喜歡答案重跑。依已關閉題目或合規試驗場地調整，變更升版且記錄；單輪約 60 題的排名不作充分效能證據。主賽是否提前、是否移除 M4 完成一輪及 M5 數值／離散題前置條件，另由 Claude 列出取捨供 Louis 決定，本輪沒有一併取消 D49｜官方允許賽中更新，但禁止人為介入個別預測；本次決定的明確範圍是 MiniBench 的固定等待期，避免將提早參賽誤解為取消所有驗收或主賽前置條件；規則補記見 `docs/tournament_checks/futureeval.md`，交接見 `docs/tasks/HANDOFF.md`｜non-blocking
-
-#### Claude 額度用盡後接手與 M3-W9 B1（GPT，2026-11-01T14:29:00Z）
-
-- [§3.6 / §5.2 / §12 V15 / §16] 依 Louis 本輪指示，由 GPT 接續實作、Gemini 獨立審查。已修正 M3-W9 B1：`APITransport.tournament_index()` 共用 `poll(metadata_only=True)` 與 `TournamentIndex.from_polls()`，題組／條件題按既有規則記錄 skipped，不再中斷整批試驗送出；讀取失敗仍拒絕。`api_transport_v1` → `api_transport_v2`，CLI 將中繼資料紀錄寫入傳入的專案目錄。建議整合者於 §16 與版本號記錄本次修正，並將 B1 標為完成｜Gemini 透過官方 agy／`gemini-4-argon-high` 審查原始碼與追加修正均 PASS、無 blocking；隔離副本完整 1205 passed，最後路徑修正相關 247 passed；細節見 `docs/tasks/M3-W9.md`。本次未修改 PLAN 正文、§15／§16、設定、prompt 或固定 M2 管線｜non-blocking
-- [§7.6 / §10 M3 / §12 V15] 建議保留 V15 真實 API 驗收為未完成；此次共用索引與離線測試不能取代真實送出、讀回及平台重複提交驗證。測試在專案外的父工作目錄執行，`TMPDIR="$PWD/.tmp"` 位於專案外即可全數通過，不需要放寬 `workdir` 的隔離限制｜先前交接稱為「沙箱內 10 個已知失敗」的本次重現，實際原因是暫存工作目錄位於專案內；修正執行位置後通過。仍須等 M2 及其他既有條件完成後依 D78 切換試驗模式｜non-blocking
-
-#### TG 決策接手問題修正（GPT，2026-11-02）
-
-- [§5.2 / D91 / D95] 依 Louis 本輪要求已修正 `telegram_ops_v4`／`team_chat_v2`：未開始且未到期可改選、版本核對接手、條件里程碑通知、最新決策優先、資料截點與執行器心跳、明確負責人／阻塞／下一步；請整合者同步正文、§15／§16 與版本。根因是 D100／D101 未登記續作且沒有桌面 agent 喚醒機制，TG launchd 本來已在線；選項範圍已獲核准不得重問。實作與證據見 `docs/tasks/TELEGRAM-HANDOFF.md`，操作見 `docs/telegram.md`｜使用者已另行指示 Claude 執行 D100／D101，GPT 只修 TG，不改這兩項決定或預測設定。相關 94 passed、隔離完整 1641 passed；Gemini Argon medium 審查與修正後複查均 PASS。維持僅已審查離線續作可自動執行的 D91 界線，人工主持人須在開工前登記 claim；本輪未提交，由 Claude 整合｜non-blocking
-
-#### D107 A2 工作副本部分實作（GPT，2026-11-02）
-
-- [§3.6 / §12 V15 / §15 D107 A2 / §16] 建議整合者審查完整 `v15_probe_v4` 三情境並同步版本／變更紀錄：依 Claude 決定，`comment_retry` 使用隔離且標記 synthetic 的輸入與帳冊、唯讀正式去重、強制讀回及未修改的 Submitter 三次留言狀態機（本地注入一次、真實留言最多兩次、預測最多一次）；長度測試維持已有自身預測及 forecast probe 保留的限制；歷史 unknown／write_unconfirmed 僅在同一請求後有 found 或具證據的 confirmed_failed 才解除阻擋｜工作副本已完成離線實作，`single`／v1～v3 相容測試保留；相關 433 passed，完整 1831 passed／62 failed／2 skipped（61 項沙箱或暫存目錄限制、1 項既有含空白路徑測試假設），詳見任務文件；未修改正式 Submitter／transport、未執行平台驗收或提交部署，仍待 Claude 與獨立審查，不代表 M3 驗收完成｜non-blocking
-
-#### 主賽前清理盤點（GPT，2026-11-05）
-
-- [§3.1／§3.6／§5.2／§14] 建議優先更正 AGENTS 硬性規則 2 仍列 Cup 為試驗場地、README v1.78 舊現況、未同步 D132 結算日期、兩份索引與 6 處已刪文件斷鏈；保留歷史出處，不復活舊規格｜三方盤點與兩家官方 CLI 定點補審見 [清理清單](docs/tasks/CLEANUP-AUDIT-2026-11-05.md)；本輪只列清單，未改正文／決策／版本或執行清理｜non-blocking
-- [§5.2／§7.2／§7.6／§9] 建議小批清除 budget._positive、forecast._fraction 等高信心候選與非指紋檔未使用 import；先保存目前未提交交付、核對外部腳本，再依既有雙審與互斥程序套用。舊 TG／M2 模組須先抽共用函式及測試 helper，舊 outbox 與帳冊相容保留；不可按檔名或低引用數整檔刪除｜335 檔來源快照、81 個 src 模組與 45 測試檔／123 個跨測試 import 已盤點；D126 不要求純工程清理等 11/10，但換窗批次不混重構｜blocking（對未拆依賴的整檔刪除）
-- [§7.6／§10] 建議先整理測試隔離與 M5 過時斷言，不刪失敗案例求 PASS；本輪 plain offline 為 3241 passed／110 failed（含原 100 節點及額外 10），synthetic host 為 3317／34，兩者不可混為同基線改善。27 個 synthetic 失敗涉及 M5 型別假設，7 個涉及 fixture 目錄衝突；完整根因與新基線仍待修復批次｜未修改任何正式程式、測試或設定；兩家未自行跑測試，Gemini r1 截斷已做定點補證，不宣稱全庫逐檔審查或主賽就緒｜blocking（對宣稱全套 PASS 或把失敗視為可刪）
-
-#### 正式營運後的輪詢與參賽擴張（GPT，2026-11-05）
-
-- [§3.2／§3.5／§9／§16] Louis 要求將新題檢查從 10 分鐘拉長至 30～60 分鐘；建議先實作 30 分鐘，將新題發現與已知題的截止／送出分開，連同 cycle、scheduler 與 launchd 耦合計時做離線比較和升版。觀測到不足一小時窗口即縮短，並納入研究／排隊餘裕不足的情況｜截至本輪最新輪詢，主賽 4 題與 MiniBench 41 題的最新排定窗口均 180 分鐘，但歷史有空檔，不能據此證明未漏短窗題；API 輪詢本身不消耗模型額度。提案與證據見 `docs/tasks/NEXT-STEPS-2026-11-05.md`｜blocking（對只改 plist 就啟用或宣稱 60 分鐘已驗證）
-- [§8／§9／D132／D134／D137] Louis 指定人類賽維持主動詢問、先列開放題數與最急幾題，再按指示研究；建議通用化 D132 固定兩題入口，加入 D137 主賽＋MiniBench 避讓、獨立人類賽清單、子題計數、既有研究去重及共用額度，沿用英文報告／Gemini 潤稿與本人手送｜現有程式仍綁 D118 與兩道 Cup 題，不能把昨天兩題完成說成任意新題皆已可執行；不新增固定推播或自動人類提交｜non-blocking
-- [§3.1／§3.6／§3.7／§9／D76] Louis 確認 Market Pulse 人類與機器人同場後明確回覆「那你們去參加吧」，延續 D76 的 Market Pulse 26Q4 機器人身分，不再列為人／bot 待決；請整合後續實作與啟用紀錄。先完成題組子題映射、讀回／去重、本季作答與更新契約、較低優先序及保留原用量的預算接續｜官方 API 本輪確認同池 7,500 美元、人／bot 擇一、各子題截止 spot score；M5 單題數值已上線，但 group 尚未支援，D137 現有接續亦已達兩跳上限。本輪完成計畫與規則核對，未開白名單或送出｜blocking（對省略必要工程直接送出；參賽方向已核准）
-- [§1.1／§3.7／§8／§9] 建議以剩餘可計分機會、資格／AI／資料規則及實作工作量篩選新賽，Kaggle／和鯨一次只新增一個分析專案；Climate 先核對仍開放且可計獎子題，NFL 2027 列分析專案候選｜Climate 的 5,000 美元包含已於 2023 年截止的留言獎，準確度獎為 2,500 美元；NFL 2027 是 writeup＋Notebook 分析競賽，不能直接套用現有預測機器人。實際 Claude 策略諮詢與 Gemini 網路調查紀錄見任務文件；不以規劃諮詢冒充工程雙審｜non-blocking
-
-### 14.3 Louis 與女友
-
-（待填）
-
-
-#### D84 夜間複驗與後續修正（GPT，2026-11-01）
-
-- [§3.1、§3.2、§7.4] Claude 00:30 複驗指出 B1 共用輪詢仍漏掉題組／條件子題；應把父貼文、每個子題的 ID 與標題 hash 都納入排除索引，只有可辨識的 notebook 可略過，未知結構須停止｜共用同一實作不代表索引完整；獨立反例已補入離線測試，修正仍待複審｜blocking
-- [§3.6、§12 V15] 依 bot testing area 唯讀資料與官方來源，修正自己的預測容器、Unix 時間、向量及空 201 回執的對帳；保存送出前既有識別與微秒時間，禁止誤認前次相同預測；多選順序無法確認時應在送出前拒絕｜實際 API 與原假設不同，不能等送出後才發現永遠無法對帳；尚未進行真實 POST，修正仍待 Claude 複審｜blocking
-- [§9] 增加選填的有限週數排程模板，每週固定七天 UTC、相同上限／場地／設定 hash，保留歷史並禁止改名重疊、時鐘倒退及未用容量累積｜解除目前七天到期後無法持續的技術缺口；不選定正式容量、不啟用 launchd，1257 項離線測試通過，待 Gemini 獨立審查｜non-blocking
-- [§12 V11、§10 M3] 在查看模擬結果前固定 UTC 2026-10-05～10-19 的主賽與 MiniBench 全部開題；取得 104 題、其中支援題型 67 題的官方歷史排定時間資料，並保留 notebook 排除證據及修訂／可見時間限制｜避免挑分母或忽略背景負載；這是輸入資料準備，不是覆蓋率通過，詳見 `docs/tasks/OVERNIGHT-D84.md`｜non-blocking
+> 早期回合制計畫審查對話已於 D150 清理（完整原文保留於 git 歷史）；各階段正式程式碼與規格審查的最終通過報告保存於 [`reviews/`](reviews/INDEX.md)，所有有效決策與規格變更以 §15「決策紀錄」及 §16「變更紀錄」為準。
 
 ---
-
-### GPT：D136 第一批清理實作（2026-11-05）
-
-- [§3.1／§5.2／§7／§10] 依 Louis「OK開始做」，執行清理盤點 A01–A10；文件保留歷史與導覽，測試使用單一隔離 host、明確題型 fixture；僅刪兩個無引用 helper 與 11 個非 adapter import。B 類等依賴／交付／重驗條件另批處理。實際雙審與回歸狀態見 `docs/tasks/D136-CLEANUP-BATCH1.md`｜避免過時入口誤導接手、建立可重現驗證，沒有改預測行為｜non-blocking
-
-### GPT：D138 data 無損封存（2026-11-05）
-
-- [§5.2／§7／D138] 依 Louis 本輪授權完成兩份離線模擬結果無損封存與 AGY 重複候選刪除，現役 pins／核心帳冊／raw／驗收保留；還原入口與實際證據見 D138 任務單｜Claude／Gemini 同封包 PASS，三份還原演練、18＋2＋71 測試及前後 12 項正式前檢通過；不讀開放題預測或改正式行為｜non-blocking
 
 ## 15. 決策紀錄
 
@@ -1900,10 +1280,13 @@ view_image                  stable true
 | D147 | 2026-11-08（台北） | Louis 指示「處理做一下第四題 順便看一下人類cup賽有哪些新的題目」 | GPT 整合 Codex 官方外掛快取 `latest` 目錄別名相容修正，依 D107 A4 完成 Gemini 獨立審查與隔離測試後套用，讓既有排程接續 GPT 未開始的工作。只處理環境盤點，不預覽開放題答案、不強制定稿、不重跑已提交題；現有權限／模型／預算／截止不變。另唯讀盤點 Cup 開放與 upcoming 題，沿 D142 截止前48小時研究，不啟動人類賽研究或提交。實際結果見 D147-CODEX-CACHE-ALIAS.md。 |
 | D148 | 2026-11-09（台北） | Louis 回報「目前他就比較像是一個我問他他回答目前的專案進度但他不能操控專案而且我發現他會一直跟我說以前處理完的問題 例如D101啥之類的」 | 根因：`待決事項` 固定附最近 3 項已結案決策（11/02 後無新決策，故一直是 D100～D102），且問答模型帶入的最近 4 則舊對話（11/03～11/06）都重述這些結案。Claude 實作 `telegram_ops_v5`／`team_chat_v3`：只呈現目前事項、24 小時後收合結案／過期決策與舊摘要、只帶 24 小時內對話，並在 `進度` 加入近 24 小時營運計數。依 D107 A4 由 Claude 審查（不涉送出、讀回、預算或權限隔離）。對「TG 操控專案」，Claude 提出官方 Remote Control、TG 固定操作按鈕、TG 派開發工作三案；Louis 隨後表示「我現在基本上就只是會問他們今天有沒有卡線 如果有請恢復 或是今天預測情況如何這種事情 但我們有自動恢復機制所以感覺也不需要再由tg開發」，故三案都不實作，TG 維持唯讀問答與既有決策入口，卡線恢復沿用 line_recovery 自動機制，權限不變。 |
 | D149 | 2026-11-10（台北） | Louis 指示「今天claude停線了 導致有好幾題未能及時送出 幫我把這種會停線的機制給拔掉 他已經讓我損失太多題了 先恢復 claude 然後排查自動恢復停線腳板為什麼沒有恢復claude 然後拔掉這些會造成停線的規則 最後 加上一項無論如何題目關閉前必須送一個結果出去不能放掉」，並補充「1. mac那個是我沒有插好電不用特別改 2. 這邊我原本的意思是要至少一個模型有完整預測答案才送 3. 等等改完再commit 你做完之後 給gpt審查一下」「你可以改用gpt 6 astra mid推理 做審查」 | 根因：Claude 自 UTC 11/09 15:15 因 `~/.claude/settings.json` 一般鍵（model／theme）變動被基準判 reaccept 而前檢擋線；`auto_reaccept` 只觀察、`line_recovery` 只處理 Gemini 工具拼字停線，故無自動恢復。46569／46708 在 Gemini、GPT 已答完後仍等 Claude，又逢 Mac 未插好電睡眠（UTC 16:57–18:08）錯過截止；46583 因 live 窗口 UTC 11/10 04:00 到期、無人續期而未送。Claude 起手、額度用盡後由 agy（Claude Opus 5.5 → Gemini 4 Argon）接續完成：前檢只留 Louis 手設開關、`line_stopped` 只認限時等待、已有答案時不等缺線、live 窗口自動續期、截止前必送保底（`deadline_fallback_v1`：至少一個模型有完整預測答案時才送，含 `salvaged_inputs`，不送無模型答案的中性先驗，見 §7.5）。依 Louis「全拔」，Gemini credits 非零與 `leak_confirmed` 累計也不再停線（該次答案仍不採用）。UTC 13:40:12 窗口已續為 `auto_20261110T0400Z`，首個 cycle 三線前檢 ready；官方 Codex CLI（`gpt-6-astra` `medium`）獨立審查 PASS（`reviews/gpt-d149-r18.md`），完整離線回歸 3707 passed／0 failed（相關 176 passed）。 |
+| D150 | 2026-11-11（台北） | Louis 要求審查專案文字紀錄、文件與過時設定／資料，於盤點 A～F 六類清單後指示：「ABCDE都清掉 D 只刪中間退件與作廢提案留最終報告 C2 刪掉 F 順便更新ＯＫ」 | Gemini（agy）依核准範圍執行全面清理：(A) 卸載並刪除本機 `org.forecast-lab.line-recovery` LaunchAgent、`config/line_recovery.json` 設 `enabled=false`、移除 `launchd/` 未使用的 `line-recovery`／`resolve`／`report` 範本及 `launchd/run.sh` 尾端的 `auto_reaccept.py tick`（保留 `src/line_recovery.py` 與 `src/auto_reaccept.py` 供匯入與離線測試）；(B) 同步更新 `README.md`、`launchd/README.md`、`CLAUDE.md`、`docs/telegram.md`、`docs/tournament_checks/metaculus-cup-fall-2026.md`、`config/tournaments.json` 註解與 `docs/tasks/HANDOFF.md`；(C1／C2) 同步 `PLAN.md` §0～§12 現行規格與 D137～D150 狀態，並刪除 §14 早期審查對話紀錄；(D) 刪除 `reviews/` 中 39 份中間退件／回覆封包／已取代提案審查與 `docs/tasks/` 中 10 份作廢提案草稿，完整保留 60 份最終 PASS 報告、驗證清單與里程碑規格並重建兩份 `INDEX.md`；(E) 清理本地未追蹤的 `scratch/`、M2 舊報表、`data/operations/` 外掛備份壓縮檔與非 D138 暫存目錄（`data/` 約 `1.0 GB -> 838 MB`，核心 `*.jsonl`、`raw/`、`cli_pins/` 與 D138 無損封存 100% 保留）；(F) 更新 `AGENTS.md` 子代理與 TG 說明並同步兩份測試保護雜湊 fixture，保留 `run_config_v2.json` 與 `quota_policy.json` 原位元組不動以維持現役 `auto_20261110T0400Z` 窗口雜湊。 |
 
 ---
 
 ## 16. 變更紀錄
+
+- **v1.104**（2026-11-11，台北）：D150，退役無效背景恢復與觀察機制（卸載 `org.forecast-lab.line-recovery`、`config/line_recovery.json` 設 `enabled=false`、移除 `launchd/` 三份未使用 plist 與 `launchd/run.sh` 尾端 `auto_reaccept.py tick`，同步更新 `tests/test_cycle.py::test_launchd_templates`）；全面更新入口與操作文件（`README.md`、`launchd/README.md`、`CLAUDE.md`、`docs/telegram.md`、`docs/tournament_checks/metaculus-cup-fall-2026.md`、`config/tournaments.json` 註解、`docs/tasks/HANDOFF.md`、`AGENTS.md`）；同步 `PLAN.md` §0～§12 現行參賽場地、排程、題型、不停線與截止前必送狀態，清理 §14 早期回合審查對話並整理末尾散落紀錄；刪除 `reviews/` 39 份中間退件／作廢提案審查與 `docs/tasks/` 10 份已取代草稿，重建 `reviews/INDEX.md` 與 `docs/tasks/INDEX.md`；清理本地未追蹤暫存與舊備份；同步 `AGENTS.md` 於 `d121_protected_hashes.json` 與 `m5_legacy_golden.json` 的保護雜湊。預測模型、prompt、整合公式、預算上限、現役 `live` 窗口雜湊與核心帳冊均不變。
 
 - **v1.103**（2026-11-10，台北）：D149，`flab/fail_soft.py` 新增 `PERSISTENT_STOPS=False`／`HARD_PREFLIGHT`／`TIMED_WAIT_REASONS`／`STRAGGLER_HOLD_S`；`forecast.preflight` 改為只有手設開關擋線、其餘與讀取例外皆為 `warnings`；`line_stopped` 預設只認帶 `until` 的限時等待（`TIMED_WAIT_REASONS`）；`scheduler` 不等長等待或被擋的線並記 `lines_not_waited_for`（含跨層級 `budget_wait` 傳遞），最終無一般可採用答案但至少一個模型有完整有效預測答案（不含 `leak_confirmed`）時套用 `aggregate.apply_fallback`（`deadline_fallback_v1`：`salvaged_inputs`），零模型完整答案時維持 `no_valid_inputs` 不送出；舊空最終整合在有可挽救模型答案時可被取代，保底整合在乾淨答案到達或事後 `leak_confirmed` 時可被取代／撤回；`comment` 新增對應的保底留言重建；`discovery.actionable_questions` 為有可挽救答案的空最終整合喚醒；`live_window.renew`＋`cycle` 到期自動續 7 天窗口（`live_window_renewal_v1`）。`config/cycle_campaign.json` 因每週續期移出 D121／M5 保護雜湊清單。預測 prompt、模型、agg_v1 數值規則、預算上限與送出流程不變。測試与審查：官方 Codex CLI（`gpt-6-astra` `medium`）獨立審查 PASS（`reviews/gpt-d149-r18.md`），舊停線測試改以 `legacy_stops` fixture 驗證舊規則，新增 `tests/test_d149_deadline_fallback.py`，完整離線回歸 3707 passed／0 failed。
 
@@ -1925,11 +1308,11 @@ view_image                  stable true
 
 - **v1.94**（2026-11-05）：D140 新增 line_recovery_v1、forecast_pipeline_v11，精確證明未執行的 AGY 工具拼字失敗可在既有正式兩層隔離證據仍有效與當前雙重前檢後自動恢復，原一次 rerun 槽可補做；修正恢復後舊 line_stopped job 的 discovery 等待，人工 resume 也遵守線鎖及 ledger 交易。獨立300秒恢復服務，不改1800秒新題政策／60秒提交 heartbeat、模型／prompt／整合權重／固定caps與截止。舊失敗結果不採用、不改寫；其他安全停線仍保持。R3四份正式雙審及R4測試fixture補審通過；完整離線3574、smoke266、部署故障35 PASS。UTC13:13部署、13:14 Gemini自動恢復（0模型呼叫），3道待補Market題皆已forecast_ok／comment_ok（最後回執13:36:55.360Z），正式累計25題；實際回執與限制見D140任務單。
 
-- **v1.93**（2026-11-05）：D139 三步擴張，30分鐘新題發現／已知工作分離、人類賽手動入口、Market Pulse題組及第三段有限接續。新版本 discovery_v1、advisory_v2、question_mapping_v1、market_pulse_v1、continuous_v11、budget_handoff_v3、cycle_v9、scheduler_v9、budget_v10、submit_v12、api_transport_v9、resolve_v3、post_close_audit_v3；舊契約限制與歷史不改。未改正式模型／研究提示詞／統計參數／原 caps／截止。實際驗證／雙審／部署見D139任務單；本版記錄授權與固定政策，未完成啟用前不宣稱已啟動。
+- **v1.93**（2026-11-05）：D139 三步擴張，30分鐘新題發現／已知工作分離、人類賽手動入口、Market Pulse題組及第三段有限接續。新版本 discovery_v1、advisory_v2、question_mapping_v1、market_pulse_v1、continuous_v11、budget_handoff_v3、cycle_v9、scheduler_v9、budget_v10、submit_v12、api_transport_v9、resolve_v3、post_close_audit_v3；舊契約限制與歷史不改。未改正式模型／研究提示詞／統計參數／原 caps／截止。已於 `2026-11-05T05:57:07.361Z` 完成雙審與驗證後部署啟用，詳見 `docs/tasks/D139-EXPANSION.md`。
 
-- **v1.92**（2026-11-05）：D138，依 Louis 指示進行三方審查的 data 無損封存／去重；只遷移兩份離線模擬結果及可還原的 AGY 候選，歷史原始 bytes 保留，新增封存導覽與還原驗證、模擬器追加前防護。正式預測行為／版本、模型、設定、原始帳冊與 D137 授權不變；交付證據見 `docs/tasks/D138-DATA-CLEANUP.md`。
+- **v1.92**（2026-11-05）：D138，依 Louis 指示進行三方審查的 data 無損封存／去重；於 `2026-11-05T04:08:30.861635Z` 完成兩份離線模擬結果及可還原 AGY 候選清理（`data/` 邏輯大小約 `1.79 GB -> 1.02 GB`），歷史原始 bytes 保留，新增封存導覽與還原驗證、模擬器追加前防護。正式預測行為／版本、模型、設定、原始帳冊與 D137 授權不變；交付證據見 `docs/tasks/D138-DATA-CLEANUP.md`。
 
-- **v1.91**（2026-11-05）：D137，依 Louis 直接開賽指示新增有限主賽准入，明列 M3 完整觀測與 M4 官方分數限制；continuous_v10／budget_handoff_v2 支援保留根用量的第二次接續，拒絕未登記v10預算、第三跳／分叉／延長／重設cap。只更新主賽白名單、候選campaign／live窗口合約及相應固定hash測試；不改正式研究prompt／模型／統計參數／預算上限。審查、回歸與實際啟用狀態見 `docs/tasks/D137-MAIN-LAUNCH.md`。
+- **v1.91**（2026-11-05）：D137，依 Louis 直接開賽指示新增有限主賽准入，明列 M3 完整觀測與 M4 官方分數限制；continuous_v10／budget_handoff_v2 支援保留根用量的第二次接續，拒絕未登記v10預算、第三跳／分叉／延長／重設cap。只更新主賽白名單、候選campaign／live窗口合約及相應固定hash測試；不改正式研究prompt／模型／統計參數／預算上限。已於 `2026-11-05T02:49:33.366Z` 啟用主賽＋MiniBench 有限 live，詳見 `docs/tasks/D137-MAIN-LAUNCH.md`。
 
 - **v1.90**（2026-11-05）：D136 第一批清理，入口文件與歷史狀態對齊 D79／D132，修復六處舊連結與兩份索引；移除兩個占位檔、兩個 dead helper、11 個未用 import。統一 pytest／離線入口的 synthetic host，暫存改放專案外，M5 測試明確指定開關並補雙向案例，保留既有案例目的。未改預測流程版本／固定設定／主賽狀態；Claude／Gemini r2 雙PASS、兩種入口完整3368PASS、部署故障12PASS；2026-11-05T01:53:05.925Z 六鎖套用，根目錄976PASS、前後12項preflight全過，307個目標外檔案不變。雙審、測試、來源與套用結果見 `docs/tasks/D136-CLEANUP-BATCH1.md`。
 
@@ -2199,9 +1582,3 @@ view_image                  stable true
   - 未採納：自動放寬時間窗（§12 Q1）、二手暴露留在主要分析（§12 Q3）、關鍵字命中直接視為洩漏（§3.3）、Base64 混淆（§7.4）。
   - 同步修改 README.md 與 AGENTS.md（D20）。
 - **v0.1**（2026-10-30）：Claude 撰寫初稿。
-
-- D137交付事實：2026-11-05T02:49:33.366Z主賽＋MiniBench有限live；Claude／Gemini r3雙PASS、完整3393PASS、故障27PASS、前後12項preflight全過。原計數與截止保持，實際cycle active，狀態與剩餘驗收限制見 `docs/tasks/D137-MAIN-LAUNCH.md`。未commit／push。
-
-- D138 交付事實：`2026-11-05T04:08:30.861635Z` 完成三份可還原原檔清理，data 邏輯大小約 1.79 GB → 1.02 GB；雙審 PASS、三份實際還原、18＋2＋71 測試、前後 12 項前檢通過。正式來源與核心帳冊不變的具體基線／範圍及還原入口見 `docs/tasks/D138-DATA-CLEANUP.md`。未 commit／push。
-
-- D139交付事實：2026-11-05T05:57:07.361Z雙審／驗證後啟用30分鐘新題搜尋、人類通用入口及Market Pulse；全部固定用量／caps／截止保留，實際metadata與限制見 `docs/tasks/D139-EXPANSION.md`。

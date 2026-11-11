@@ -15,8 +15,8 @@
 
 - 基準：HEAD `2f202bf` 加上目前 D132–D135 未提交工作樹；完整來源 [SHA manifest](../../reviews/cleanup-audit-20261105-source-manifest.json)。盤點時共 **335 檔、81 個 Python 來源模組／28,005 行、79 個測試檔、64 份任務 Markdown**。
 - GPT：來源快照、AST／全文引用／CLI 入口／連結檢查、針對性閱讀及隔離測試；[直接核對紀錄](../../reviews/gpt-cleanup-audit-20261105.md)。這不是正式程式的逐行正確性證明。
-- Claude：官方 `claude-opus-5-5`、high；[第一輪原文](../../reviews/claude-cleanup-audit-20261105-r1.md)／[定點補審](../../reviews/claude-cleanup-audit-20261105-r2.md)。
-- Gemini：官方 `gemini-4-argon-high`、high；[第一輪原文](../../reviews/gemini-cleanup-audit-20261105-r1.md)／[定點補審](../../reviews/gemini-cleanup-audit-20261105-r2.md)。**第一輪自報封包截斷，不能當完整覆蓋；第二輪兩家均確認讀到精簡封包的結尾標記。** 補審只補特定議題，不冒充完整重讀原封包後半部。
+- Claude：官方 `claude-opus-5-5`、high；第一輪原文（已於 D150 清理中間輪次）／[定點補審](../../reviews/claude-cleanup-audit-20261105-r2.md)。
+- Gemini：官方 `gemini-4-argon-high`、high；第一輪原文（已於 D150 清理中間輪次）／[定點補審](../../reviews/gemini-cleanup-audit-20261105-r2.md)。**第一輪自報封包截斷，不能當完整覆蓋；第二輪兩家均確認讀到精簡封包的結尾標記。** 補審只補特定議題，不冒充完整重讀原封包後半部。
 - 兩家第一輪收到相同 296,045 bytes 封包（SHA `27dd36a79428e0e13495dfad8c888b38317b983155f6b294d12d563474406713`）；第二輪聚焦遺漏與分歧，35,997 bytes（SHA `8267e2c70f116abe4a5a53143c2c2116d1fcad4bcda5b2e2fac45ea2e39923b6`）。兩家只讀提供的程式／文件證據，沒有自行執行測試；不冒充三人各自完整逐檔讀過 335 檔。
 - 私有執行證據：`data/operations/cleanup-audit-20261105/`，保存來源盤點、CLI 原始結果、審查用量與測試輸出。沒有讀開放 bot 題預測或憑證；沒有模型預測或 Metaculus POST。
 - [最終核對紀錄](../../reviews/cleanup-audit-20261105-verification.json)：原 335 檔中 332 檔 SHA 不變；其餘僅 PLAN 自己的 §14 審查追加與兩份索引追加。所有原程式／測試／config／prompt／launchd 不變，4 次實際官方 CLI 審查用量另行記錄；新報告相對連結檢查通過。

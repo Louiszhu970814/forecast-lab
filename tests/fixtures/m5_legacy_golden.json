@@ -570,7 +570,7 @@
     }
   ],
   "protected": {
-    "AGENTS.md": "8453160de3b3c69f859fa1c99b75742cb6be6279e98d8109751be62510558def",
+    "AGENTS.md": "820b7f415576f02412ef155601ac1f14f72fa6e3418957ba7f8ba2e9ebb72bcf",
     "src/flab/runner.py": "1b51985e4d8a12f44ea2a145542b48f64ecd5f74abf36932e6974e71716394f8",
     "src/flab/netguard.py": "74186c4dedbc6d8257266cce073af861ed5eabe1e52eb2efc8cda1c50e733227",
     "config/quota_policy.json": "d3870c00e1fd03b57a3a2a54e3b3610273698186dc0f412477a803318b02812f",

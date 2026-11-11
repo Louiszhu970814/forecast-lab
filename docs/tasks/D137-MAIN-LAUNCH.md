@@ -31,7 +31,7 @@ UTC01:55官方GET確認bot311763（is_bot=true）、主賽33121／fall-futureeva
 ## 完成交付（2026-11-05T02:49:33.366Z）
 
 - GPT整合；[Claude r3](../../reviews/claude-d137-r3.md)與[Gemini r3](../../reviews/gemini-d137-r3.md)對同一凍結封包均PASS並確認END。審查依提供的完整diff／腳本／節錄及host證據，兩家未自行跑測試。Gemini r2把部分config列為全文的說法應限縮為實際提供的diff；AST掃描也只能證明165檔中明示import別名的引用，不能排除任意動態存取。原審查保留不改寫。
-- 審查修補歷程：r1雙PASS後補強營運；[Claude r2](../../reviews/claude-d137-r2.md)指出B1（launchctl新舊狀態格式）而REQUEST_CHANGES，正式設定尚未變更。本機唯讀輸出確認enabled／disabled格式後，補三態解析、未知／重複拒絕、停用後明確確認、絕對命令路徑及真實樣本測試，再經r3雙PASS。r2原文保留，不以Gemini單方PASS取代共同門檻。
+- 審查修補歷程：r1雙PASS後補強營運；Claude r2（`claude-d137-r2.md`，已於 D150 清理中間輪次）指出B1（launchctl新舊狀態格式）而REQUEST_CHANGES，正式設定尚未變更。本機唯讀輸出確認enabled／disabled格式後，補三態解析、未知／重複拒絕、停用後明確確認、絕對命令路徑及真實樣本測試，再經r3雙PASS。不以Gemini單方PASS取代共同門檻。
 - 完整 **3393PASS**（147.96s），原3368節點皆保留＋25（24handoff、1新v10 E2E；舊v9明確保留）。部署故障注入27PASS、stage smoke569PASS；正式root前smoke：373 passed in 3.59s；後smoke：569 passed in 5.05s。前後各6項preflight全部ok、無waiver／line_guard。
 - metadata副本演練的六組player/tier切換前後一致：當時已用Claude26、Gemini25、GPT24，上限130／200／130；根起點、Tier2預留12均保留。這是該時點記錄，後續實際呼叫仍會正常累加，開發審查用量另存私人review-usage，不宣稱免費。
 - 正式六鎖套用18個受審目標、登記唯一後繼；continuous帳冊原prefix完整，無刪除／重寫。336個原目標外檔案SHA不變。最後切live，有限合約綁定同一campaign／hash；未移除停止旗標，沒有重置驗收／用量／帳冊，沒有commit／push。

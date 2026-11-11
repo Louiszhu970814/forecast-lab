@@ -320,12 +320,10 @@ def test_tree_cleanup_includes_detached_children(monkeypatch):
 def test_launchd_templates():
     root = Path(__file__).resolve().parents[1] / "launchd"
     configs = {p.stem.rsplit(".", 1)[-1]: plistlib.loads(p.read_bytes()) for p in root.glob("*.plist")}
+    assert set(configs) == {"cycle", "telegram"}
     assert configs["cycle"]["StartInterval"] == 60
-    assert configs["resolve"]["StartCalendarInterval"] == {"Hour": 21, "Minute": 0}
-    assert configs["report"]["StartCalendarInterval"] == {"Hour": 21, "Minute": 0, "Weekday": 1}
-    # Only forecast jobs use run.sh/caffeinate; Telegram has its own resident service.
-    assert all(configs[name]["ProgramArguments"][:3] == ["/usr/bin/caffeinate", "-i", "/bin/sh"]
-               for name in ("cycle", "resolve", "report"))
+    # Forecast cycle uses run.sh/caffeinate; Telegram has its own resident service.
+    assert configs["cycle"]["ProgramArguments"][:3] == ["/usr/bin/caffeinate", "-i", "/bin/sh"]
 
 
 @pytest.fixture
