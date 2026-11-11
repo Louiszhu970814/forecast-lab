@@ -242,6 +242,7 @@ def test_budget_directly_blocks_prior_window_unresolved_work(tmp_path, kind):
     assert result['weekly_attempts_used'] == 0
 
 
+@pytest.mark.usefixtures("legacy_stops")  # pre-D149 stop rule
 def test_old_unresolved_start_still_blocks_line_after_rollover(tmp_path):
     cfg = template()
     append_record(tmp_path/'forecast_attempt_starts.jsonl', {'attempt_id':'unknown', 'player':'claude',

@@ -97,16 +97,18 @@ def actionable_questions(root, known, now):
     aggregates = read_complete(root / 'aggregates.jsonl')
     comments = read_complete(root / 'comments.jsonl')
     jobs = read_complete(root / 'scheduler_jobs.jsonl')
+    forecasts = read_complete(root / 'forecasts.jsonl')
     released = {r['wait_id'] for r in jobs if r.get('type') == 'scheduler_wait_reevaluated'}
     stopped = {p for p in PLAYERS if not enabled[p] or
                F.line_stopped(root/'line_status.jsonl', p, root/'forecasts.jsonl', now=now)}
-    for row in read_complete(root/'forecasts.jsonl'):
+    for row in forecasts:
         if row.get('quota_retry_at_utc') and now < parse_iso(row['quota_retry_at_utc']):
             stopped.add(row['player'])
     resumes = {r['player']:parse_iso(r['at']) for r in read_complete(root/'line_status.jsonl')
                if r.get('type')=='line_resume'}
     intent_snapshots = {r['intent_id']: r.get('snapshot',{}).get('snapshot_id') for r in submissions
                         if r.get('status') == 'intent'}
+    audit_view = False
     result = set()
     for q in known:
         qid = q['question_id']
@@ -131,6 +133,16 @@ def actionable_questions(root, known, now):
             failed = any(r.get('type') == 'comment_failed' and r.get('aggregate_id') == final.get('record_id') for r in comments)
             if final.get('status') == 'ready' and not failed:
                 result.add(qid)
+            elif final.get('status') != 'ready':
+                import aggregate as A
+                import audit_ledger as L
+                if audit_view is False:
+                    try:
+                        audit_view = L.ImpactGraph([*forecasts, *aggregates]).attempt_audit_view(read_complete(root / 'audits.jsonl'))
+                    except Exception:
+                        audit_view = None
+                if audit_view is not None and A.has_complete_answer({**snap, 'forecast_scope': 'snapshot'}, forecasts, audit_events=audit_view):
+                    result.add(qid)  # D149: an empty final is replaced when >=1 complete model answer exists
             continue
         deadline = F.decision_deadline(snap, cfg)
         if deadline is not None and now >= deadline:

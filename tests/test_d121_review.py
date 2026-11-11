@@ -209,6 +209,7 @@ def test_refresh_rechecks_deadline_and_reset_before_reserving(tmp_path, expired_
 
 
 @pytest.mark.parametrize("stream_failure", ["missing", "exception", "truncated"])
+@pytest.mark.usefixtures("legacy_stops")  # pre-D149 stop rule
 def test_recovered_gemini_tools_and_urls_survive_final_stream_failure(tmp_path, monkeypatch, stream_failure):
     import adapters.gemini as gemini
     ctx, raw = recovery_context(tmp_path, player="gemini")
@@ -251,6 +252,7 @@ def test_recovered_gemini_tools_and_urls_survive_final_stream_failure(tmp_path, 
 
 @pytest.mark.parametrize("raw_text", ['{"event":', '{"step_update":{"step_index":1,"step_type":"tool",'
     '"state":"DONE","tool_info":{"name":"run_command","parameters":{"CommandLine":"true"}}}}\n{"event":'])
+@pytest.mark.usefixtures("legacy_stops")  # pre-D149 stop rule
 def test_gemini_real_partial_parser_quarantines_without_false_persistent_stop(tmp_path, monkeypatch, raw_text):
     ctx, raw = recovery_context(tmp_path, player="gemini")
     (raw / "stdout.jsonl").write_text(raw_text)

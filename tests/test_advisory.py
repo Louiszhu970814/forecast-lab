@@ -213,6 +213,7 @@ def test_gemini_reserves_future_argon_before_human_call(ledger):
     {'safety_stop_reason':'synthetic nonzero credits'},
     {'own_audit_flags':['leak_confirmed']},
     {'recovery_no_rerun':True}])
+@pytest.mark.usefixtures("legacy_stops")  # pre-D149 stop rule
 def test_private_safety_events_stop_shared_bot_line(ledger,fields):
     from flab.ledger import read_complete
     root=ledger.root/'separate';root.mkdir()

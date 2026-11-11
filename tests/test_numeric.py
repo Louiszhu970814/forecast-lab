@@ -497,6 +497,7 @@ def test_legacy_bitwise_golden_and_protected_files(tmp_path, monkeypatch):
     # D136 aligns AGENTS.md with D79 and retires the empty prompts/.gitkeep entry.
     # Legacy payload rows and all runtime/config/prompt-content hashes stay pinned.
     # D137 updates only authorized campaign/mode/venue hashes; legacy rows stay pinned.
+    # D149 unpins config/cycle_campaign.json because the live window renews it weekly.
     for path, digest in golden["protected"].items():
         assert hashlib.sha256((ROOT / path).read_bytes()).hexdigest() == digest, path
     actual_flags = json.loads((ROOT / "config/question_types.json").read_text())

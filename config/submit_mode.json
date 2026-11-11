@@ -3,9 +3,9 @@
   "approved_bot_id": 311763,
   "live_window": {
     "version": "live_window_v1",
-    "campaign_id": "d139_main_minibench_market_20261105",
-    "campaign_sha256": "94f693aca3afb166275c82b2824a6b3b967fd2f0356ef5a386fab9af43575b09",
-    "start": "2026-11-05T05:14:00.869Z",
-    "end": "2026-11-10T04:00:00.000Z"
+    "campaign_id": "auto_20261110T0400Z",
+    "campaign_sha256": "dae01ae602580f0abbfe059a4c69402c8c8eb6cc936088793ce8bbed2ff6bf97",
+    "start": "2026-11-10T04:00:00.000Z",
+    "end": "2026-11-17T04:00:00.000Z"
   }
 }

@@ -262,6 +262,7 @@ def test_late_exclusion_never_reselects_or_runs_another_tier2(ctx):
     assert "claude" in final["input_attempt_ids"] and tier2(ctx)[0]["attempt_id"] not in final["input_attempt_ids"]
 
 
+@pytest.mark.usefixtures("legacy_stops")  # pre-D149 stop rule
 def test_interrupted_attempt_keeps_bundle_and_prevents_automatic_repeat(ctx):
     ctx.adapter = FakeAdapter([{"raise": KeyboardInterrupt()}])
     with pytest.raises(KeyboardInterrupt):
@@ -280,6 +281,7 @@ def test_suspected_input_flags_are_inherited_on_all_attempts(ctx):
     assert "suspected_leak" in row["audit_flags"] and "later_gemini" in row["input_audit_event_ids"]
 
 
+@pytest.mark.usefixtures("legacy_stops")  # pre-D149 stop rule
 def test_rejected_output_falls_back_and_subagents_stop_line(ctx):
     ctx.adapter = FakeAdapter([{"structured": _good(change_reason="Specific reasoning"), "subagent_count": 1}])
     result = R.run(ctx, SNAP, admit=admit)
@@ -351,6 +353,7 @@ def test_late_audit_during_successful_call_excludes_output_at_finish(ctx):
                for r in impacts)
 
 
+@pytest.mark.usefixtures("legacy_stops")  # pre-D149 stop rule
 def test_tier2_preflight_requires_high_model_and_equivalent_profile(tmp_path):
     from test_forecast import _accept, _pf, FP
     import hashlib
@@ -508,6 +511,7 @@ def test_hard_bundle_corruption_is_recorded_and_not_treated_as_eligibility(ctx):
     assert read_records(ctx.forecasts_log.parent / "reconciliation_runs.jsonl")[-1]["outcome"] == "integrity_error"
 
 
+@pytest.mark.usefixtures("legacy_stops")  # pre-D149 stop rule
 def test_tier2_acceptance_cannot_reuse_high_proof_from_an_old_cli(tmp_path):
     from test_forecast import _accept, _pf, FP
     import hashlib
@@ -535,6 +539,7 @@ def test_candidate_reuse_only_compares_the_latest_tier1_evaluation(ctx):
 
 
 @pytest.mark.parametrize("bad_proof", [[], "text", None])
+@pytest.mark.usefixtures("legacy_stops")  # pre-D149 stop rule
 def test_nonobject_acceptance_proof_is_rejected_without_crashing(tmp_path, bad_proof):
     from test_forecast import _accept, _pf
     import hashlib

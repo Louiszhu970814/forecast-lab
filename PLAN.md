@@ -1,11 +1,11 @@
 # Forecast Lab 計畫書
 
-> 版本：v1.102（v1.0 凍結後的修訂，見 §16；D148 TG 只呈現目前事項；D147 Codex 外掛版本別名相容與第 4 題續作；保留 D146 及以前紀錄）
+> 版本：v1.103（v1.0 凍結後的修訂，見 §16；D149 不停線、截止前必送與 live 窗口自動續期；D148 TG 只呈現目前事項；保留 D147 及以前紀錄）
 > 初稿：Claude
-> 本回合整合者：Claude（D148 TG 只呈現目前事項）；GPT（D147 Codex 外掛版本別名相容與續作；D146／D145／D144 亦由 GPT 整合）；D143 由 Gemini 整合，歷史見 `docs/tasks/HANDOFF.md`。
+> 本回合整合者：Claude → agy（Claude Opus 5.5）接續（D149 不停線與截止前必送；Claude Code 額度用盡，依 D141 改用 agy 備援）；Claude（D148 TG 只呈現目前事項）；GPT（D147 Codex 外掛版本別名相容與續作；D146／D145／D144 亦由 GPT 整合）；D143 由 Gemini 整合，歷史見 `docs/tasks/HANDOFF.md`。
 > 審查者：Gemini（agy）、GPT（Codex）、Louis、女友
-> 最後更新：2026-11-09（台北；操作時間以 UTC 記錄）
-> 狀態：D147 已於 UTC 2026-11-08T10:12:26.669Z 部署外掛版本別名相容修正，3660項完整離線回歸與Gemini獨立審查通過、三線兩層前檢全過；第4題由既有排程於UTC10:18完成預測與留言確認、三線兩層齊全，今日4題／累計36題全交；提交證據見 `docs/tasks/D147-CODEX-CACHE-ALIAS.md`。以下保留沿革：D145 已核對 Codex 0.167.0 升版未停線，三家 CLI 版本變更僅記錄；另已完成 Claude 一般設定變動的合成驗收與限縮基準更新，UTC 2026-11-06T22:57:26.939Z 三線兩層六項前檢全過、無 waiver，line guard 均無停線，見 `docs/tasks/D145-CLI-UPGRADE-CHECK.md`。以下保留沿革：D144 已依 Louis 指示將明列開發目錄的可讀內容變動改為僅記錄，保留工具權限、驗收證據與實際安全停線；當日 4 題已排入且全部送出，3 題因基準阻擋缺線（Gemini 2、GPT 1），非整題漏交。測試與部署證據見 `docs/tasks/D144-DEVELOPMENT-CATALOGS.md`。D139已於2026-11-05T05:57:07.361Z完成雙審、驗證與六鎖部署，30分鐘新題搜尋、人類賽手動入口及Market Pulse bot已啟用，實際開始／提交metadata見D139任務單。以下D137等紀錄保留沿革：D137 已獲 Louis「複審完 修改完可以 就直接開始正式賽了」授權，已於2026-11-05T02:49:33.366Z完成雙審／驗證與六鎖登記，主賽33121與MiniBench正式live；保留原根用量、130／200／130上限與UTC11/10 04:00截止，不待M4官方分數才加入，M3完整觀測／M4結算驗收未完成的限制不冒充通過。D129 `resolve_v2`／`score_v2` 手動入口已上線，D128 live 母體診斷已實作；首次決策未完整落盤，歷史與 live 完整 ITT 結論均維持禁止；D118已由D137接續主賽＋MiniBench（固定截止 UTC 11/10 04:00）；D127 M4 `resolve.py`／`score.py` 手動入口已上線（未啟用排程，首批正式已送出題的最早預定結算為台北 11/13 20:00，見 D132 日期核對）；M5、D121 第一批與 D123 已上線；D130 已恢復 Gemini（專案 pin 1.4.12，兩層前檢通過），D131 已完成 Claude／GPT 新隔離驗收與限縮基準核准，三線兩層前檢全過。D124 observe 與 D125 autoload_v3 已上線；D126 確立加速迭代窗口（每日已關閉題目三閘門健檢；M4 手動入口已上線，舊 11/06 日期由 D132 更正）並完成階段 A 過時文件清理、測試隔離修正、INDEX 建立與 PLAN 正文同步（v1.0 於 2026-10-31 經 Louis 核准凍結，D54）
+> 最後更新：2026-11-10（台北；操作時間以 UTC 記錄）
+> 狀態：D149 已依 Louis 指示拔除永久停線規則（前檢只剩手設開關擋線、只認限時等待、已有答案不等缺線），新增截止前必送保底 `deadline_fallback_v1` 與 live 窗口自動續期；UTC 2026-11-10T13:40:12Z 窗口已續為 `auto_20261110T0400Z`，三線前檢 ready，見 §7.5、§15 D149。以下保留沿革：D147 已於 UTC 2026-11-08T10:12:26.669Z 部署外掛版本別名相容修正，3660項完整離線回歸與Gemini獨立審查通過、三線兩層前檢全過；第4題由既有排程於UTC10:18完成預測與留言確認、三線兩層齊全，今日4題／累計36題全交；提交證據見 `docs/tasks/D147-CODEX-CACHE-ALIAS.md`。以下保留沿革：D145 已核對 Codex 0.167.0 升版未停線，三家 CLI 版本變更僅記錄；另已完成 Claude 一般設定變動的合成驗收與限縮基準更新，UTC 2026-11-06T22:57:26.939Z 三線兩層六項前檢全過、無 waiver，line guard 均無停線，見 `docs/tasks/D145-CLI-UPGRADE-CHECK.md`。以下保留沿革：D144 已依 Louis 指示將明列開發目錄的可讀內容變動改為僅記錄，保留工具權限、驗收證據與實際安全停線；當日 4 題已排入且全部送出，3 題因基準阻擋缺線（Gemini 2、GPT 1），非整題漏交。測試與部署證據見 `docs/tasks/D144-DEVELOPMENT-CATALOGS.md`。D139已於2026-11-05T05:57:07.361Z完成雙審、驗證與六鎖部署，30分鐘新題搜尋、人類賽手動入口及Market Pulse bot已啟用，實際開始／提交metadata見D139任務單。以下D137等紀錄保留沿革：D137 已獲 Louis「複審完 修改完可以 就直接開始正式賽了」授權，已於2026-11-05T02:49:33.366Z完成雙審／驗證與六鎖登記，主賽33121與MiniBench正式live；保留原根用量、130／200／130上限與UTC11/10 04:00截止，不待M4官方分數才加入，M3完整觀測／M4結算驗收未完成的限制不冒充通過。D129 `resolve_v2`／`score_v2` 手動入口已上線，D128 live 母體診斷已實作；首次決策未完整落盤，歷史與 live 完整 ITT 結論均維持禁止；D118已由D137接續主賽＋MiniBench（固定截止 UTC 11/10 04:00）；D127 M4 `resolve.py`／`score.py` 手動入口已上線（未啟用排程，首批正式已送出題的最早預定結算為台北 11/13 20:00，見 D132 日期核對）；M5、D121 第一批與 D123 已上線；D130 已恢復 Gemini（專案 pin 1.4.12，兩層前檢通過），D131 已完成 Claude／GPT 新隔離驗收與限縮基準核准，三線兩層前檢全過。D124 observe 與 D125 autoload_v3 已上線；D126 確立加速迭代窗口（每日已關閉題目三閘門健檢；M4 手動入口已上線，舊 11/06 日期由 D132 更正）並完成階段 A 過時文件清理、測試隔離修正、INDEX 建立與 PLAN 正文同步（v1.0 於 2026-10-31 經 Louis 核准凍結，D54）
 
 ---
 
@@ -837,6 +837,12 @@ token 欄位的對應（D29）：
   - 停線後須經 Louis 明確恢復；恢復不刪除歷史。新一輪停線判定只計最近一次明確恢復之後、且仍在 7 天內的暴露，避免 resume 已記錄卻仍被同一批舊事件鎖住。錯誤模型與工具違規的停線同樣尊重這個恢復邊界。
 - **模型不符**（`model_mismatch`，§7.7）：答案無效、不納入整合；早期規則為立即停止該線並通知 Louis。【已由 D121 R1 fail-soft 取代：單次 `model_mismatch` 僅作廢該次答案並讓該線退避 60 分鐘；同一條線在 24 小時內發生 2 次以上才停線並通知 Louis，見 `docs/tasks/D121-FAIL-SOFT-BATCH1.md`】
 - **CLI 改版與設定改變**：每次記錄 CLI 版本；三家 CLI 的已知版本號改變本身只記錄、不重驗、不停線（D143、D145）。其他設定或安全來源變更依 §7.2 各自分類處理。
+- **D149 不停線與截止前必送**（2026-11-10，Louis 指示，取代上方所有「停止該線並通知 Louis」的永久停線規則）：
+  - 前檢只有 Louis 親手設定的開關會擋線：`players_enabled`、`submit_mode`、第 2 層子代理設定（`flab/fail_soft.py` `HARD_PREFLIGHT`）；基準、驗收、CLI 版本、目錄變動等其他發現一律降為 `warnings` 照常記錄，不擋線。前檢程式本身出錯也不擋線。
+  - `line_stopped` 只認仍在期限內、帶 `until` 的限時等待（額度退避、模型不符 60 分鐘退避／冷卻）；工具違規、`leak_confirmed` 累計、未結案的 CLI 開始紀錄與沒有結束時間的 `line_stop` 只作歷史，不再停線。該次違規答案仍不採用（§4.2 排除規則不變）。舊規則保留在 `FS.PERSISTENT_STOPS=True`，僅供測試與報告。
+  - 不等缺線：同一題已有可採用答案時，等待超過 15 分鐘（`STRAGGLER_HOLD_S`）、趕不上決策截止或前檢被擋的線不再拖住整合，最終整合記 `lines_not_waited_for`。
+  - 截止前必送（`deadline_fallback_v1`）：只要至少一個模型有完整預測答案，題目關閉前必送，絕不因缺線或非洩漏的自動檢查放掉。連續排程中，最終整合若無一般可採用答案，改用格式有效且具完整說明（`reasoning_summary`、第 2 層另含 `change_reason`）、僅因非 `leak_confirmed` 的稽核標記（如 `model_mismatch`、`tool_scope_violation`）被排除的模型答案依 agg_v1 整合（`salvaged_inputs`），留言標明 Deadline fallback；若沒有任何模型產出完整有效預測答案，維持 `no_valid_inputs` 不送中性先驗。先前已封存的空最終整合在有可挽救模型答案時會被取代，`discovery` 也會為此喚醒排程。
+  - live 窗口到期自動續下一個 7 天窗口（`live_window_renewal_v1`），場地、機器人帳號與每週上限不變，`STOP_SUBMIT` 與 `players_enabled` 仍由 Louis 控制。
 - 所有失敗與重試都追加寫入，不覆寫。
 
 ### 7.6 隔離驗收（三條線共用，D26）
@@ -1893,10 +1899,13 @@ view_image                  stable true
 | D146 | 2026-11-07（台北） | Louis 指示「下次我問情況如何就順便看一下分數跟排名吧」 | 登記持續偏好：之後詢問專案／預測近況時，同次唯讀核對各已參賽場次的最新官方分數與排名並附來源／查詢時間；沿用帳號身分核對，缺資料如實標示。本次只記錄偏好，不新增排程、推播或預測行為。 |
 | D147 | 2026-11-08（台北） | Louis 指示「處理做一下第四題 順便看一下人類cup賽有哪些新的題目」 | GPT 整合 Codex 官方外掛快取 `latest` 目錄別名相容修正，依 D107 A4 完成 Gemini 獨立審查與隔離測試後套用，讓既有排程接續 GPT 未開始的工作。只處理環境盤點，不預覽開放題答案、不強制定稿、不重跑已提交題；現有權限／模型／預算／截止不變。另唯讀盤點 Cup 開放與 upcoming 題，沿 D142 截止前48小時研究，不啟動人類賽研究或提交。實際結果見 D147-CODEX-CACHE-ALIAS.md。 |
 | D148 | 2026-11-09（台北） | Louis 回報「目前他就比較像是一個我問他他回答目前的專案進度但他不能操控專案而且我發現他會一直跟我說以前處理完的問題 例如D101啥之類的」 | 根因：`待決事項` 固定附最近 3 項已結案決策（11/02 後無新決策，故一直是 D100～D102），且問答模型帶入的最近 4 則舊對話（11/03～11/06）都重述這些結案。Claude 實作 `telegram_ops_v5`／`team_chat_v3`：只呈現目前事項、24 小時後收合結案／過期決策與舊摘要、只帶 24 小時內對話，並在 `進度` 加入近 24 小時營運計數。依 D107 A4 由 Claude 審查（不涉送出、讀回、預算或權限隔離）。對「TG 操控專案」，Claude 提出官方 Remote Control、TG 固定操作按鈕、TG 派開發工作三案；Louis 隨後表示「我現在基本上就只是會問他們今天有沒有卡線 如果有請恢復 或是今天預測情況如何這種事情 但我們有自動恢復機制所以感覺也不需要再由tg開發」，故三案都不實作，TG 維持唯讀問答與既有決策入口，卡線恢復沿用 line_recovery 自動機制，權限不變。 |
+| D149 | 2026-11-10（台北） | Louis 指示「今天claude停線了 導致有好幾題未能及時送出 幫我把這種會停線的機制給拔掉 他已經讓我損失太多題了 先恢復 claude 然後排查自動恢復停線腳板為什麼沒有恢復claude 然後拔掉這些會造成停線的規則 最後 加上一項無論如何題目關閉前必須送一個結果出去不能放掉」，並補充「1. mac那個是我沒有插好電不用特別改 2. 這邊我原本的意思是要至少一個模型有完整預測答案才送 3. 等等改完再commit 你做完之後 給gpt審查一下」「你可以改用gpt 6 astra mid推理 做審查」 | 根因：Claude 自 UTC 11/09 15:15 因 `~/.claude/settings.json` 一般鍵（model／theme）變動被基準判 reaccept 而前檢擋線；`auto_reaccept` 只觀察、`line_recovery` 只處理 Gemini 工具拼字停線，故無自動恢復。46569／46708 在 Gemini、GPT 已答完後仍等 Claude，又逢 Mac 未插好電睡眠（UTC 16:57–18:08）錯過截止；46583 因 live 窗口 UTC 11/10 04:00 到期、無人續期而未送。Claude 起手、額度用盡後由 agy（Claude Opus 5.5 → Gemini 4 Argon）接續完成：前檢只留 Louis 手設開關、`line_stopped` 只認限時等待、已有答案時不等缺線、live 窗口自動續期、截止前必送保底（`deadline_fallback_v1`：至少一個模型有完整預測答案時才送，含 `salvaged_inputs`，不送無模型答案的中性先驗，見 §7.5）。依 Louis「全拔」，Gemini credits 非零與 `leak_confirmed` 累計也不再停線（該次答案仍不採用）。UTC 13:40:12 窗口已續為 `auto_20261110T0400Z`，首個 cycle 三線前檢 ready；官方 Codex CLI（`gpt-6-astra` `medium`）獨立審查 PASS（`reviews/gpt-d149-r18.md`），完整離線回歸 3707 passed／0 failed（相關 176 passed）。 |
 
 ---
 
 ## 16. 變更紀錄
+
+- **v1.103**（2026-11-10，台北）：D149，`flab/fail_soft.py` 新增 `PERSISTENT_STOPS=False`／`HARD_PREFLIGHT`／`TIMED_WAIT_REASONS`／`STRAGGLER_HOLD_S`；`forecast.preflight` 改為只有手設開關擋線、其餘與讀取例外皆為 `warnings`；`line_stopped` 預設只認帶 `until` 的限時等待（`TIMED_WAIT_REASONS`）；`scheduler` 不等長等待或被擋的線並記 `lines_not_waited_for`（含跨層級 `budget_wait` 傳遞），最終無一般可採用答案但至少一個模型有完整有效預測答案（不含 `leak_confirmed`）時套用 `aggregate.apply_fallback`（`deadline_fallback_v1`：`salvaged_inputs`），零模型完整答案時維持 `no_valid_inputs` 不送出；舊空最終整合在有可挽救模型答案時可被取代，保底整合在乾淨答案到達或事後 `leak_confirmed` 時可被取代／撤回；`comment` 新增對應的保底留言重建；`discovery.actionable_questions` 為有可挽救答案的空最終整合喚醒；`live_window.renew`＋`cycle` 到期自動續 7 天窗口（`live_window_renewal_v1`）。`config/cycle_campaign.json` 因每週續期移出 D121／M5 保護雜湊清單。預測 prompt、模型、agg_v1 數值規則、預算上限與送出流程不變。測試与審查：官方 Codex CLI（`gpt-6-astra` `medium`）獨立審查 PASS（`reviews/gpt-d149-r18.md`），舊停線測試改以 `legacy_stops` fixture 驗證舊規則，新增 `tests/test_d149_deadline_fallback.py`，完整離線回歸 3707 passed／0 failed。
 
 - **v1.102**（2026-11-09，台北）：D148，`telegram_ops_v4` → `telegram_ops_v5`、`team_chat_v2` → `team_chat_v3`（§5.2）：TG `進度`／`待決事項`／問答脈絡只呈現目前事項，結案或過期超過 24 小時的決策、舊摘要細節與舊對話不再帶入；新增近 24 小時營運計數 `ops_report.live_brief`（只有計數）。通知同時接受 v2／v3 事件。問答 prompt 只新增「聚焦目前、不重述已結案歷史」一條規則；預測 prompt、模型、權限、預算、排程與送出不變。TG／報告／監看相關 256 passed。
 

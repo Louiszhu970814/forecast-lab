@@ -115,11 +115,12 @@ def test_preflight_blockers_stop_before_model_calls_and_do_not_grant_waivers(env
     assert set(result["paused_players"]) == {"claude", "gemini", "gpt"} and not tracker["calls"]
 
 
-def test_no_high_acceptance_keeps_campaign_incomplete(environment):
+def test_blocked_tier2_does_not_hold_back_tier1_results(environment):
+    # D149: a blocked line no longer keeps a ready result from being finalized.
     scheduler, _, tracker, _ = environment(preflight=lambda p, t, a: F.Preflight(p, tier=t, problems=["high unaccepted"] if t == 2 else []))
     result = scheduler.run()
     assert len(tracker["calls"]) == 6 and len(result["paused_players"]) == 3
-    assert not (scheduler.root / "comments.jsonl").exists()
+    assert (scheduler.root / "comments.jsonl").exists()
 
 
 def test_registration_precedes_results_and_cannot_be_rewritten(environment):

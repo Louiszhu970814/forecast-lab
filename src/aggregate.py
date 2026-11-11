@@ -189,7 +189,17 @@ def select_inputs(snapshot: dict[str, Any], attempts: list[dict[str, Any]], *, s
         if rec.get("player") not in PLAYERS or type(rec.get("tier")) is not int or rec["tier"] not in (1, 2):
             raise ValueError("unknown player or tier in question history")
         if rec.get("validation_status") == "valid":
-            first.setdefault((rec["player"], rec["tier"]), rec)
+            key = (rec["player"], rec["tier"])
+            prev_first = first.get(key)
+            if prev_first is None:
+                first[key] = rec
+            elif (snapshot.get("forecast_scope") == "snapshot"
+                  and not _has_complete_explanation(prev_first)
+                  and not ("leak_confirmed" in flags[prev_first["attempt_id"]])
+                  and _has_complete_explanation(rec)
+                  and not (flags[rec["attempt_id"]] & EXCLUDED)
+                  and not input_error(rec, snapshot)):
+                first[key] = rec
     selected, exclusions = [], []
     for player in PLAYERS:
         for tier in ((2, 1) if stage == "final" else (1,)):
@@ -199,6 +209,8 @@ def select_inputs(snapshot: dict[str, Any], attempts: list[dict[str, Any]], *, s
             causes = sorted(flags[rec["attempt_id"]] & EXCLUDED)
             if error := input_error(rec, snapshot):
                 causes.append(error)
+            if snapshot.get("forecast_scope") == "snapshot" and not _has_complete_explanation(rec):
+                causes.append("missing_explanation")
             if causes:
                 exclusions.append({"player": player, "tier": tier, "attempt_id": rec["attempt_id"], "reasons": causes})
                 continue
@@ -279,6 +291,102 @@ def build_aggregate(snapshot: dict[str, Any], attempts: list[dict[str, Any]], *,
                                        (e.get("source_audit_event_ids") or ([e["audit_event_id"]] if e.get("audit_event_id") else []))}),
             "audit_source_records": [dict(zip(("kind", "id"), ref)) for ref in sorted({(r["kind"], r["id"])
                                      for e in relevant_events for r in e.get("source_record_refs", [])})]}
+
+
+FALLBACK_VERSION = "deadline_fallback_v1"
+
+
+def _has_complete_explanation(rec: dict[str, Any]) -> bool:
+    import comment as C
+    if not C.plain(rec.get("reasoning_summary")):
+        return False
+    if rec.get("tier") == 2 and not C.plain(rec.get("change_reason")):
+        return False
+    return True
+
+
+SALVAGEABLE_EXCLUSIONS = EXCLUDED - {"leak_confirmed"}
+
+
+def salvage_inputs(snapshot: dict[str, Any], attempts: list[dict[str, Any]], *,
+                   audit_events: Iterable[dict[str, Any]] = ()) -> list[dict[str, Any]]:
+    """D149: complete model answers for this snapshot that were held back by a non-leak check.
+
+    Same per-player rule as select_inputs (tier 2 preferred), requiring a valid
+    schema forecast, non-empty explanation, and a non-leak exclusion reason from at least one
+    model (never inventing a prior when zero models answered, and never adopting an answer
+    with a confirmed platform leak).
+    """
+    _options(snapshot)
+    try:
+        flags = effective_flags(attempts, audit_events)
+    except ValueError:
+        return []  # fail closed on malformed dependency or audit records; never mask leak_confirmed
+    first: dict[tuple[str, int], dict[str, Any]] = {}
+    for rec in attempts:
+        if rec.get("type") != "forecast_attempt" or rec.get("question_id") != snapshot["question_id"]:
+            continue
+        if snapshot.get("forecast_scope") == "snapshot" and rec.get("question_snapshot_id") != snapshot["snapshot_id"]:
+            continue
+        player, tier = rec.get("player"), rec.get("tier")
+        if player not in PLAYERS or tier not in (1, 2):
+            continue
+        eff = sorted(flags.get(rec.get("attempt_id")) or ())
+        if "leak_confirmed" in eff or "leak_confirmed" in (rec.get("audit_flags") or ()) \
+                or "leak_confirmed" in (rec.get("own_audit_flags") or ()):
+            continue
+        if (rec.get("validation_status") == "valid" and not input_error(rec, snapshot)
+                and _has_complete_explanation(rec) and (set(eff) & SALVAGEABLE_EXCLUSIONS)):
+            first.setdefault((player, tier), {**rec, "effective_audit_flags": eff})
+    salvaged = []
+    for player in PLAYERS:
+        for tier in (2, 1):
+            rec = first.get((player, tier))
+            if rec is not None:
+                salvaged.append(rec)
+                break
+    return salvaged
+
+
+def has_complete_answer(snapshot: dict[str, Any], attempts: list[dict[str, Any]], *,
+                        audit_events: Iterable[dict[str, Any]] = ()) -> bool:
+    """True when >=1 model has a complete answer (clean via select_inputs or held back via salvage_inputs)."""
+    try:
+        selected, _ = select_inputs(snapshot, attempts, stage="final", audit_events=audit_events)
+    except ValueError:
+        return False
+    return bool(selected) or bool(salvage_inputs(snapshot, attempts, audit_events=audit_events))
+
+
+def fallback_values(snapshot: dict[str, Any], attempts: list[dict[str, Any]], *,
+                    audit_events: Iterable[dict[str, Any]] = (),
+                    config: dict[str, Any] | None = None) -> tuple[str, list[dict[str, Any]], dict[str, Any]]:
+    """(kind, inputs, values) for the deadline fallback; requires >=1 complete model answer."""
+    config = load_agg_config() if config is None else config
+    salvaged = salvage_inputs(snapshot, attempts, audit_events=audit_events)
+    if salvaged:
+        return "salvaged_inputs", salvaged, combine(snapshot, salvaged, config)
+    return "no_valid_inputs", [], {}
+
+
+def apply_fallback(record: dict[str, Any], snapshot: dict[str, Any], attempts: list[dict[str, Any]], *,
+                   audit_events: Iterable[dict[str, Any]] = (), config: dict[str, Any] | None = None) -> dict[str, Any]:
+    """D149: turn a final into ready only when >=1 model has a complete answer (with explanation)."""
+    if record.get("status") == "ready" and record.get("fallback_version") is None:
+        return record
+    config = load_agg_config() if config is None else config
+    kind, inputs, values = fallback_values(snapshot, attempts, audit_events=audit_events, config=config)
+    if not inputs:
+        if record.get("status") != "ready":
+            return record
+        empty = combine(snapshot, [], config)
+        return {**record, **empty, "status": "no_valid_inputs", "input_attempt_ids": [],
+                "inputs": [], "missing_players": list(PLAYERS), "audit_flags": []}
+    return {**record, **values, "status": "ready", "fallback_version": FALLBACK_VERSION, "fallback": kind,
+            "input_attempt_ids": [r["attempt_id"] for r in inputs],
+            "inputs": [{"player": r["player"], "tier": r["tier"], "attempt_id": r["attempt_id"]} for r in inputs],
+            "missing_players": [p for p in PLAYERS if p not in {r["player"] for r in inputs}],
+            "audit_flags": sorted({f for r in inputs for f in r["effective_audit_flags"]})}
 
 
 def append_local_aggregate(path: Path, record: dict[str, Any]) -> None:

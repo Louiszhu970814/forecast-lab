@@ -36,6 +36,22 @@ def test_expired_without_answers_is_sealed_without_hook(environment):
     assert calls == [] and obj._wait_timeout(snapshots) == 60
 
 
+def test_older_empty_final_is_replaced_when_a_complete_model_answer_exists(environment):
+    from flab.jsonl import read_records
+    from test_comment import row
+    obj, snapshots, _, _ = environment(count=1, continuous=True)
+    snapshots[100]["scheduled_close_time"] = to_iso(NOW + timedelta(seconds=1800))
+    append_record(obj.root / "aggregates.jsonl", {
+        "type": "aggregate", "record_id": "agg_old", "question_id": 100,
+        "question_snapshot_id": snapshots[100]["snapshot_id"], "status": "no_valid_inputs",
+        "scheduler_campaign_id": obj.campaign["campaign_id"], "completion_status": "complete_local"})
+    assert obj.finalize(snapshots) == []
+    append_record(obj.root / "forecasts.jsonl", row("claude", .4, snapshot=snapshots[100], model_check="mismatch"))
+    assert obj.finalize(snapshots) == [100]
+    assert read_records(obj.root / "aggregates.jsonl")[-1]["fallback"] == "salvaged_inputs"
+    assert obj.finalize(snapshots) == []
+
+
 @pytest.mark.parametrize("continuous", [False, True])
 def test_ready_hook_is_continuous_only_and_outside_ledger_transaction(environment, continuous):
     import threading

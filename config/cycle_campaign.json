@@ -1,13 +1,13 @@
 {
   "version": "continuous_v11",
-  "campaign_id": "d139_main_minibench_market_20261105",
+  "campaign_id": "auto_20261110T0400Z",
   "venues": [
     "main",
     "minibench",
     "market_pulse"
   ],
-  "budget_window_start": "2026-11-05T05:14:00.869Z",
-  "budget_window_end": "2026-11-10T04:00:00.000Z",
+  "budget_window_start": "2026-11-10T04:00:00.000Z",
+  "budget_window_end": "2026-11-17T04:00:00.000Z",
   "weekly_attempt_caps": {
     "claude": 130,
     "gemini": 200,
@@ -18,13 +18,6 @@
   "urgent_slack_s": 120,
   "run_config_sha256": "42936cd6c04e4e547dbe3369f868f1e338da04ab00a754cbe219037b8f196572",
   "quota_policy_sha256": "3e11aeab8eca0fae1987e202779f49f60704f13737e3665a18c49e48e0a6ee23",
-  "budget_handoff": {
-    "version": "budget_handoff_v3",
-    "source_campaign_id": "d137_main_minibench_20261105",
-    "source_sha256": "405f0bc02c9a112b140bc25a0704c5c19c62795e393b0a9dfcce550c2b7d2b66",
-    "accounting_start": "2026-11-02T13:03:00.000Z",
-    "authorization": "PLAN D139"
-  },
   "discovery": {
     "version": "discovery_v1",
     "interval_s": 1800,
@@ -41,5 +34,7 @@
     "comment": "private_per_child",
     "priority": "after_main_and_minibench",
     "reserve_both_tiers_for_expected_arrivals": true
-  }
+  },
+  "renewed_from": "d139_main_minibench_market_20261105",
+  "renewal_authorization": "PLAN D149"
 }

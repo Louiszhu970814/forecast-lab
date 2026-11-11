@@ -575,7 +575,6 @@
     "src/flab/netguard.py": "74186c4dedbc6d8257266cce073af861ed5eabe1e52eb2efc8cda1c50e733227",
     "config/quota_policy.json": "d3870c00e1fd03b57a3a2a54e3b3610273698186dc0f412477a803318b02812f",
     "config/run_config_v2.json": "55fa9e352c56e76ca8c575d5a5c688822b09a89d203af996aae90b53aaeee398",
-    "config/cycle_campaign.json": "c004bd56697d2e085f92375f78963a5f71c32ae264372f90d72229cef3a1ca2d",
     "src/adapters/claude.py": "609ce2733e37e21d1e84a8ef05ecca56ff729b0ec823085b491b7c490df2632d",
     "src/adapters/__init__.py": "c5fc161e10b2bc1950fc5d7752931d5802d6638fc6599600761190b9108285e4",
     "src/adapters/gemini.py": "56b4f46c493ef83768a35a9a2ddf6186b0e97bafcd34ada2a6d5d467aec42da6",

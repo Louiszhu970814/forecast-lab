@@ -29,6 +29,7 @@ def test_soft_mismatch_survives_a_future_pipeline_bump(tmp_path, monkeypatch, fu
     assert F._may_rerun(chain, base)
 
 
+@pytest.mark.usefixtures("legacy_stops")  # pre-D149 stop rule
 def test_legacy_and_unversioned_mismatch_keep_hard_stop(tmp_path):
     log, forecasts = tmp_path / "line.jsonl", tmp_path / "forecasts.jsonl"
     for aid, version in (("v6", "forecast_pipeline_v6"), ("none", None)):

@@ -74,21 +74,32 @@ def publish(root, scheduler, snapshots, queue):
         for qid, snap in snapshots.items():
             if qid in committed or snap["snapshot_id"] in queue.invalidated:
                 continue
-            prior = next((a for a in offered if a["question_id"] == qid and
-                          a.get("question_snapshot_id") == snap["snapshot_id"]), None)
-            if prior:
-                scheduler._comment(snap, prior, attempts, aggregates, events)
-                continue
+            scoped = {**snap, "forecast_scope": "snapshot"} if scheduler.continuous else snap
             final = next((a for a in reversed(aggregates) if a["question_id"] == qid and
                           a.get("question_snapshot_id") == snap["snapshot_id"] and
-                          a.get("completion_status") == "complete_local" and a.get("status") == "ready"), None)
-            if final is None:
+                          a.get("completion_status") == "complete_local" and
+                          not a.get("submission_eligible")), None)
+            prior = next((a for a in reversed(offered) if a["question_id"] == qid and
+                          a.get("question_snapshot_id") == snap["snapshot_id"]), None)
+            if prior is not None:
+                if prior.get("fallback") == "salvaged_inputs":
+                    try:
+                        if final is not None and prior.get("source_aggregate_id") != final["record_id"]:
+                            raise S.C.CommentError("fallback offer superseded by newer final aggregate")
+                        S.C.build(scoped, prior, [*attempts, *aggregates], events, now=scheduler.now())
+                    except S.C.CommentError:
+                        rejected.append(prior["record_id"])
+                        prior = None
+                if prior is not None:
+                    scheduler._comment(scoped, prior, attempts, aggregates, events)
+                    continue
+            if final is None or final.get("status") != "ready":
                 continue
             offer = {**final, "record_id": new_id("agg"), "source_aggregate_id": final["record_id"],
                      "submission_eligible": True, "cycle_version": VERSION,
                      "revision_fallback": qid in queue.fallbacks, "created_at_utc": to_iso(scheduler.now())}
             try:
-                comment = S.C.build(snap, offer, [*attempts, *aggregates, offer], events, now=scheduler.now())
+                comment = S.C.build(scoped, offer, [*attempts, *aggregates, offer], events, now=scheduler.now())
             except S.C.CommentError:
                 rejected.append(final["record_id"])
                 continue
@@ -363,6 +374,11 @@ def main(argv=None):
         if load_submit_mode()["mode"] == "live":
             import live_window as W
             try:
+                # D149: an ended window is followed by the next one instead of stopping all lines.
+                if args.campaign.resolve() == (PROJECT_ROOT / "config" / "cycle_campaign.json").resolve():
+                    renewed = W.renew(PROJECT_ROOT / "config", started, schedule_log=root / "live_schedule.jsonl")
+                    if renewed:
+                        print(json.dumps(renewed))
                 policy = json.loads(args.campaign.read_text())
                 live_start, live_end = W.bounds(load_submit_mode(), policy, PROJECT_ROOT / "config")
                 state = ("waiting" if started < live_start else "expired" if started >= live_end

@@ -58,7 +58,9 @@ def test_missing_line_only_releases_continuous_tier2(environment, continuous, bl
     if blocker in ('paused', 'preflight_blocked'):
         paused.add('gemini')
     elif blocker == 'line_stopped':
-        append_record(obj.root / 'line_status.jsonl', {'type': 'line_stop', 'player': 'gemini', 'reason': 'synthetic', 'at': to_iso(NOW)})
+        # D149: only a time-bounded stop still holds a line.
+        append_record(obj.root / 'line_status.jsonl', {'type': 'line_stop', 'player': 'gemini', 'reason': 'quota_5h_wait', 'at': to_iso(NOW),
+                                                       'until': to_iso(NOW + timedelta(hours=1))})
     else:
         append_record(obj.jobs_log, {'type': 'scheduler_job_finished', 'player': 'gemini', 'question_id': 100,
             'question_snapshot_id': snap['snapshot_id'], 'tier': 1, 'outcome': blocker,

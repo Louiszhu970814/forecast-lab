@@ -227,6 +227,7 @@ def test_a_rerun_left_by_an_interrupted_run_is_made_once_later(env, tmp_path: Pa
     assert summary["questions"][0]["selected_attempt_id"] == recs2[1]["attempt_id"]
 
 
+@pytest.mark.usefixtures("legacy_stops")  # pre-D149 stop rule
 def test_two_confirmed_leaks_in_a_week_stop_the_line(env, tmp_path: Path) -> None:
     leak = _good(sources=[{"url": "https://www.metaculus.com/questions/1/", "title": "q"}])
     env([{"structured": leak}], ledger="f")
@@ -276,6 +277,7 @@ def _pf(log: Path, **kw: object) -> F.Preflight:
     return F.preflight(player, **args)  # type: ignore[arg-type]
 
 
+@pytest.mark.usefixtures("legacy_stops")  # pre-D149 stop rule
 def test_preflight_passes_with_matching_acceptance_and_a_waived_baseline(tmp_path: Path) -> None:
     log = tmp_path / "acc.jsonl"
     _accept(log, tmp_path, mode="production")
@@ -291,6 +293,7 @@ def test_preflight_passes_with_matching_acceptance_and_a_waived_baseline(tmp_pat
     ({"cli": ""}, "CLI version"), ({"cli": "   "}, "CLI version"), ({"cli": 123}, "CLI version"),
     ({"tamper": True}, "sha256 does not match"),
     ({"code": {**FP, "flab/runner.py": "changed"}}, "runtime code changed")])
+@pytest.mark.usefixtures("legacy_stops")  # pre-D149 stop rule
 def test_preflight_rejects_a_stale_or_failed_acceptance(tmp_path: Path, kw: dict, expected: str) -> None:
     log = tmp_path / "acc.jsonl"
     _accept(log, tmp_path, mode="production")
@@ -307,6 +310,7 @@ def test_preflight_allows_cli_version_upgrade_when_acceptance_and_runtime_match(
     assert pf.ok and pf.problems == [] and pf.production_record_id == "acc_production"
 
 
+@pytest.mark.usefixtures("legacy_stops")  # pre-D149 stop rule
 def test_production_acceptance_must_match_the_configured_production_model(tmp_path: Path) -> None:
     log = tmp_path / "acc.jsonl"
     _accept(log, tmp_path, mode="production", model="claude-sonnet-5-5", effort="medium")
@@ -318,6 +322,7 @@ def test_production_acceptance_must_match_the_configured_production_model(tmp_pa
     assert _pf(log, cfg=cfg, allow_unapproved_baseline=True).ok
 
 
+@pytest.mark.usefixtures("legacy_stops")  # pre-D149 stop rule
 def test_preflight_requires_production_acceptance_mode_enabled_line_and_baseline(tmp_path: Path) -> None:
     log = tmp_path / "acc.jsonl"
     _accept(log, tmp_path)
@@ -342,6 +347,7 @@ def test_preflight_requires_production_acceptance_mode_enabled_line_and_baseline
     assert "no acceptance record" in " ".join(_pf(tmp_path / "none.jsonl").problems)
 
 
+@pytest.mark.usefixtures("legacy_stops")  # pre-D149 stop rule
 def test_preflight_compares_the_codex_catalog_entry(tmp_path: Path) -> None:
     log = tmp_path / "acc.jsonl"
     for mode in ("production", "acceptance"):
@@ -448,6 +454,7 @@ def test_argon_estimate_uses_window_usage_not_per_call_deltas(tmp_path: Path) ->
 
 # ---------------------------------------------------------------- Codex takeover regressions
 
+@pytest.mark.usefixtures("legacy_stops")  # pre-D149 stop rule
 def test_interrupted_cli_start_never_gets_a_fresh_attempt_budget(env, tmp_path: Path) -> None:
     with pytest.raises(KeyboardInterrupt):
         env([{"raise": KeyboardInterrupt()}])
@@ -461,6 +468,7 @@ def test_interrupted_cli_start_never_gets_a_fresh_attempt_budget(env, tmp_path: 
     assert not other["preflight"]["ok"] and adapter.ran == 0
 
 
+@pytest.mark.usefixtures("legacy_stops")  # pre-D149 stop rule
 def test_interrupted_repair_is_not_reissued_after_restart(env, tmp_path: Path) -> None:
     with pytest.raises(KeyboardInterrupt):
         env([{"text": "probability is 0.31 https://example.com/a"}, {"raise": KeyboardInterrupt()}])
@@ -474,6 +482,7 @@ def test_interrupted_repair_is_not_reissued_after_restart(env, tmp_path: Path) -
     ("claude", {"tool_call_counts": {"Bash": 1}}),
     ("claude", {"subagent_count": 1}),
 ])
+@pytest.mark.usefixtures("legacy_stops")  # pre-D149 stop rule
 def test_tool_scope_violation_is_recorded_and_persistently_stops_the_line(env, player, evidence) -> None:
     summary, recs, adapter = env([{"structured": _good(), **evidence}], player=player)
     assert adapter.ran == 1 and summary["notify_louis"] is True
@@ -483,6 +492,7 @@ def test_tool_scope_violation_is_recorded_and_persistently_stops_the_line(env, p
     assert not again["preflight"]["ok"] and adapter.ran == 0
 
 
+@pytest.mark.usefixtures("legacy_stops")  # pre-D149 stop rule
 def test_repair_cannot_search_even_when_it_returns_the_original_estimate(env) -> None:
     summary, recs, adapter = env([{"text": "probability is 0.31 https://example.com/a"},
                                  {"structured": _good(), "tool_call_counts": {"WebSearch": 1}}])
@@ -490,6 +500,7 @@ def test_repair_cannot_search_even_when_it_returns_the_original_estimate(env) ->
     assert summary["notify_louis"] and adapter.ran == 2
 
 
+@pytest.mark.usefixtures("legacy_stops")  # pre-D149 stop rule
 def test_gemini_adapter_violations_stop_the_line_without_repair(env, monkeypatch) -> None:
     summary, recs, adapter = _gemini(env, monkeypatch, [_qsnap(0.9), _qsnap(0.88)],
         script=[{"structured": _good(), "violations": [{"type": "local_read", "path": "/fake/canary"}]}])
@@ -560,6 +571,7 @@ def test_quota_exhaustion_pauses_across_runs_before_using_the_single_rerun(env) 
 @pytest.mark.parametrize("evidence", [
     {"model_check": "mismatch"}, {"tool_call_counts": {"Bash": 1}},
 ])
+@pytest.mark.usefixtures("legacy_stops")  # pre-D149 stop rule
 def test_safety_stop_is_recovered_when_the_status_append_was_lost(env, tmp_path, evidence) -> None:
     env([{"structured": _good(), **evidence}])
     (tmp_path / "a" / "line_status.jsonl").unlink(missing_ok=True)  # D121 mismatches have no permanent stop
@@ -574,6 +586,7 @@ def test_safety_stop_is_recovered_when_the_status_append_was_lost(env, tmp_path,
     assert resumed["preflight"]["ok"] and adapter.ran == 1
 
 
+@pytest.mark.usefixtures("legacy_stops")  # pre-D149 stop rule
 def test_explicit_resume_starts_a_new_leak_stop_window_without_erasing_history(env, tmp_path):
     source = [{"url": "https://metaculus.com/questions/1/", "title": "q"}]
     env([{"structured": _good(sources=source)}])
@@ -587,6 +600,7 @@ def test_explicit_resume_starts_a_new_leak_stop_window_without_erasing_history(e
     assert resumed["preflight"]["ok"] and adapter.ran == 1 and len(recs) == 3
 
 
+@pytest.mark.usefixtures("legacy_stops")  # pre-D149 stop rule
 def test_interrupted_acceptance_revokes_older_pass_until_full_acceptance(tmp_path):
     log = tmp_path / "acceptance.jsonl"
     _accept(log, tmp_path, mode="production")
@@ -621,6 +635,7 @@ def test_default_gemini_preflight_gets_credits_from_official_quota_snapshot(tmp_
 
 
 @pytest.mark.parametrize('change', [{'cli': ''}, {'cli': 123}, {'judge': 'old'}, {'code': {'adapters/claude.py': 'old'}}])
+@pytest.mark.usefixtures("legacy_stops")  # pre-D149 stop rule
 def test_tier1_production_proof_must_be_current_even_with_fresh_latest(tmp_path, change):
     log = tmp_path / 'acceptance.jsonl'
     _accept(log, tmp_path, mode='production', **change)

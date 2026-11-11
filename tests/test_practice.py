@@ -355,6 +355,7 @@ def test_reservation_without_admission_is_released(registered):
     assert b.reserve({'player':'claude','tier':1,'question_id':77,'attempt_id':'b'},pending_tier1=0,expected_new=0,repair_reserve=0)['allowed']
 
 
+@pytest.mark.usefixtures("legacy_stops")  # pre-D149 stop rule
 def test_leak_threshold_is_existing_two_not_one(registered):
     shared,root,_,m=registered;line=root/'20/claude';line.mkdir(parents=True)
     for i in range(2):
@@ -478,6 +479,7 @@ def test_busy_locks_do_not_mutate(registered,tmp_path,action,name):
     assert before=={str(p):p.read_bytes() for p in shared.rglob('*.jsonl')}
 
 
+@pytest.mark.usefixtures("legacy_stops")  # pre-D149 stop rule
 def test_unknown_practice_visible_in_preflight_before_cli(registered):
     shared,root,_,m=registered;b=budget_for(shared);admission(shared,root,b,m)
     def forbidden():raise AssertionError('no CLI version probe before recovery')
@@ -552,6 +554,7 @@ def test_unrelated_metadata_and_other_player_bad_time_do_not_stop_line(tmp_path)
     assert not F.line_stopped(tmp_path/'line_status.jsonl','claude',tmp_path/'forecasts.jsonl',now=NOW)
 
 
+@pytest.mark.usefixtures("legacy_stops")  # pre-D149 stop rule
 def test_mixed_recent_formal_practice_exposures_still_stop(registered):
     shared,root,_,_=registered;line=root/'20/claude';line.mkdir(parents=True)
     common={'type':'forecast_attempt','player':'claude','question_id':20,

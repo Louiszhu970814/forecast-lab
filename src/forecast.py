@@ -155,6 +155,7 @@ class Preflight:
     player: str
     problems: list[str] = field(default_factory=list)
     waivers: list[str] = field(default_factory=list)
+    warnings: list[str] = field(default_factory=list)
     acceptance_record_id: str | None = None
     production_record_id: str | None = None
     cli_version: str | None = None
@@ -167,7 +168,7 @@ class Preflight:
 
     def summary(self) -> dict[str, Any]:
         return {"player": self.player, "tier": self.tier, "ok": self.ok, "problems": self.problems, "waivers": self.waivers,
-                "acceptance_record_id": self.acceptance_record_id, "production_record_id": self.production_record_id,
+                "warnings": self.warnings, "acceptance_record_id": self.acceptance_record_id, "production_record_id": self.production_record_id,
                 "cli_version": self.cli_version}
 
 
@@ -262,7 +263,76 @@ def check_baseline(pf: Preflight, approved: dict[str, Any] | None, current: dict
         pf.problems.append(f"baseline check says {decision!r} for this line")
 
 
-def preflight(player: str, *, cfg: dict[str, Any] | None = None, allow_unapproved_baseline: bool = False,
+def _check_switches(pf: Preflight, player: str, *, tier: int, cfg: dict[str, Any] | None,
+                    players_enabled: dict[str, Any] | None, submit_mode: dict[str, Any] | None,
+                    continuous: bool) -> None:
+    if tier == 2:
+        try:
+            c = cfg if cfg is not None else load_run_config()
+            if c["players"][player]["tier2"].get("subagents_enabled") is not False:
+                if "tier-2 subagents are not enabled by this pipeline" not in pf.problems:
+                    pf.problems.append("tier-2 subagents are not enabled by this pipeline")
+        except Exception as exc:
+            if FS.PERSISTENT_STOPS:
+                raise
+            msg = f"preflight check error ({type(exc).__name__}): {exc}"
+            if msg not in pf.warnings:
+                pf.warnings.append(msg)
+    try:
+        enabled = players_enabled if players_enabled is not None else load_players_enabled()
+        if not enabled.get(player) and "line is disabled in players_enabled.json" not in pf.problems:
+            pf.problems.append("line is disabled in players_enabled.json")
+    except Exception as exc:
+        if FS.PERSISTENT_STOPS:
+            raise
+        msg = f"preflight check error ({type(exc).__name__}): {exc}"
+        if msg not in pf.warnings:
+            pf.warnings.append(msg)
+    try:
+        mode = (submit_mode if submit_mode is not None else load_submit_mode()).get("mode")
+        msg = f"submit_mode is {mode!r}; this pipeline runs only in local mode (M1-W8)"
+        if mode != "local" and not (continuous and mode in ("trial", "live")) and msg not in pf.problems:
+            pf.problems.append(msg)
+    except Exception as exc:
+        if FS.PERSISTENT_STOPS:
+            raise
+        msg = f"preflight check error ({type(exc).__name__}): {exc}"
+        if msg not in pf.warnings:
+            pf.warnings.append(msg)
+
+
+def soften(pf: Preflight) -> Preflight:
+    """D149: only the switches Louis sets by hand block a line; other findings become warnings."""
+    if not FS.PERSISTENT_STOPS:
+        hard = [p for p in pf.problems if p.startswith(FS.HARD_PREFLIGHT)]
+        pf.warnings += [p for p in pf.problems if p not in hard]
+        pf.problems[:] = hard
+    return pf
+
+
+def preflight(player: str, *, tier: int = 1, players_enabled: dict[str, Any] | None = None,
+              submit_mode: dict[str, Any] | None = None, continuous: bool = False, **kwargs: Any) -> Preflight:
+    """Run every check, then keep only the hand-set switches as blockers (D149)."""
+    if tier not in (1, 2):
+        raise ValueError("tier must be 1 or 2")
+    try:
+        return soften(_preflight_checks(player, tier=tier, players_enabled=players_enabled,
+                                        submit_mode=submit_mode, continuous=continuous, **kwargs))
+    except Exception as exc:
+        if FS.PERSISTENT_STOPS:
+            raise
+        # A failing check must not stop the line either; the switches are still honoured.
+        pf = Preflight(player, tier=tier, warnings=[f"preflight check error: {type(exc).__name__}"])
+        _check_switches(pf, player, tier=tier, cfg=kwargs.get("cfg"),
+                        players_enabled=players_enabled, submit_mode=submit_mode, continuous=continuous)
+        try:
+            pf.cli_version = (kwargs.get("versions") or baseline.cli_versions)().get(player)
+        except Exception:
+            pass
+        return pf
+
+
+def _preflight_checks(player: str, *, cfg: dict[str, Any] | None = None, allow_unapproved_baseline: bool = False,
               tier: int = 1,
               acceptance_log: Path = baseline.ACCEPTANCE_LOG,
               versions: Callable[[], dict[str, str | None]] = baseline.cli_versions,
@@ -273,8 +343,10 @@ def preflight(player: str, *, cfg: dict[str, Any] | None = None, allow_unapprove
     if tier not in (1, 2):
         raise ValueError("tier must be 1 or 2")
     cfg = cfg or load_run_config()
-    recover_acceptance(acceptance_log, player, cfg)
     pf = Preflight(player, tier=tier)
+    _check_switches(pf, player, tier=tier, cfg=cfg,
+                    players_enabled=players_enabled, submit_mode=submit_mode, continuous=continuous)
+    recover_acceptance(acceptance_log, player, cfg)
     import autoload
     if autoload.unclosed(acceptance_log):
         pf.problems.append("autoload_unclosed: global markers may remain; maintenance recovery required")
@@ -291,14 +363,6 @@ def preflight(player: str, *, cfg: dict[str, Any] | None = None, allow_unapprove
     except ValueError:
         pf.problems.append("practice_accounting_invalid: preserve ledger and reconcile before forecasting")
         return pf
-    if tier == 2 and cfg["players"][player]["tier2"].get("subagents_enabled") is not False:
-        pf.problems.append("tier-2 subagents are not enabled by this pipeline")
-    enabled = players_enabled if players_enabled is not None else load_players_enabled()
-    mode = (submit_mode if submit_mode is not None else load_submit_mode()).get("mode")
-    if not enabled.get(player):
-        pf.problems.append("line is disabled in players_enabled.json")
-    if mode != "local" and not (continuous and mode in ("trial", "live")):
-        pf.problems.append(f"submit_mode is {mode!r}; this pipeline runs only in local mode (M1-W8)")
     if incomplete_acceptance(acceptance_log, player):
         pf.problems.append("latest isolation acceptance run is incomplete; an older pass cannot authorize forecasting")
     vers = versions()
@@ -342,9 +406,15 @@ class LineStop(RuntimeError):
         self.outcome = quota_wait if quota_retry_at_utc else "line_stopped"
 
 
-def line_stopped(log: Path, player: str, forecasts_log: Path | None = None, *, now=None) -> dict[str, Any] | None:
-    """The stop record in force for this line, or None if there is none or a later resume."""
+def line_stopped(log: Path, player: str, forecasts_log: Path | None = None, *, now=None,
+                 persistent: bool | None = None) -> dict[str, Any] | None:
+    """The stop in force for this line, or None.
+
+    D149: by default only time-bounded waits (those with ``until``) count. Recorded
+    stops and ledger findings without an end are history, not a reason to skip work;
+    ``persistent=True`` returns them for reports."""
     now = now or utc_now()
+    persistent = FS.PERSISTENT_STOPS if persistent is None else persistent
     state = None
     resumed_at = None
     pending_stops = []
@@ -368,6 +438,12 @@ def line_stopped(log: Path, player: str, forecasts_log: Path | None = None, *, n
                 pending_stops = []
                 covered_attempts = {}
                 resumed_at = parse_iso(r["at"])
+    if not persistent:  # D149: only active quota/mismatch backoff stops with an end time apply
+        pending_stops = [
+            s for s in pending_stops
+            if s.get("until") and now < parse_iso(s["until"])
+            and (s.get("reason") in FS.TIMED_WAIT_REASONS or str(s.get("reason") or "").startswith("quota_exhausted:"))
+        ]
     state = pending_stops[-1] if pending_stops else None
     if state:
         return state
@@ -385,7 +461,7 @@ def line_stopped(log: Path, player: str, forecasts_log: Path | None = None, *, n
     completed = {r.get("attempt_id") for r in records if r.get("player") == player}
     journal = starts_log(forecasts_log) if forecasts_log else None
     for started in read_records(journal) if journal and journal.exists() else []:
-        if started.get("player") == player and started["attempt_id"] not in completed \
+        if persistent and started.get("player") == player and started["attempt_id"] not in completed \
                 and (resumed_at is None or parse_iso(started["started_at_utc"]) > resumed_at):
             return {"type": "line_stop", "player": player, "at": started["started_at_utc"],
                     "reason": f"unresolved CLI start {started['attempt_id']}: result and safety checks unknown"}
@@ -415,7 +491,7 @@ def line_stopped(log: Path, player: str, forecasts_log: Path | None = None, *, n
             leaks.append(at)
             if sum(t >= at - timedelta(days=LEAK_WINDOW_DAYS) for t in leaks) >= LEAK_STOP_COUNT:
                 reason = "repeated leak_confirmed"
-        if reason:
+        if reason and persistent:
             return {"type": "line_stop", "player": player, "at": r["finished_at_utc"],
                     "reason": f"{reason} recovered from forecast ledger at attempt {r['attempt_id']}"}
     # Replay only new actual mismatch events. Derived cooldowns use the original
@@ -1087,14 +1163,15 @@ def run_attempt(ctx: Context, snap: dict[str, Any], *, kind: str, prompt: str, s
     with transaction(ctx.forecasts_log.parent):
         append_record(ctx.audits_log, aud)
         append_record(ctx.forecasts_log, rec)
-    if violations:
+    # D149: the attempt is already recorded as not adoptable; the line itself continues.
+    if violations and FS.PERSISTENT_STOPS:
         raise LineStop(f"tool_scope_violation on attempt {attempt_id}: stop the line and notify Louis; "
                        "re-acceptance required (§7.3, D60, D62)", notify=True)
-    if safety_stop_after:
+    if safety_stop_after and FS.PERSISTENT_STOPS:
         raise LineStop(safety_stop_after, notify=True)
     if result.model_check == "mismatch":
         raise LineStop(f"model_mismatch on attempt {attempt_id}: yield this round (PLAN D121)")
-    if leak_count(ctx.forecasts_log, player, ctx.now(), resumed_at=latest_resume(ctx.line_status_log, player)) >= LEAK_STOP_COUNT:
+    if FS.PERSISTENT_STOPS and leak_count(ctx.forecasts_log, player, ctx.now(), resumed_at=latest_resume(ctx.line_status_log, player)) >= LEAK_STOP_COUNT:
         raise LineStop(f"{LEAK_STOP_COUNT} or more leak_confirmed answers within {LEAK_WINDOW_DAYS} days: "
                        "stop the line and notify Louis (§7.5)", notify=True)
     if error_type == "quota_exhausted":
@@ -1289,7 +1366,7 @@ def run(player: str, question_ids: list[int], *, allow_unapproved_baseline: bool
                 retry_at = r.get("quota_retry_at_utc") or to_iso(parse_iso(r["finished_at_utc"]) + timedelta(seconds=QUOTA_BACKOFF_S))
                 if ctx.now() < parse_iso(retry_at):
                     pf.problems.append(f"quota_exhausted: line paused until {retry_at}")
-        if pf.ok and leak_count(ctx.forecasts_log, player, ctx.now(), resumed_at=latest_resume(ctx.line_status_log, player)) >= LEAK_STOP_COUNT:
+        if FS.PERSISTENT_STOPS and pf.ok and leak_count(ctx.forecasts_log, player, ctx.now(), resumed_at=latest_resume(ctx.line_status_log, player)) >= LEAK_STOP_COUNT:
             pf.problems.append(f"{LEAK_STOP_COUNT} or more leak_confirmed answers within {LEAK_WINDOW_DAYS} days (§7.5)")
         summary: dict[str, Any] = {"type": "forecast_run", "run_id": run_id, "player": player, "mode": "local",
                                    "pipeline_version": PIPELINE_VERSION,

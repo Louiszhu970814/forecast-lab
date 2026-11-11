@@ -116,10 +116,73 @@ def _probability(row: dict, snapshot: dict) -> str:
     return "; ".join(f"{plain(option)} {row['option_probabilities'][option]:.2%}" for option in snapshot["options"])
 
 
+def _fallback(snapshot: dict, aggregate: dict, attempts: list[dict], view, *, now=None) -> dict:
+    """D149 deadline fallback: rebuilt from the same deterministic rule as the aggregate."""
+    if aggregate.get("fallback_version") != A.FALLBACK_VERSION or aggregate.get("stage") != "final":
+        raise CommentError("unsupported fallback aggregate")
+    for field, expected in {"question_id": snapshot["question_id"], "question_snapshot_id": snapshot["snapshot_id"],
+                            "post_id": snapshot.get("post_id"), "tournament_id": snapshot.get("tournament_id")}.items():
+        if aggregate.get(field) != expected:
+            raise CommentError(f"aggregate {field} mismatch")
+    if A.select_inputs(snapshot, attempts, stage="final", audit_events=view)[0]:
+        raise CommentError("clean adoptable answer supersedes fallback aggregate")
+    kind, inputs, values = A.fallback_values(snapshot, attempts, audit_events=view)
+    if not inputs or kind != "salvaged_inputs" or kind != aggregate.get("fallback") \
+            or [r["attempt_id"] for r in inputs] != aggregate.get("input_attempt_ids"):
+        raise CommentError("fallback inputs no longer match this aggregate")
+    numeric = snapshot["question_type"] in N.TYPES
+    for field in (("probability", "option_probabilities", "continuous_cdf", "cdf_version", "cdf_sha256")
+                  if numeric else ("probability", "option_probabilities")):
+        if aggregate.get(field) != values[field]:
+            raise CommentError("fallback probabilities do not match their inputs")
+    header = ["Final forecast: " + _probability(aggregate, snapshot),
+              f"Deadline fallback ({A.FALLBACK_VERSION}): no clean adoptable model answer was available when finalized.",
+              "Combined the best available answers that were held back by an automatic check."]
+    if snapshot.get('post_type') == 'group_of_questions':
+        header.insert(0, f"Question {snapshot['question_id']}: {plain(snapshot['title'])}")
+    explanations = []
+    for r in inputs:
+        flags = ", ".join(f for f in r["effective_audit_flags"] if f in A.EXCLUDED) or "none"
+        explanations.append((
+            f"{LABELS[r['player']]} (tier {r['tier']}, held back: {flags}): " + _probability(r, snapshot),
+            plain(r.get("reasoning_summary")),
+            plain(r.get("change_reason")) if r.get("tier") == 2 else None,
+        ))
+
+    def render(limit: int) -> str:
+        lines = list(header)
+        for heading, reason, change in explanations:
+            lines.append(heading)
+            if reason:
+                lines.append("Reason: " + _excerpt(reason, limit))
+            if change:
+                lines.append("Tier-2 judgement: " + _excerpt(change, limit))
+        return "\n".join(escape(line) for line in lines)
+
+    excerpt_limit = 480
+    text = render(excerpt_limit)
+    for limit in (320, 200, 120, 60):
+        if len(text) <= MAX_CHARS:
+            break
+        excerpt_limit = limit
+        text = render(limit)
+    if len(text) > MAX_CHARS:
+        raise CommentError("mandatory probability and explanation sections exceed 3000 characters")
+    return {"type": "comment", "record_id": new_id("comment"), "version": VERSION, "mode": "local",
+            "created_at_utc": to_iso(now or utc_now()), "question_id": snapshot["question_id"],
+            "question_snapshot_id": snapshot["snapshot_id"], "aggregate_id": aggregate["record_id"],
+            "input_attempt_ids": aggregate["input_attempt_ids"], "text": text,
+            "text_sha256": hashlib.sha256(text.encode()).hexdigest(), "fallback": kind,
+            "omitted_sections": {"sources": 0, "markets": 0, "details": 0},
+            "explanation_excerpt_limit": excerpt_limit, "submission_eligible": False}
+
+
 def build(snapshot: dict, aggregate: dict, records: list[dict], audit_events: list[dict], *, now=None) -> dict:
     graph = L.ImpactGraph(records)
     view = graph.attempt_audit_view(audit_events)
     attempts = [r for r in records if r.get("type") == "forecast_attempt"]
+    if aggregate.get("fallback_version") is not None:
+        return _fallback(snapshot, aggregate, attempts, view, now=now)
     stage = aggregate.get("stage")
     if stage not in ("tier1", "final"):
         raise CommentError("unknown aggregate stage")

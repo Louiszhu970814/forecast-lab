@@ -8,3 +8,5 @@ scratch/
 data/
 reports/
 .pytest_cache/
+config/.live_window.lock
+config/.live_window_pending.json

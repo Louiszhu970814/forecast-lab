@@ -16,6 +16,7 @@ D139：[交付](../docs/tasks/D139-EXPANSION.md)、[Claude r2A](claude-d139-r2a.
 
 | 檔案 | 對應決策／批次 | 審查者 | 狀態 | 說明 |
 |---|---|---|---|---|
+| [`gpt-d149-r18.md`](gpt-d149-r18.md) | D149 | gpt official CLI (`gpt-6-astra` `medium`) | `CLOSED (PASS)` | 拔除永久停線規則、不等缺線、live 窗口自動續期與截止前至少一模型完整答案保底送出（`deadline_fallback_v1`）獨立審查 PASS |
 | [`claude-d132-r1.md`](claude-d132-r1.md) | D132／D134 | claude official CLI | `CLOSED (SUPERSEDED)` | 人類賽有界入口審查；實際操作與英文稿見 D132 任務單 |
 | [`claude-d132-r2.md`](claude-d132-r2.md) | D132／D134 | claude official CLI | `CLOSED (PASS)` | 人類賽有界入口審查；實際操作與英文稿見 D132 任務單 |
 | [`gemini-d132-r1.md`](gemini-d132-r1.md) | D132／D134 | gemini official CLI | `CLOSED (SUPERSEDED)` | 人類賽有界入口審查；實際操作與英文稿見 D132 任務單 |

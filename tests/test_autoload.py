@@ -190,6 +190,7 @@ def test_execution_exception_still_restores_and_records(fx, exc):
     assert [r["player"] for r in rows if r["type"] == "acceptance_call_started"] == ["claude"]
 
 
+@pytest.mark.usefixtures("legacy_stops")  # pre-D149 stop rule
 def test_partial_write_is_preserved_as_conflict_and_blocks_preflight(fx, monkeypatch):
     write = auto._write
     count = 0

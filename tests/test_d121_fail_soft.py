@@ -29,6 +29,8 @@ def test_protected_runtime_and_campaign_hashes():
     # D136 advances only AGENTS.md for the reviewed D79 Cup wording correction.
     # Adapter/runner/netguard and campaign/config digests remain unchanged.
     # D137 explicitly authorizes the finite campaign/mode/venue transition only.
+    # D149 unpins config/cycle_campaign.json: the live window now renews it weekly;
+    # its integrity stays bound by submit_mode.json's live_window campaign_sha256.
     expected = json.loads((root / "tests/fixtures/d121_protected_hashes.json").read_text())
     assert all(hashlib.sha256((root / name).read_bytes()).hexdigest() == sha for name, sha in expected.items())
     assert F.PROMPT_VERSION == "forecast_v2"
@@ -125,6 +127,7 @@ def test_mismatch_yields_then_clean_rerun_is_adoptable(env):
     assert records[-1]["attempt_kind"] == "rerun" and not records[-1]["inherited_model_mismatch"]
 
 
+@pytest.mark.usefixtures("legacy_stops")  # pre-D149 stop rule
 def test_mismatch_window_replay_and_expiry(tmp_path):
     log, forecasts = tmp_path / "line.jsonl", tmp_path / "forecasts.jsonl"
     for i in range(2):
@@ -178,6 +181,7 @@ def test_recovery_requires_real_line_lock_and_no_live_cli(tmp_path, monkeypatch,
         assert sum(r["type"] == "budget_outcome" for r in read_records(tmp_path/"budget_events.jsonl")) == 1
 
 
+@pytest.mark.usefixtures("legacy_stops")  # pre-D149 stop rule
 def test_recovery_partial_tool_violation_still_stops_and_no_rerun(tmp_path, monkeypatch):
     ctx, raw = recovery_context(tmp_path)
     (raw/"stdout.jsonl").write_text(json.dumps({"type":"assistant", "message":{"content":[

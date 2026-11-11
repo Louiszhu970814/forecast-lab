@@ -473,39 +473,143 @@ class Scheduler:
                 if snap is not None and snap.get("question_type") in N.TYPES and \
                         F.eligible(snap, self.cfg, self.now()) in ("unsupported_type", "unsupported_scaling"):
                     continue
-                existing = next((a for a in aggregates if (self.continuous or a.get("scheduler_campaign_id") == self.campaign["campaign_id"])
+                existing = next((a for a in reversed(aggregates) if (self.continuous or a.get("scheduler_campaign_id") == self.campaign["campaign_id"])
                                  and a["question_id"] == qid and a.get("completion_status") == "complete_local"
+                                 and not a.get("submission_eligible")
                                  and (not self.continuous or a.get("question_snapshot_id") == self.snapshot_ids.get(qid))), None)
-                if existing is not None:
+                scoped = {**snap, "forecast_scope": "snapshot"} if (self.continuous and snap is not None) else snap
+                salvaged_stale = (
+                    self.continuous and scoped is not None and existing is not None
+                    and existing.get("fallback") == "salvaged_inputs"
+                    and (bool(A.select_inputs(scoped, attempts, stage="final", audit_events=view)[0])
+                         or [r["attempt_id"] for r in A.salvage_inputs(scoped, attempts, audit_events=view)]
+                            != existing.get("input_attempt_ids"))
+                )
+                if existing is not None and not salvaged_stale and (
+                        existing.get("status") == "ready" or not self.continuous
+                        or snap is None or not A.has_complete_answer(scoped, attempts, audit_events=view)):
                     # Crash after aggregate append must not permanently lose its comment.
-                    snap = snapshots.get(qid)
-                    if snap is not None:
-                        if self._comment(snap, existing, attempts, aggregates, events):
+                    if scoped is not None:
+                        if self._comment(scoped, existing, attempts, aggregates, events):
                             newly_ready.append(qid)
                     continue
-                snap = snapshots.get(qid)
                 if snap is None:
                     continue
                 deadline = F.decision_deadline(snap, self.cfg)
                 expired = qid in force or (deadline is not None and self.now() >= deadline)
-                first_done = all(not enabled[p] or self._terminal(qid, p, 1, attempts, jobs) for p in PLAYERS)
-                candidate = E.evaluate(snap, attempts, audit_events=view, now=self.now())
-                second_done = not candidate["escalation"]["candidate"] or all(
-                    not enabled[p] or self._terminal(qid, p, 2, attempts, jobs) for p in PLAYERS)
-                if not expired and not (first_done and second_done):
+                # D149: once one complete model answer exists, a line that cannot answer soon
+                # (long quota/budget wait, blocked) no longer holds the result back.
+                have = A.has_complete_answer(scoped, attempts, audit_events=view) if self.continuous else bool(
+                    A.select_inputs(scoped, attempts, stage="final", audit_events=view)[0])
+                absent = {(p, t) for p in PLAYERS for t in (1, 2)
+                          if have and self._unavailable(qid, p, t, attempts, jobs, deadline)}
+                for p in PLAYERS:
+                    if (p, 1) in absent and not self._terminal(qid, p, 1, attempts, jobs):
+                        absent.add((p, 2))
+                def done(p, t):
+                    return not enabled[p] or self._terminal(qid, p, t, attempts, jobs) or (p, t) in absent
+                first_done = all(done(p, 1) for p in PLAYERS)
+                candidate = E.evaluate(scoped, attempts, audit_events=view, now=self.now())
+                second_done = not candidate["escalation"]["candidate"] or all(done(p, 2) for p in PLAYERS)
+                if not expired and not salvaged_stale and not (first_done and second_done):
                     continue
-                final = A.build_aggregate(snap, attempts, stage="final", audit_events=view, now=self.now())
+                skipped = sorted({p for p, t in absent if not self._terminal(qid, p, t, attempts, jobs)})
+                final = A.build_aggregate(scoped, attempts, stage="final", audit_events=view, now=self.now())
+                if self.continuous and final["status"] != "ready":
+                    # D149: require >=1 complete model answer (with explanation); otherwise seal no_valid_inputs.
+                    final = A.apply_fallback(final, scoped, attempts, audit_events=view)
                 final.update(completion_status="complete_local", scheduler_campaign_id=self.campaign["campaign_id"],
-                             scheduler_version=VERSION, completion_reason="decision_deadline" if expired else "all_lines_accounted_for",
-                             submission_eligible=False)
+                             scheduler_version=VERSION, completion_reason="decision_deadline" if expired else
+                             "available_lines_accounted_for" if skipped else "all_lines_accounted_for",
+                             submission_eligible=False, **({"lines_not_waited_for": skipped} if skipped else {}))
                 append_record(self.root / "aggregates.jsonl", final)
                 aggregates.append(final)
-                if self._comment(snap, final, attempts, aggregates, events):
+                if self._comment(scoped, final, attempts, aggregates, events):
                     newly_ready.append(qid)
             L.append_impacts(self.root / "audit_impacts.jsonl", L.ImpactGraph([*attempts, *aggregates]), events, now=self.now())
         if self.continuous and newly_ready and self.on_finalized is not None:
             self.on_finalized(newly_ready)
         return newly_ready
+
+    def _unavailable(self, qid, player, tier, attempts, rows, deadline):
+        """True when this line is waiting and cannot answer within the hold or before the deadline."""
+        try:
+            return self._unavailable_checked(qid, player, tier, attempts, rows, deadline)
+        except (KeyError, TypeError, ValueError):
+            return False  # unreadable wait data does not skip the line; normal waiting applies
+
+    def _line_stop(self, player, now):
+        cache = getattr(self, "_stop_cache", None)
+        if cache is None or cache[0] != now:
+            cache = self._stop_cache = (now, {})
+        if player not in cache[1]:
+            try:
+                cache[1][player] = F.line_stopped(self.root / "line_status.jsonl", player, self.root / "forecasts.jsonl", now=now)
+            except (KeyError, TypeError, ValueError):
+                cache[1][player] = None  # unreadable history is not a wait; other wait evidence still applies
+        return cache[1][player]
+
+    def _preflight_ok(self, player, tier, now):
+        cache = getattr(self, "_pf_cache", None)
+        if cache is None or cache[0] != now:
+            cache = self._pf_cache = (now, {})
+        if (player, tier) not in cache[1]:
+            try:
+                adapter = self.loader(player)
+                pf = self.pf(player, tier, adapter) if self.pf else F.preflight(
+                    player, cfg=self.cfg, tier=tier, adapter=adapter, continuous=self.continuous)
+                cache[1][(player, tier)] = bool(pf.ok)
+            except Exception:
+                # D149: an exception in loader/preflight does not confirm a hand-set switch
+                # block, so do not skip a line on that basis alone when PERSISTENT_STOPS is False.
+                cache[1][(player, tier)] = not FS.PERSISTENT_STOPS
+        return cache[1][(player, tier)]
+
+    def _unavailable_checked(self, qid, player, tier, attempts, rows, deadline):
+        now = self.now()
+        sid = self.snapshot_ids.get(qid)
+        released = {r["wait_id"] for r in rows if r.get("type") == "scheduler_wait_reevaluated"}
+        until = []
+        if stop := self._line_stop(player, now):
+            until.append(stop.get("until"))
+        resumed = F.latest_resume(self.root / "line_status.jsonl", player)
+        player_attempts = [r for r in attempts if r.get("player") == player]
+        last_att = player_attempts[-1] if player_attempts else {}
+        last_att_at = parse_iso(last_att["finished_at_utc"]) if last_att.get("finished_at_utc") else None
+        player_jobs = [r for r in rows if r.get("type") == "scheduler_job_finished" and r.get("player") == player]
+        last_job = player_jobs[-1] if player_jobs else {}
+        last_job_at = parse_iso(last_job["finished_at"]) if last_job.get("finished_at") else None
+        latest = next((r for r in reversed(rows) if r.get("type") == "scheduler_job_finished"
+                       and (r.get("question_id"), r.get("player"), r.get("tier")) == (qid, player, tier)
+                       and (not self.continuous or r.get("question_snapshot_id") == sid)), {})
+        if last_att.get("quota_retry_at_utc") and (resumed is None or last_att_at is None or last_att_at > resumed) \
+                and not (last_job.get("outcome") not in QUOTA_WAITS and last_job_at is not None
+                         and last_att_at is not None and last_job_at > last_att_at):
+            until.append(last_att["quota_retry_at_utc"])
+        superseded_by_attempt = (
+            bool(last_att) and not last_att.get("quota_retry_at_utc")
+            and ((last_job_at is not None and last_att_at is not None and last_att_at > last_job_at)
+                 or (last_job_at is None and last_att.get("question_id") == qid
+                     and (not self.continuous or last_att.get("question_snapshot_id") == sid)))
+        )
+        if last_job.get("outcome") in QUOTA_WAITS and last_job.get("record_id") not in released \
+                and (resumed is None or last_job_at is None or last_job_at > resumed) and not superseded_by_attempt:
+            until.append(last_job.get("quota_retry_at_utc"))
+        if latest.get("outcome") == "budget_wait" and latest.get("record_id") not in released:
+            until.append(latest.get("reevaluate_after"))
+        run_latest = next((r for r in reversed(rows) if r.get("type") == "scheduler_job_finished"
+                           and r.get("run_id") == self.run_id and (r.get("player"), r.get("tier")) == (player, tier)
+                           and (not self.continuous or r.get("question_snapshot_id") == self.snapshot_ids.get(r.get("question_id")))), {})
+        if (latest.get("outcome") == "preflight_blocked" or run_latest.get("outcome") == "preflight_blocked") \
+                and not self._preflight_ok(player, tier, now):
+            return True
+        for value in until:
+            if value is None:
+                continue
+            at = parse_iso(value)
+            if at > now and ((at - now).total_seconds() > FS.STRAGGLER_HOLD_S or (deadline is not None and at >= deadline)):
+                return True
+        return False
 
     def _comment(self, snap, final, attempts, aggregates, events):
         if final["status"] != "ready":

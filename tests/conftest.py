@@ -25,3 +25,13 @@ def question_type_flags(tmp_path_factory, monkeypatch):
         path.write_text(json.dumps({"numeric": enabled, "discrete": enabled}))
 
     return set_flags
+
+
+@pytest.fixture
+def legacy_stops(monkeypatch):
+    """Pre-D149 persistent-stop rules, kept for tests of the legacy stop/recovery machinery.
+
+    Production default is FS.PERSISTENT_STOPS = False (D149): no check stops a line indefinitely.
+    """
+    from flab import fail_soft as FS
+    monkeypatch.setattr(FS, "PERSISTENT_STOPS", True)

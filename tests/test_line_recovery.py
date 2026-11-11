@@ -5,6 +5,9 @@ from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+
+# Line recovery lifts pre-D149 persistent stops; exercise it under those rules.
+pytestmark = pytest.mark.usefixtures("legacy_stops")
 import forecast as F
 import line_recovery as R
 from flab.ids import hash_obj
