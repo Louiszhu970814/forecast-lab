@@ -2,15 +2,19 @@
 
 > 唯一真實規格來源仍為 [`PLAN.md`](../../PLAN.md)。本檔記錄現行營運狀態與近期重要變更交接；過時中間紀錄已於 D150 精簡。
 
-## 現行營運摘要（2026-11-11，PLAN v1.104）
+## 現行營運摘要（2026-11-12，PLAN v1.105）
 
-- **正式參賽與排程**：FutureEval 秋季主賽（`33121`）、MiniBench 與 Market Pulse 26Q4（`33131`）已啟用 `live` 模式，共用機器人帳號 `311763` 與每週嘗試上限（Claude 130／Gemini 200／GPT 130）。`org.forecast-lab.cycle` 每 60 秒執行本地 heartbeat，新題搜尋由 `discovery_v1` 控制為 1800 秒（距關閉不足 1 小時之短窗口 300 秒）。
+- **正式參賽與排程**：FutureEval 秋季主賽（`33121`）、MiniBench 與 Market Pulse 26Q4（`33131`）已啟用 `live` 模式，共用機器人帳號 `311763` 與每週嘗試上限（Claude 130／Gemini 200／GPT 130）；現行窗口為 `d151_gemini_carbon_20261112`（計數起點保留 `2026-11-10T04:00:00.000Z`，至 `2026-11-17T04:00:00.000Z` 到期自動續期）。三線預測模型為 Claude `claude-opus-5-5`（medium／high）、Gemini `gemini-4-carbon-medium`／`gemini-4-carbon-high`（medium／high，`run_config_v4`，D151）、GPT `gpt-6-astra`（medium／high）。`org.forecast-lab.cycle` 每 60 秒執行本地 heartbeat，新題搜尋由 `discovery_v1` 控制為 1800 秒（距關閉不足 1 小時之短窗口 300 秒）。
 - **回報偏好（D146）**：當 Louis 詢問「情況如何」時，除本地營運狀態外，一併查詢各已參賽場次的最新官方分數與排名（附來源與查詢時間；未計分、未上榜或查詢失敗須明確區分）。
 - **手機進度查詢（D148）**：Telegram（`org.forecast-lab.telegram`，`telegram_ops_v5`／`team_chat_v3`）只顯示近 24 小時目前事項與營運計數，僅用於查詢今天有無卡線、預測情況與問答，不做手機操控或開發續作。
 
 ---
 
-## 近期變更交接（D137～D150）
+## 近期變更交接（D137～D151）
+
+### D151：Gemini 預測線升級為 Gemini 4 Carbon 與窗口無縫接續（2026-11-12，PLAN v1.105）
+- **模型與升版設定**：`config/run_config_v2.json` 升為 `run_config_v4`（`players.gemini.tier1` = `gemini-4-carbon-medium`／`medium`、`players.gemini.tier2` = `gemini-4-carbon-high`／`high`；`acceptance.gemini` 與 TG 問答維持 `gemini-3.8-flash-low`）。`src/adapters/gemini.py` 補入 `Gemini 4 Carbon (Low/Medium/High)` 日誌模型核對映射，`src/quota.py` 相容 `gemini-4-carbon-` 前綴，`src/escalate.py` 允許 `run_config_v4`，並同步兩份測試保護雜湊 fixture。
+- **窗口接續（`budget_handoff_v4`）**：`src/budget_handoff.py` 新增有界 `continuous_v11` 設定接續，於 UTC `2026-11-12T15:19:42.805Z` 持全部 7 把鎖確認 0 在途工作後原子套用並登記 `d151_gemini_carbon_20261112`，完整保留 `2026-11-10T04:00:00.000Z` 根計數起點、每週上限與 `2026-11-17T04:00:00.000Z` 到期自動續期；3722 項離線回歸全過。
 
 ### D150：過時排程、文件、中間審查與本機舊備份清理（2026-11-11，PLAN v1.104）
 - **背景排程退役**：卸載 D149 後已 100% 空轉的 `org.forecast-lab.line-recovery` LaunchAgent（`config/line_recovery.json` 設為 `"enabled": false`），移除未使用的 `line-recovery`／`resolve`／`report` plist 範本，並從 `launchd/run.sh` 移除每 60 秒後置的 `auto_reaccept.py tick` 觀察呼叫。

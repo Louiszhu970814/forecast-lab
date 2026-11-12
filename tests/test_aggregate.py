@@ -247,7 +247,7 @@ def test_escalation_refuses_unversioned_threshold_changes():
         E.evaluate(BIN, [answer()], run_config=cfg)
 
 
-@pytest.mark.parametrize("version", ["run_config_v2", "run_config_v3"])
+@pytest.mark.parametrize("version", ["run_config_v2", "run_config_v3", "run_config_v4"])
 def test_deadline_config_upgrade_preserves_escalation_and_provenance(version):
     cfg = load_run_config()
     cfg["version"] = version

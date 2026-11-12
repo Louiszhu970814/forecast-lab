@@ -1,12 +1,12 @@
 {
   "version": "continuous_v11",
-  "campaign_id": "auto_20261110T0400Z",
+  "campaign_id": "d151_gemini_carbon_20261112",
   "venues": [
     "main",
     "minibench",
     "market_pulse"
   ],
-  "budget_window_start": "2026-11-10T04:00:00.000Z",
+  "budget_window_start": "2026-11-12T15:19:42.805Z",
   "budget_window_end": "2026-11-17T04:00:00.000Z",
   "weekly_attempt_caps": {
     "claude": 130,
@@ -16,7 +16,7 @@
   "expected_new_questions": 10,
   "repair_reserve": 2,
   "urgent_slack_s": 120,
-  "run_config_sha256": "42936cd6c04e4e547dbe3369f868f1e338da04ab00a754cbe219037b8f196572",
+  "run_config_sha256": "e1cf8d051ed8b695b8f197045e5ccdbead86df143d5acf71f4ded5da8256c4c1",
   "quota_policy_sha256": "3e11aeab8eca0fae1987e202779f49f60704f13737e3665a18c49e48e0a6ee23",
   "discovery": {
     "version": "discovery_v1",
@@ -35,6 +35,11 @@
     "priority": "after_main_and_minibench",
     "reserve_both_tiers_for_expected_arrivals": true
   },
-  "renewed_from": "d139_main_minibench_market_20261105",
-  "renewal_authorization": "PLAN D149"
+  "budget_handoff": {
+    "version": "budget_handoff_v4",
+    "source_campaign_id": "auto_20261110T0400Z",
+    "source_sha256": "dae01ae602580f0abbfe059a4c69402c8c8eb6cc936088793ce8bbed2ff6bf97",
+    "accounting_start": "2026-11-10T04:00:00.000Z",
+    "authorization": "PLAN D151"
+  }
 }

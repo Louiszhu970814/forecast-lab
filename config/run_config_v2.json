@@ -1,5 +1,5 @@
 {
-  "version": "run_config_v3",
+  "version": "run_config_v4",
   "players": {
     "claude": {
       "tier1": {
@@ -15,11 +15,11 @@
     },
     "gemini": {
       "tier1": {
-        "model": "gemini-4-argon-medium",
+        "model": "gemini-4-carbon-medium",
         "effort": "medium"
       },
       "tier2": {
-        "model": "gemini-4-argon-high",
+        "model": "gemini-4-carbon-high",
         "effort": "high",
         "subagents_enabled": false,
         "max_subagents": 3

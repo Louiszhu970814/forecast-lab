@@ -383,7 +383,7 @@ def test_gemini_tier2_uses_high_model_and_quota_checks(ctx, monkeypatch):
     monkeypatch.setattr(F.quota, "judge", lambda a, b: "verified")
     result = run_good(ctx)
     req = ctx.adapter.requests[0]
-    assert (req.model, req.effort, req.profile) == ("gemini-4-argon-high", "high", "tier2")
+    assert (req.model, req.effort, req.profile) == ("gemini-4-carbon-high", "high", "tier2")
     assert len(result["admissions"]) == 1 and tier2(ctx)[0]["quota_admission"]["estimate"] == .05
 
 

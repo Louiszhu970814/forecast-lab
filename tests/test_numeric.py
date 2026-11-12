@@ -498,6 +498,7 @@ def test_legacy_bitwise_golden_and_protected_files(tmp_path, monkeypatch):
     # Legacy payload rows and all runtime/config/prompt-content hashes stay pinned.
     # D137 updates only authorized campaign/mode/venue hashes; legacy rows stay pinned.
     # D149 unpins config/cycle_campaign.json because the live window renews it weekly.
+    # D151 updates config/run_config_v2.json (run_config_v4) and src/adapters/gemini.py (MODEL_LABELS).
     for path, digest in golden["protected"].items():
         assert hashlib.sha256((ROOT / path).read_bytes()).hexdigest() == digest, path
     actual_flags = json.loads((ROOT / "config/question_types.json").read_text())

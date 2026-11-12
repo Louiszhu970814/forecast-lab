@@ -82,6 +82,9 @@ FORMAT_REPAIR_DENY_PERMISSIONS: tuple[str, ...] = (*COMMON_DENY, "read_url(*)", 
 # Mapping from CLI model IDs (from `agy models`) to human-readable backend labels
 # logged in `agy_cli.log` via `Propagating selected model override to backend: label="..."`.
 MODEL_LABELS: dict[str, str] = {
+    "gemini-4-carbon-medium": "Gemini 4 Carbon (Medium)",
+    "gemini-4-carbon-high": "Gemini 4 Carbon (High)",
+    "gemini-4-carbon-low": "Gemini 4 Carbon (Low)",
     "gemini-4-argon-medium": "Gemini 4 Argon (Medium)",
     "gemini-4-argon-high": "Gemini 4 Argon (High)",
     "gemini-4-argon-low": "Gemini 4 Argon (Low)",

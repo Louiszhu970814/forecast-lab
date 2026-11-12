@@ -9,6 +9,8 @@ LEGACY_VERSION = "budget_handoff_v1"
 VERSION = "budget_handoff_v2"
 MAX_LINKS = 2
 EXPANSION_VERSION = "budget_handoff_v3"
+CONFIG_HANDOFF_VERSION = "budget_handoff_v4"
+MAX_CONFIG_LINKS = 4
 
 
 def superseded(campaign_id, rows):
@@ -52,6 +54,8 @@ def _legacy_source(policy, rows):
 
 def ancestors(policy, rows, *, seen=()):
     """Validate up to two immutable links; v1 rules remain unchanged."""
+    if isinstance(policy.get("budget_handoff"), dict) and policy["budget_handoff"].get("version") == CONFIG_HANDOFF_VERSION:
+        return config_handoff_ancestors(policy, rows, seen=seen)
     if isinstance(policy.get('budget_handoff'),dict) and policy['budget_handoff'].get('version')==EXPANSION_VERSION:
         if seen:
             raise ValueError('v3 is terminal; fourth handoff is forbidden')
@@ -168,4 +172,51 @@ def expansion_ancestors(policy, rows):
                 and r['campaign']['budget_handoff'].get('source_campaign_id')==old['campaign_id']]
     if any(r['campaign_id']!=policy['campaign_id'] for r in successors):
         raise ValueError('handoff source already has a successor')
+    return chain
+
+
+def config_handoff_ancestors(policy, rows, *, seen=()):
+    """Bounded continuous_v11 run_config upgrade handoff preserving root accounting start (PLAN D151)."""
+    import discovery
+    import market_policy
+    if len(seen) >= MAX_CONFIG_LINKS:
+        raise ValueError("config handoff exceeds link bound")
+    identity = policy.get("campaign_id")
+    if not isinstance(identity, str) or not identity or identity in seen:
+        raise ValueError("handoff identity cycle")
+    setting = policy.get("budget_handoff")
+    if policy.get("version") != "continuous_v11" or not isinstance(setting, dict) or set(setting) != {
+            "version", "source_campaign_id", "source_sha256", "accounting_start", "authorization"} \
+            or setting.get("version") != CONFIG_HANDOFF_VERSION or setting.get("authorization") != "PLAN D151" \
+            or any(k in policy for k in ("rollover", "series_id", "series_sha256", "window_index")):
+        raise ValueError("explicit bounded D151 v4 config handoff required")
+    old = registered(setting["source_campaign_id"], rows)
+    if old.get("version") != "continuous_v11" or old["campaign_id"] in (*seen, identity) \
+            or setting["source_sha256"] != hash_obj(old) \
+            or any(k in old for k in ("rollover", "series_id", "series_sha256", "window_index")):
+        raise ValueError("config handoff source identity, version or hash differs")
+    previous = ancestors(old, rows, seen=(*seen, identity)) if "budget_handoff" in old else []
+    chain = [old, *previous]
+    if len({p["campaign_id"] for p in chain}) != len(chain) \
+            or any(p["campaign_id"] in (*seen, identity) for p in chain):
+        raise ValueError("config handoff repeats an ancestor")
+    if setting["accounting_start"] != chain[-1]["budget_window_start"]:
+        raise ValueError("config handoff must preserve root accounting start")
+    start, end = parse_iso(policy["budget_window_start"]), parse_iso(policy["budget_window_end"])
+    if not parse_iso(old["budget_window_start"]) < start < parse_iso(old["budget_window_end"]) \
+            or policy["budget_window_end"] != old["budget_window_end"] or not start < end:
+        raise ValueError("config handoff must stay inside and preserve the source window end")
+    for key in ("weekly_attempt_caps", "quota_policy_sha256", "expected_new_questions",
+                "repair_reserve", "urgent_slack_s", "venues", "discovery", "market_pulse"):
+        if policy.get(key) != old.get(key):
+            raise ValueError("config handoff must preserve source caps, venues and schedule policy")
+    if not isinstance(policy.get("run_config_sha256"), str) or not policy["run_config_sha256"] \
+            or policy["run_config_sha256"] == old.get("run_config_sha256"):
+        raise ValueError("config handoff requires a changed run_config_sha256")
+    discovery.validate(policy)
+    market_policy.validate(policy)
+    successors = [r["campaign"] for r in rows if isinstance(r.get("campaign", {}).get("budget_handoff"), dict)
+                  and r["campaign"]["budget_handoff"].get("source_campaign_id") == old["campaign_id"]]
+    if any(r["campaign_id"] != identity for r in successors):
+        raise ValueError("handoff source already has a successor")
     return chain

@@ -31,6 +31,8 @@ def test_protected_runtime_and_campaign_hashes():
     # D137 explicitly authorizes the finite campaign/mode/venue transition only.
     # D149 unpins config/cycle_campaign.json: the live window now renews it weekly;
     # its integrity stays bound by submit_mode.json's live_window campaign_sha256.
+    # D151 updates config/run_config_v2.json (run_config_v4) and src/adapters/gemini.py
+    # (MODEL_LABELS for gemini-4-carbon-*).
     expected = json.loads((root / "tests/fixtures/d121_protected_hashes.json").read_text())
     assert all(hashlib.sha256((root / name).read_bytes()).hexdigest() == sha for name, sha in expected.items())
     assert F.PROMPT_VERSION == "forecast_v2"

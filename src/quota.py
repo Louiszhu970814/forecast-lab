@@ -912,7 +912,7 @@ def manual_admission(snapshot, policy: dict, *, model: str, history_root: Path, 
     info.update(quota_weekly_bucket=buckets.weekly.id, argon_remaining=buckets.weekly.remaining_fraction,
                 reserve=reserve, estimate=estimate_weekly, estimate_samples=weekly_count,
                 estimate_method=WINDOW_ESTIMATE_VERSION)
-    if (model.startswith("gemini-4-argon-") or buckets.layout == "ultra_shared") and buckets.weekly.remaining_fraction - estimate_weekly < reserve - QUOTA_EPSILON:
+    if (model.startswith(("gemini-4-argon-", "gemini-4-carbon-")) or buckets.layout == "ultra_shared") and buckets.weekly.remaining_fraction - estimate_weekly < reserve - QUOTA_EPSILON:
         return "quota_exhausted", info
     estimate_5h, count = estimate(forecasts, history, current=snapshot, fallback=fallback, tier=tier,
                                   period="five_hour", **settings)

@@ -30,15 +30,17 @@ def fixture(tmp_path,monkeypatch):
              'tool_info':{'name':' view_file','parameters':params,**extra}}}
           for state,extra in [('ACTIVE',{}),('ERROR',{'error':{'message':R.REJECTION}})]],
         {'event':'result','result':{'status':'SUCCESS','structured_output':{'never_read':'forecast contents'}}}]
+    from flab.config import load_run_config
+    cfg=load_run_config()
     row={'type':'forecast_attempt','attempt_id':'att_one','player':'gemini','tier':2,'question_id':123,
         'question_snapshot_id':'qs_one','run_id':'run_one','attempt_kind':'initial','prev_attempt_id':None,
-        'requested_model_id':'gemini-4-argon-high','requested_effort':'high','cli_version':'1.4.12','validation_status':'incomplete','error_type':'tool_scope_violation',
+        'requested_model_id':cfg['players']['gemini']['tier2']['model'],'requested_effort':cfg['players']['gemini']['tier2']['effort'],'cli_version':'1.4.12','validation_status':'incomplete','error_type':'tool_scope_violation',
         'model_check':'verified','audit_flags':[],'own_audit_flags':[],
         'tool_violations':[{'type':'unexpected_tool','tool':' view_file','step':4,'state':'ERROR'},
                            {'type':'unexpected_tool','tool':' view_file','count':1}],
         'tool_call_counts':{'read_url_content':1,' view_file':1},
         'raw_dir':'data/raw/gemini/123_att_one','finished_at_utc':to_iso(NOW-timedelta(seconds=5)),
-        'started_at_utc':to_iso(NOW-timedelta(seconds=60)),'run_config_version':'run_config_v3',
+        'started_at_utc':to_iso(NOW-timedelta(seconds=60)),'run_config_version':cfg['version'],
         'decision_deadline_utc':to_iso(NOW+timedelta(hours=4)),
         'reasoning_summary':'never inspect','probability':0.876}
     stop={'type':'line_stop','player':'gemini','run_id':'run_one','at':to_iso(NOW),
@@ -220,7 +222,7 @@ def test_recovery_retry_reaches_real_start_journal_once(fixture,monkeypatch):
     from test_forecast import FakeAdapter, SNAP, _good, _qsnap, POLICY
     from flab.config import load_run_config
     f=fixture;cfg=load_run_config();enable(f,monkeypatch)
-    f.row.update(tier=1,question_type='binary',requested_model_id='gemini-4-argon-medium',requested_effort='medium');f.save_ledgers()
+    f.row.update(tier=1,question_type='binary',requested_model_id='gemini-4-carbon-medium',requested_effort='medium');f.save_ledgers()
     result=R.recover(f.root,now=lambda:NOW,capture_fn=f.capture)
     assert result['retry_granted']
     snapshots=iter([replace(_qsnap(.9),taken_at=to_iso(NOW)),replace(_qsnap(.89),taken_at=to_iso(NOW))])
@@ -416,7 +418,7 @@ def test_recovery_grant_is_selected_and_budgeted_by_real_scheduler(fixture, monk
     from test_scheduler import campaign
     from test_forecast import FakeAdapter, SNAP, _good, _qsnap
     f=fixture;enable(f,monkeypatch)
-    f.row.update(tier=1,question_type='binary',requested_model_id='gemini-4-argon-medium',requested_effort='medium');f.save_ledgers()
+    f.row.update(tier=1,question_type='binary',requested_model_id='gemini-4-carbon-medium',requested_effort='medium');f.save_ledgers()
     result=R.recover(f.root,now=lambda:NOW,capture_fn=f.capture)
     cfg=campaign(1);cfg['questions']=[{'question_id':123,'ground':'bot_testing_area','priority':'main'}]
     cfg['budget_window_end']=to_iso(NOW+timedelta(days=1))
@@ -489,7 +491,7 @@ def test_environment_drift_after_admission_releases_reservation_without_start(fi
     from test_forecast import FakeAdapter,SNAP,_qsnap,POLICY
     from flab.config import load_run_config
     f=fixture;enable(f,monkeypatch);cfg=load_run_config()
-    f.row.update(tier=1,question_type='binary',requested_model_id='gemini-4-argon-medium',requested_effort='medium');f.save_ledgers()
+    f.row.update(tier=1,question_type='binary',requested_model_id='gemini-4-carbon-medium',requested_effort='medium');f.save_ledgers()
     R.recover(f.root,now=lambda:NOW,capture_fn=f.capture)
     adapter=FakeAdapter([]);work=f.project.parent/'empty';work.mkdir();admissions=[];released=[]
     def reserve(kind,aid):
