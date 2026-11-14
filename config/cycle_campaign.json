@@ -1,12 +1,12 @@
 {
   "version": "continuous_v11",
-  "campaign_id": "d151_gemini_carbon_20261112",
+  "campaign_id": "d152_forecast_timeouts_20261113",
   "venues": [
     "main",
     "minibench",
     "market_pulse"
   ],
-  "budget_window_start": "2026-11-12T15:19:42.805Z",
+  "budget_window_start": "2026-11-13T17:56:41.870Z",
   "budget_window_end": "2026-11-17T04:00:00.000Z",
   "weekly_attempt_caps": {
     "claude": 130,
@@ -16,7 +16,7 @@
   "expected_new_questions": 10,
   "repair_reserve": 2,
   "urgent_slack_s": 120,
-  "run_config_sha256": "e1cf8d051ed8b695b8f197045e5ccdbead86df143d5acf71f4ded5da8256c4c1",
+  "run_config_sha256": "a2363599cc121add356b4f41236bf47abbfae455f12a8beb996fafd007838528",
   "quota_policy_sha256": "3e11aeab8eca0fae1987e202779f49f60704f13737e3665a18c49e48e0a6ee23",
   "discovery": {
     "version": "discovery_v1",
@@ -37,9 +37,9 @@
   },
   "budget_handoff": {
     "version": "budget_handoff_v4",
-    "source_campaign_id": "auto_20261110T0400Z",
-    "source_sha256": "dae01ae602580f0abbfe059a4c69402c8c8eb6cc936088793ce8bbed2ff6bf97",
+    "source_campaign_id": "d151_gemini_carbon_20261112",
+    "source_sha256": "61eac877a2b6b2b1bc53a700573d7b190e45bbec58fb5eac6ca5764d9ad922c9",
     "accounting_start": "2026-11-10T04:00:00.000Z",
-    "authorization": "PLAN D151"
+    "authorization": "PLAN D152"
   }
 }

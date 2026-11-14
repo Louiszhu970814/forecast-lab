@@ -1,5 +1,5 @@
 {
-  "version": "run_config_v4",
+  "version": "run_config_v5",
   "players": {
     "claude": {
       "tier1": {
@@ -39,8 +39,8 @@
     }
   },
   "timeouts_s": {
-    "tier1": 600,
-    "tier2": 1200,
+    "tier1": 1800,
+    "tier2": 1800,
     "repair": 300
   },
   "escalation": {
@@ -81,6 +81,7 @@
   },
   "_notes": {
     "repair_timeout": "暫定：timeouts_s.repair = 300 秒（PLAN 未規定格式修復逾時秒數）",
+    "forecast_timeouts": "D152：第 1 層與第 2 層預測逾時皆為 1800 秒；實際可用時間仍以題目決策截止時間為上限",
     "tier2_subagents_enabled": "暫定：各線 tier2.subagents_enabled 預設為 false，待 §7.6 子代理驗收通過後再個別開啟",
     "acceptance_models": "待 W4～W6 確認：acceptance 區塊中 claude 的 Haiku 具體模型別名與三線 CLI 實際可用的參數寫法，於 W4～W6 確認",
     "schema_keys": "暫定：JSON 欄位階層與鍵名為 M1-W1 暫定"

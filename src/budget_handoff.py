@@ -11,6 +11,8 @@ MAX_LINKS = 2
 EXPANSION_VERSION = "budget_handoff_v3"
 CONFIG_HANDOFF_VERSION = "budget_handoff_v4"
 MAX_CONFIG_LINKS = 4
+# Each run_config upgrade inside a live window is authorized by its own PLAN decision.
+CONFIG_HANDOFF_AUTHORIZATIONS = frozenset({"PLAN D151", "PLAN D152"})
 
 
 def superseded(campaign_id, rows):
@@ -176,7 +178,7 @@ def expansion_ancestors(policy, rows):
 
 
 def config_handoff_ancestors(policy, rows, *, seen=()):
-    """Bounded continuous_v11 run_config upgrade handoff preserving root accounting start (PLAN D151)."""
+    """Bounded continuous_v11 run_config upgrade handoff preserving root accounting start (PLAN D151/D152)."""
     import discovery
     import market_policy
     if len(seen) >= MAX_CONFIG_LINKS:
@@ -187,9 +189,10 @@ def config_handoff_ancestors(policy, rows, *, seen=()):
     setting = policy.get("budget_handoff")
     if policy.get("version") != "continuous_v11" or not isinstance(setting, dict) or set(setting) != {
             "version", "source_campaign_id", "source_sha256", "accounting_start", "authorization"} \
-            or setting.get("version") != CONFIG_HANDOFF_VERSION or setting.get("authorization") != "PLAN D151" \
+            or setting.get("version") != CONFIG_HANDOFF_VERSION \
+            or setting.get("authorization") not in CONFIG_HANDOFF_AUTHORIZATIONS \
             or any(k in policy for k in ("rollover", "series_id", "series_sha256", "window_index")):
-        raise ValueError("explicit bounded D151 v4 config handoff required")
+        raise ValueError("explicit bounded D151/D152 v4 config handoff required")
     old = registered(setting["source_campaign_id"], rows)
     if old.get("version") != "continuous_v11" or old["campaign_id"] in (*seen, identity) \
             or setting["source_sha256"] != hash_obj(old) \

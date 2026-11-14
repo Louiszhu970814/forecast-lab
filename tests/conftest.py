@@ -35,3 +35,29 @@ def legacy_stops(monkeypatch):
     """
     from flab import fail_soft as FS
     monkeypatch.setattr(FS, "PERSISTENT_STOPS", True)
+
+
+@pytest.fixture
+def legacy_forecast_timeouts(monkeypatch):
+    """Pre-D152 forecast timeouts (tier1 600 s, tier2 1200 s) for scenario tests calibrated to them.
+
+    Production run_config_v5 uses 1800/1800 s (D152). These tests exercise scheduling and
+    handoff mechanics rather than the configured values, which test_d152_forecast_timeouts.py
+    pins. Only the default run_config read is adjusted; copied project configs are untouched.
+    """
+    import copy
+    from pathlib import Path
+
+    import flab.config as config
+
+    load = config.load_config_file
+    target = config.DEFAULT_CONFIG_DIR / "run_config_v2.json"
+
+    def legacy(path):
+        result = load(path)
+        if Path(path) == target:
+            result = copy.deepcopy(result)
+            result["timeouts_s"] = {**result["timeouts_s"], "tier1": 600, "tier2": 1200}
+        return result
+
+    monkeypatch.setattr(config, "load_config_file", legacy)

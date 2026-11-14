@@ -164,7 +164,8 @@ def test_existing_bytes_appended_then_restored_and_new_directories_removed(fx):
     assert [r.player for r in seen] == list(baseline.PLAYERS)
     for req in seen:
         assert req.profile == "tier1" and req.model == config["players"][req.player]["tier1"]["model"]
-        assert req.effort == config["players"][req.player]["tier1"]["effort"] and req.timeout_s == 600
+        assert req.effort == config["players"][req.player]["tier1"]["effort"] \
+            and req.timeout_s == config["timeouts_s"]["tier1"]
     snap = baseline.Snapshot(rec["finished_at"], {}, rec["cli_versions"], gemini_credits=0)
     approved = baseline.approve(snap, "Louis", rec["record_id"], log=fx.data / "acceptance.jsonl")
     assert approved["autoload_record"] == rec["record_id"]

@@ -56,7 +56,7 @@ def test_completion_relative_trigger_includes_work_and_idle_gap(tmp_path):
     assert result["questions"][1]["seen_at"] == at(665)
 
 
-def test_completion_relative_trigger_includes_supervisor_cleanup(tmp_path, monkeypatch):
+def test_completion_relative_trigger_includes_supervisor_cleanup(legacy_forecast_timeouts, tmp_path, monkeypatch):
     cfg = settings()
     cfg["cycle_trigger"] = "after_completion"
     cfg["startup_s"] = 5200
@@ -182,7 +182,7 @@ def test_pending_repair_continues_next_cycle_without_new_base(tmp_path):
     assert result["coverage_supported"] == 1
 
 
-def test_timeout_has_only_one_rerun_per_snapshot(tmp_path):
+def test_timeout_has_only_one_rerun_per_snapshot(legacy_forecast_timeouts, tmp_path):
     cfg = settings()
     for line in cfg["players"].values():
         line["tier1"] = [900]
@@ -607,7 +607,7 @@ def test_paused_line_does_not_block_simulated_tier2(tmp_path):
     assert {(a['player'], a['tier']) for a in result['attempts']} == {('claude', 1), ('gpt', 1), ('claude', 2), ('gpt', 2)}
 
 
-def test_idle_simulator_handoff_releases_before_next_tick(tmp_path):
+def test_idle_simulator_handoff_releases_before_next_tick(legacy_forecast_timeouts, tmp_path):
     cfg = settings()
     cfg['players']['gemini']['stops'] = [{'start': at(0), 'end': at(20000), 'reason': 'preflight_blocked'}]
     # A continuous stream of known deadlines keeps this otherwise idle worker alive

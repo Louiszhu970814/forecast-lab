@@ -251,7 +251,7 @@ def test_revised_offer_rechecks_late_audit_with_full_history(integrated, audited
 
 
 @pytest.mark.parametrize("change", ["text", "close_time"])
-def test_revision_after_intent_before_request_abandons_then_requeues(integrated, change):
+def test_revision_after_intent_before_request_abandons_then_requeues(legacy_forecast_timeouts, integrated, change):
     e = integrated
     # First identity read allows intent; second fails before request_started.
     e.transport.account_effects = ["ok", "error", "error"]

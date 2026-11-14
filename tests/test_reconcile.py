@@ -156,7 +156,8 @@ def test_complete_flow_uses_high_tier2_and_records_provenance_and_final_aggregat
     rows = tier2(ctx)
     assert result["outcome"] == "selected" and len(rows) == 1
     row, req = rows[0], ctx.adapter.requests[0]
-    assert (req.profile, req.effort, req.model, req.timeout_s) == ("tier2", "high", "claude-opus-5-5", 1200)
+    assert (req.profile, req.effort, req.model, req.timeout_s) == (
+        "tier2", "high", "claude-opus-5-5", load_run_config()["timeouts_s"]["tier2"])
     assert row["tier"] == 2 and row["prompt_version"] == "reconcile_v1"
     assert row["changed_from_tier1"] is True and row["comparison_attempt_id"] == "claude"
     assert set(row["input_attempt_ids"]) == {"claude", "gemini", "gpt"}

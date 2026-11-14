@@ -52,8 +52,9 @@ def evaluate(snapshot: dict[str, Any], attempts: list[dict[str, Any]], *,
     expected = {"binary_log_odds_diff": 1.0, "binary_clip": [0.02, 0.98],
                 "multiple_choice_prob_diff": 0.25, "market_logit_diff": 0.7,
                 "market_price_epsilon": 0.005, "flags": ["resolution_ambiguity", "evidence_conflict"]}
-    # v3 changes only deadline headroom; v4 changes only Gemini tier1/tier2 models; candidate thresholds are identical.
-    if policy != expected or config.get("version") not in {"run_config_v2", "run_config_v3", "run_config_v4"}:
+    # v3 changes only deadline headroom; v4 changes only Gemini tier1/tier2 models;
+    # v5 changes only forecast timeouts (D152); candidate thresholds are identical.
+    if policy != expected or config.get("version") not in {"run_config_v2", "run_config_v3", "run_config_v4", "run_config_v5"}:
         raise ValueError("unsupported escalation settings: implement and version changes first")
     events = list(audit_events)
     selected, _ = select_inputs(snapshot, attempts, stage="tier1", audit_events=events)

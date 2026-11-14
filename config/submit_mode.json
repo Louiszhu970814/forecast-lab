@@ -3,9 +3,9 @@
   "approved_bot_id": 311763,
   "live_window": {
     "version": "live_window_v1",
-    "campaign_id": "d151_gemini_carbon_20261112",
-    "campaign_sha256": "61eac877a2b6b2b1bc53a700573d7b190e45bbec58fb5eac6ca5764d9ad922c9",
-    "start": "2026-11-12T15:19:42.805Z",
+    "campaign_id": "d152_forecast_timeouts_20261113",
+    "campaign_sha256": "da52e79db6977d026f77e04dd8ec39cf021ef8423e9b9bf78b15a423faae2144",
+    "start": "2026-11-13T17:56:41.870Z",
     "end": "2026-11-17T04:00:00.000Z"
   }
 }

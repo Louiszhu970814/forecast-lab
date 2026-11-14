@@ -38,13 +38,13 @@ def test_all_actual_config_files_validate() -> None:
     }
 
     run_cfg = load_run_config()
-    assert run_cfg["version"] == "run_config_v4"
+    assert run_cfg["version"] == "run_config_v5"
     assert run_cfg["players"]["claude"]["tier1"] == {"model": "claude-opus-5-5", "effort": "medium"}
     assert run_cfg["players"]["gemini"]["tier1"] == {"model": "gemini-4-carbon-medium", "effort": "medium"}
     assert run_cfg["players"]["gemini"]["tier2"]["model"] == "gemini-4-carbon-high"
     assert run_cfg["players"]["gemini"]["tier2"]["effort"] == "high"
     assert run_cfg["players"]["gpt"]["tier1"] == {"model": "gpt-6-astra", "effort": "medium"}
-    assert run_cfg["timeouts_s"] == {"tier1": 600, "tier2": 1200, "repair": 300}
+    assert run_cfg["timeouts_s"] == {"tier1": 1800, "tier2": 1800, "repair": 300}
     assert all(run_cfg["players"][p]["tier2"]["max_subagents"] == 3 for p in ("claude", "gemini", "gpt"))
     assert run_cfg["escalation"]["binary_log_odds_diff"] == 1.0
     assert run_cfg["escalation"]["binary_clip"] == [0.02, 0.98]

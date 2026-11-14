@@ -187,8 +187,8 @@ def test_completion_estimate_uses_same_line_same_layer_and_full_cap_when_unknown
     records = [attempt(ledger)]
     cfg = load_run_config()
     assert B.duration_estimate(records, "claude", 1, cfg) == 120
-    assert B.duration_estimate(records, "claude", 2, cfg) == 1260
-    assert B.duration_estimate(records, "gemini", 1, cfg) == 720
+    assert B.duration_estimate(records, "claude", 2, cfg) == cfg["timeouts_s"]["tier2"] + 60
+    assert B.duration_estimate(records, "gemini", 1, cfg) == cfg["timeouts_s"]["tier1"] + 120
 
 
 def test_detail_tokens_are_not_double_counted():

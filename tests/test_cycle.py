@@ -405,7 +405,7 @@ def test_poll_error_is_logged_and_does_not_submit(setup_cycle, tmp_path, monkeyp
     assert read_complete(tmp_path / "cycles.jsonl") == [result]
 
 
-def test_started_attempt_keeps_full_timeout_and_submits_after_admission_close(setup_cycle, tmp_path, monkeypatch):
+def test_started_attempt_keeps_full_timeout_and_submits_after_admission_close(legacy_forecast_timeouts, setup_cycle, tmp_path, monkeypatch):
     run, _, clock, _, calls, tracker, _ = setup_cycle
     original = S.Scheduler.execute
     deadlines = []
@@ -486,7 +486,7 @@ def test_deadline_reached_during_work_leaves_new_question_pending(setup_cycle, m
     assert [qid for _, _, qid in tracker["calls"]] == [100, 101]
 
 
-def test_supervisor_recovers_progress_into_one_cycle_summary(tmp_path, monkeypatch):
+def test_supervisor_recovers_progress_into_one_cycle_summary(legacy_forecast_timeouts, tmp_path, monkeypatch):
     monkeypatch.setattr(C, "PROJECT_ROOT", tmp_path)
     monkeypatch.setattr(C, "utc_now", lambda: NOW)
     def supervise(command, **kw):
@@ -536,7 +536,7 @@ def test_multiple_trial_venues_do_not_create_false_revisions(fake_api, tmp_path,
     assert len(read_complete(tmp_path / "questions.jsonl")) == 2
 
 
-def test_unmeasured_tier2_can_run_longer_than_cycle_interval(setup_cycle, tmp_path, monkeypatch):
+def test_unmeasured_tier2_can_run_longer_than_cycle_interval(legacy_forecast_timeouts, setup_cycle, tmp_path, monkeypatch):
     from test_scheduler import Adapter
     run, _, clock, _, calls, tracker, _ = setup_cycle
     original = Adapter.run

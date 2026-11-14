@@ -13,6 +13,7 @@ import autoload as A
 import autoload_maintenance as M
 import baseline as B
 import forecast as F
+from flab.config import load_run_config
 from flab.jsonl import append_record
 from flab.ledger import read_complete
 from flab.timeutil import utc_now, to_iso
@@ -309,8 +310,10 @@ def test_old_unmanaged_autoload_result_does_not_break_preflight(tmp_path):
 def test_deadline_denial_is_before_started_and_allows_zero_call_retry(session,monkeypatch):
     s=session.s;run=A.run
     time=[0.0];s.monotonic=lambda:time[0]
+    tier1=load_run_config(s.project/'config')['timeouts_s']['tier1']
     def elapsed(**kw):
-        time[0]+=2000
+        # Leaves less than one full tier1 call (plus overhead) inside the maintenance bound.
+        time[0]+=2*tier1+3*120+300
         return run(**kw)
     monkeypatch.setattr(A,'run',elapsed)
     for _ in range(2):

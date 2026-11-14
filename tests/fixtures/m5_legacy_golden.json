@@ -574,7 +574,7 @@
     "src/flab/runner.py": "1b51985e4d8a12f44ea2a145542b48f64ecd5f74abf36932e6974e71716394f8",
     "src/flab/netguard.py": "74186c4dedbc6d8257266cce073af861ed5eabe1e52eb2efc8cda1c50e733227",
     "config/quota_policy.json": "d3870c00e1fd03b57a3a2a54e3b3610273698186dc0f412477a803318b02812f",
-    "config/run_config_v2.json": "7bb0d0a541ea24a26033b9000a031c86919d2328eb525aae1babebf8eb28e187",
+    "config/run_config_v2.json": "a8f4d85e78e08d8719664c76d9088276a623cef7d082876885ee6594b57a9519",
     "src/adapters/claude.py": "609ce2733e37e21d1e84a8ef05ecca56ff729b0ec823085b491b7c490df2632d",
     "src/adapters/__init__.py": "c5fc161e10b2bc1950fc5d7752931d5802d6638fc6599600761190b9108285e4",
     "src/adapters/gemini.py": "f206b91e2f53ed04274168cc98af6baf2792e31a3c3535f922d60e33bb4a5823",
