@@ -17,7 +17,7 @@
 - **內容**：`run_config_v5`（`timeouts_s` 1800／1800／repair 300）、`escalate.py` 允許 v5、`budget_handoff.py` 授權集合加入 `PLAN D152`；以 600／1200 秒校準的情境測試改用 `legacy_forecast_timeouts` fixture。完整離線回歸 3731 passed。
 - **部署**：UTC `2026-11-13T17:56:41.870Z` 持 7 把鎖原子套用，登記 `d152_forecast_timeouts_20261113`（D152→D151→`auto_20261110T0400Z`，計數起點不變，`2026-11-17T04:00Z` 自動續期）；備份與 manifest 在 `data/operations/d152-forecast-timeouts-20261113/`。
 - **部署後確認**：首個自然週期 `cycle_1794592625966_0121bd58`（UTC 17:57:05）complete、0 錯誤、preflight ok、`worker_timeout_s` 6300、campaign 為 D152。
-- **待辦**：觀察 Gemini Carbon 第 1 層實際耗時與逾時是否消失；程式變更尚未 commit（待 Louis 指示）。
+- **待辦**：觀察 Gemini Carbon 第 1 層實際耗時與逾時是否消失。程式變更已提交並推送（`f8f3a9d`）。
 
 ### D151：Gemini 預測線升級為 Gemini 4 Carbon 與窗口無縫接續（2026-11-12，PLAN v1.105）
 - **模型與升版設定**：`config/run_config_v2.json` 升為 `run_config_v4`（`players.gemini.tier1` = `gemini-4-carbon-medium`／`medium`、`players.gemini.tier2` = `gemini-4-carbon-high`／`high`；`acceptance.gemini` 與 TG 問答維持 `gemini-3.8-flash-low`）。`src/adapters/gemini.py` 補入 `Gemini 4 Carbon (Low/Medium/High)` 日誌模型核對映射，`src/quota.py` 相容 `gemini-4-carbon-` 前綴，`src/escalate.py` 允許 `run_config_v4`，並同步兩份測試保護雜湊 fixture。
